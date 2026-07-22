@@ -7,6 +7,7 @@ import {
   parseProfileHRReportRequest,
 } from "@/lib/hr-reports/domain";
 import {
+  type SubmitHRReportResult,
   submitMessageHRReport,
   submitProfileHRReport,
 } from "@/lib/hr-reports/service";
@@ -48,8 +49,8 @@ export async function POST(request: Request) {
     appOrigin: configuration.values.APP_ORIGIN ?? new URL(request.url).origin,
     now,
   };
-  let result: Awaited<ReturnType<typeof submitMessageHRReport>>;
-  if ("subjectType" in input) {
+  let result: SubmitHRReportResult;
+  if ("profileId" in input) {
     const [profile] = await adapters.neon.getProfiles([input.profileId]);
     if (profile?.status !== "current") {
       return Response.json({ error: "profile_unavailable" }, { status: 422 });

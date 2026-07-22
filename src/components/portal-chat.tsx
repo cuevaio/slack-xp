@@ -119,6 +119,23 @@ type ReactionProps = {
   onReact(input: ReactionMutation): Promise<void>;
 };
 
+function hrReportNotificationCopy(notification: HRReportInboxItem): {
+  actionLabel: string;
+  summary: string;
+} {
+  if (notification.subjectType === "message") {
+    return {
+      actionLabel: "open message context",
+      summary: `${notification.officeDay} · Open message context`,
+    };
+  }
+
+  return {
+    actionLabel: "open current New Hire Profile",
+    summary: "Open current New Hire Profile",
+  };
+}
+
 type OfficeDayWorkspace = Pick<
   PortalOfficeBaseProps,
   "channels" | "eventChannelId" | "officeDay"
@@ -1424,29 +1441,24 @@ function OfficeWorkspace({
                 <p>No open HR Report notifications.</p>
               ) : (
                 <ul>
-                  {reportNotifications.map((notification) => (
-                    <li key={notification.id}>
-                      <a
-                        aria-label={`${notification.title}, ${
-                          notification.subjectType === "message"
-                            ? "open message context"
-                            : "open current New Hire Profile"
-                        }`}
-                        className={notification.read ? "is-read" : undefined}
-                        href={notification.href}
-                        onClick={() =>
-                          onReadReportNotification(notification.id)
-                        }
-                      >
-                        <strong>{notification.title}</strong>
-                        <small>
-                          {notification.subjectType === "message"
-                            ? `${notification.officeDay} · Open message context`
-                            : "Open current New Hire Profile"}
-                        </small>
-                      </a>
-                    </li>
-                  ))}
+                  {reportNotifications.map((notification) => {
+                    const copy = hrReportNotificationCopy(notification);
+                    return (
+                      <li key={notification.id}>
+                        <a
+                          aria-label={`${notification.title}, ${copy.actionLabel}`}
+                          className={notification.read ? "is-read" : undefined}
+                          href={notification.href}
+                          onClick={() =>
+                            onReadReportNotification(notification.id)
+                          }
+                        >
+                          <strong>{notification.title}</strong>
+                          <small>{copy.summary}</small>
+                        </a>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </section>
@@ -1588,23 +1600,19 @@ function useActiveOfficeChannel(
 
   useEffect(() => {
     const target = parseHRReportReviewTarget(window.location.search);
-    const targetsCurrentOfficeDay =
-      target?.subjectType === "message" &&
-      target.officeDay === currentOfficeDay;
-    const targetsKnownChannel = channels.some(
-      ({ id }) =>
-        id ===
-        (target?.subjectType === "message"
-          ? target.officeChannelId
-          : undefined),
-    );
     if (
-      target?.subjectType === "message" &&
-      targetsCurrentOfficeDay &&
-      targetsKnownChannel
+      !target ||
+      target.subjectType !== "message" ||
+      target.officeDay !== currentOfficeDay
     ) {
-      setActiveChannelId(target.officeChannelId);
+      return;
     }
+    const targetsKnownChannel = channels.some(
+      ({ id }) => id === target.officeChannelId,
+    );
+    if (!targetsKnownChannel) return;
+
+    setActiveChannelId(target.officeChannelId);
   }, [channels, currentOfficeDay]);
 
   return { activeChannelId, setActiveChannelId };

@@ -5,6 +5,69 @@ import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { ProfileHRReportControls } from "@/components/message-hr-report-controls";
 import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import { useProfileBatch } from "@/lib/profiles/client";
+import type { ProfileAttribution } from "@/lib/profiles/types";
+
+function ProfileContextContent({
+  isError,
+  isPending,
+  profile,
+  profileId,
+}: {
+  isError: boolean;
+  isPending: boolean;
+  profile: ProfileAttribution | undefined;
+  profileId: string;
+}) {
+  if (isError) {
+    return (
+      <div className="portal-outage" role="alert">
+        <strong>New Hire Profile unavailable.</strong>
+        <span>Canonical profile records could not be loaded safely.</span>
+      </div>
+    );
+  }
+
+  if (isPending) {
+    return <p aria-live="polite">Resolving current New Hire Profile…</p>;
+  }
+
+  const current = profile?.status === "current";
+  const displayName = current ? profile.displayName : "Former Employee";
+
+  return (
+    <>
+      <div className="profile-context-identity">
+        {current && profile.imageUrl ? (
+          <Image
+            alt={`${displayName}'s current profile`}
+            height={88}
+            src={profile.imageUrl}
+            unoptimized
+            width={88}
+          />
+        ) : (
+          <span aria-hidden="true" className="profile-context-avatar">
+            {displayName.slice(0, 1)}
+          </span>
+        )}
+        <div>
+          <p className="eyebrow">
+            {current ? "Current public profile" : "Profile unavailable"}
+          </p>
+          <h3>{displayName}</h3>
+        </div>
+      </div>
+      {current ? (
+        <ProfileHRReportControls profileId={profileId} />
+      ) : (
+        <p>
+          This account no longer has public profile attributes. The stable
+          context remains available for Operator review.
+        </p>
+      )}
+    </>
+  );
+}
 
 export function NewHireProfileContext() {
   const [profileId, setProfileId] = useState<string | null>(null);
@@ -56,9 +119,6 @@ export function NewHireProfileContext() {
 
   if (!profileId) return null;
 
-  const current = profile?.status === "current";
-  const displayName = current ? profile.displayName : "Former Employee";
-
   return (
     <div className="profile-context-backdrop">
       <section
@@ -83,46 +143,12 @@ export function NewHireProfileContext() {
           <h2 className="sr-only" id="new-hire-profile-context-title">
             New Hire Profile
           </h2>
-          {query.isError ? (
-            <div className="portal-outage" role="alert">
-              <strong>New Hire Profile unavailable.</strong>
-              <span>Canonical profile records could not be loaded safely.</span>
-            </div>
-          ) : query.isPending ? (
-            <p aria-live="polite">Resolving current New Hire Profile…</p>
-          ) : (
-            <>
-              <div className="profile-context-identity">
-                {current && profile.imageUrl ? (
-                  <Image
-                    alt={`${displayName}'s current profile`}
-                    height={88}
-                    src={profile.imageUrl}
-                    unoptimized
-                    width={88}
-                  />
-                ) : (
-                  <span aria-hidden="true" className="profile-context-avatar">
-                    {displayName.slice(0, 1)}
-                  </span>
-                )}
-                <div>
-                  <p className="eyebrow">
-                    {current ? "Current public profile" : "Profile unavailable"}
-                  </p>
-                  <h3>{displayName}</h3>
-                </div>
-              </div>
-              {current ? (
-                <ProfileHRReportControls profileId={profileId} />
-              ) : (
-                <p>
-                  This account no longer has public profile attributes. The
-                  stable context remains available for Operator review.
-                </p>
-              )}
-            </>
-          )}
+          <ProfileContextContent
+            isError={query.isError}
+            isPending={query.isPending}
+            profile={profile}
+            profileId={profileId}
+          />
         </div>
       </section>
     </div>

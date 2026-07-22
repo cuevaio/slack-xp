@@ -57,6 +57,21 @@ type OfficeInboxPreview = {
   at: number;
 };
 
+const MESSAGE_HR_REPORT_DATA_KEYS: ReadonlySet<string> = new Set([
+  "title",
+  "href",
+  "subjectType",
+  "officeDay",
+  "officeChannelId",
+  "messageId",
+]);
+const PROFILE_HR_REPORT_DATA_KEYS: ReadonlySet<string> = new Set([
+  "title",
+  "href",
+  "subjectType",
+  "profileId",
+]);
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -76,27 +91,16 @@ export function parseHRReportInboxItem(
     return null;
   }
   const data = value.data;
-  if (typeof data.subjectType !== "string") {
+  if (data.subjectType !== "message" && data.subjectType !== "profile") {
     return null;
   }
   const allowedKeys =
     data.subjectType === "profile"
-      ? ["title", "href", "subjectType", "profileId"]
-      : [
-          "title",
-          "href",
-          "subjectType",
-          "officeDay",
-          "officeChannelId",
-          "messageId",
-        ];
-  if (Object.keys(data).some((key) => !allowedKeys.includes(key))) return null;
+      ? PROFILE_HR_REPORT_DATA_KEYS
+      : MESSAGE_HR_REPORT_DATA_KEYS;
+  if (Object.keys(data).some((key) => !allowedKeys.has(key))) return null;
   const title = typeof value.title === "string" ? value.title : data.title;
-  if (
-    typeof title !== "string" ||
-    typeof data.href !== "string" ||
-    (data.subjectType !== "message" && data.subjectType !== "profile")
-  ) {
+  if (typeof title !== "string" || typeof data.href !== "string") {
     return null;
   }
   let url: URL;

@@ -29,6 +29,14 @@ type HRReportRequestContext =
   | { officeChannelId: string; messageId: string }
   | { subjectType: "profile"; profileId: string };
 
+type HRReportControlsProps<Category extends HRReportCategory> = {
+  categories: readonly [Category, ...Category[]];
+  categoryLabels: Readonly<Record<Category, string>>;
+  context: HRReportRequestContext;
+  description: string;
+  subjectLabel: string;
+};
+
 function parseSubmissionResult(
   value: unknown,
 ): HRReportSubmissionResult | null {
@@ -75,21 +83,15 @@ function confirmationMessage(
   }
 }
 
-function HRReportControls({
+function HRReportControls<Category extends HRReportCategory>({
   categories,
   categoryLabels,
   context,
   description,
   subjectLabel,
-}: {
-  categories: readonly HRReportCategory[];
-  categoryLabels: Partial<Record<HRReportCategory, string>>;
-  context: HRReportRequestContext;
-  description: string;
-  subjectLabel: string;
-}) {
+}: HRReportControlsProps<Category>) {
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [category, setCategory] = useState<HRReportCategory>(categories[0]);
+  const [category, setCategory] = useState<Category>(categories[0]);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<HRReportSubmissionResult | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);

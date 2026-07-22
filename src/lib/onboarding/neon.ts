@@ -206,6 +206,24 @@ function matchesPlannedSystemEvent(
   );
 }
 
+function hrReportSubjectColumns(input: CreateHRReportInput) {
+  if (input.subjectType === "profile") {
+    return {
+      officeDay: null,
+      officeChannelId: null,
+      messageId: null,
+      profileId: input.profileId,
+    };
+  }
+
+  return {
+    officeDay: input.officeDay,
+    officeChannelId: input.officeChannelId,
+    messageId: input.messageId,
+    profileId: null,
+  };
+}
+
 export function buildHRReportInsertQuery(
   database: Database,
   input: CreateHRReportInput,
@@ -214,33 +232,31 @@ export function buildHRReportInsertQuery(
     reportId: input.reportId,
     reporterId: input.reporterId,
     subjectType: input.subjectType,
-    officeDay: input.subjectType === "message" ? input.officeDay : null,
-    officeChannelId:
-      input.subjectType === "message" ? input.officeChannelId : null,
-    messageId: input.subjectType === "message" ? input.messageId : null,
-    profileId: input.subjectType === "profile" ? input.profileId : null,
+    ...hrReportSubjectColumns(input),
     category: input.category,
     state: "open",
     createdAt: input.createdAt,
     updatedAt: input.createdAt,
   });
-  return input.subjectType === "message"
-    ? query
-        .onConflictDoNothing({
-          target: [
-            hrReports.reporterId,
-            hrReports.officeChannelId,
-            hrReports.messageId,
-          ],
-          where: sql`${hrReports.subjectType} = 'message' and ${hrReports.state} = 'open'`,
-        })
-        .returning({ reportId: hrReports.reportId })
-    : query
-        .onConflictDoNothing({
-          target: [hrReports.reporterId, hrReports.profileId],
-          where: sql`${hrReports.subjectType} = 'profile' and ${hrReports.state} = 'open'`,
-        })
-        .returning({ reportId: hrReports.reportId });
+  if (input.subjectType === "profile") {
+    return query
+      .onConflictDoNothing({
+        target: [hrReports.reporterId, hrReports.profileId],
+        where: sql`${hrReports.subjectType} = 'profile' and ${hrReports.state} = 'open'`,
+      })
+      .returning({ reportId: hrReports.reportId });
+  }
+
+  return query
+    .onConflictDoNothing({
+      target: [
+        hrReports.reporterId,
+        hrReports.officeChannelId,
+        hrReports.messageId,
+      ],
+      where: sql`${hrReports.subjectType} = 'message' and ${hrReports.state} = 'open'`,
+    })
+    .returning({ reportId: hrReports.reportId });
 }
 
 export function buildHRReportOutboxQuery(

@@ -92,18 +92,20 @@ export type PendingHRReportNotification = HRReportStableContext & {
 type HRReportNotificationBase = {
   notificationId: string;
   type: typeof HR_REPORT_NOTIFICATION_TYPE;
-  href: string;
 };
 
+export type HRReportNotificationContent =
+  | (MessageHRReportStableContext & {
+      title: typeof MESSAGE_HR_REPORT_NOTIFICATION_TITLE;
+      href: string;
+    })
+  | (ProfileHRReportStableContext & {
+      title: typeof PROFILE_HR_REPORT_NOTIFICATION_TITLE;
+      href: string;
+    });
+
 export type HRReportNotification = HRReportNotificationBase &
-  (
-    | (MessageHRReportStableContext & {
-        title: typeof MESSAGE_HR_REPORT_NOTIFICATION_TITLE;
-      })
-    | (ProfileHRReportStableContext & {
-        title: typeof PROFILE_HR_REPORT_NOTIFICATION_TITLE;
-      })
-  );
+  HRReportNotificationContent;
 
 export type HRReportRepository = {
   createHRReport(input: CreateHRReportInput): Promise<CreateHRReportResult>;

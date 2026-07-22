@@ -3,6 +3,7 @@ import {
   type HRReportNotification,
   type HRReportNotificationPublisher,
 } from "@/lib/hr-reports/contract";
+import { toHRReportNotificationContent } from "@/lib/hr-reports/domain";
 import {
   resolveScriptedSystemEventPublication,
   SCRIPTED_SYSTEM_EVENT_MESSAGE_TYPE,
@@ -339,24 +340,9 @@ export function createPortalHRReportNotificationPublisher({
         channelIds: [HR_REPORT_NOTIFICATION_CHANNEL_ID],
         ...sender,
       });
+      const content = toHRReportNotificationContent(notification);
 
       for (const operatorId of operatorIds) {
-        const content =
-          notification.subjectType === "profile"
-            ? {
-                title: notification.title,
-                href: notification.href,
-                subjectType: "profile" as const,
-                profileId: notification.profileId,
-              }
-            : {
-                title: notification.title,
-                href: notification.href,
-                subjectType: "message" as const,
-                officeDay: notification.officeDay,
-                officeChannelId: notification.officeChannelId,
-                messageId: notification.messageId,
-              };
         let response: Response;
         try {
           response = await fetcher(

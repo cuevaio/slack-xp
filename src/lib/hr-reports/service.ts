@@ -7,6 +7,7 @@ import {
   type HRReportRepository,
   MESSAGE_HR_REPORT_NOTIFICATION_TITLE,
   type MessageHRReportCategory,
+  type PendingHRReportNotification,
   PROFILE_HR_REPORT_NOTIFICATION_TITLE,
   type ProfileHRReportCategory,
 } from "@/lib/hr-reports/contract";
@@ -14,11 +15,13 @@ import { createHRReportDeepLink } from "@/lib/hr-reports/domain";
 
 const HR_REPORT_OUTBOX_BATCH_SIZE = 50;
 
+export type SubmitHRReportResult = CreateHRReportResult & {
+  notificationStatus: "sent" | "pending";
+};
+
 function toNotification(
   appOrigin: string,
-  entry: Awaited<
-    ReturnType<HRReportRepository["pendingHRReportNotifications"]>
-  >[number],
+  entry: PendingHRReportNotification,
 ): HRReportNotification {
   const shared = {
     notificationId: entry.outboxId,
@@ -85,10 +88,10 @@ async function submitHRReport({
   input: CreateHRReportInput;
   operatorIds: readonly string[];
   appOrigin: string;
-}): Promise<CreateHRReportResult & { notificationStatus: "sent" | "pending" }> {
+}): Promise<SubmitHRReportResult> {
   const result = await repository.createHRReport(input);
   if (operatorIds.length === 0) {
-    return { ...result, notificationStatus: "pending" as const };
+    return { ...result, notificationStatus: "pending" };
   }
   try {
     await flushHRReportNotifications({
@@ -97,9 +100,9 @@ async function submitHRReport({
       operatorIds,
       appOrigin,
     });
-    return { ...result, notificationStatus: "sent" as const };
+    return { ...result, notificationStatus: "sent" };
   } catch {
-    return { ...result, notificationStatus: "pending" as const };
+    return { ...result, notificationStatus: "pending" };
   }
 }
 

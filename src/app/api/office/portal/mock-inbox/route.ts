@@ -3,6 +3,7 @@ import { getMockPortalAdapter } from "@/lib/adapters/mock";
 import { authenticateOfficeRequest } from "@/lib/auth/server";
 import type { AuthenticatedNewHire } from "@/lib/auth/types";
 import { readAppConfiguration } from "@/lib/config";
+import { toHRReportNotificationContent } from "@/lib/hr-reports/domain";
 import type { OfficeInboxEntry } from "@/lib/portal/inbox";
 import {
   type MockPortalInboxEntry,
@@ -119,32 +120,14 @@ export async function GET() {
       .map(toOfficeInboxEntry);
     const notifications = getMockPortalAdapter()
       .hrReportNotifications(context.identity.id)
-      .map((notification) => {
-        const data =
-          notification.subjectType === "profile"
-            ? {
-                title: notification.title,
-                href: notification.href,
-                subjectType: "profile" as const,
-                profileId: notification.profileId,
-              }
-            : {
-                title: notification.title,
-                href: notification.href,
-                subjectType: "message" as const,
-                officeDay: notification.officeDay,
-                officeChannelId: notification.officeChannelId,
-                messageId: notification.messageId,
-              };
-        return {
-          id: notification.notificationId,
-          type: notification.type,
-          title: notification.title,
-          data,
-          at: notification.at,
-          read: notification.read,
-        };
-      });
+      .map((notification) => ({
+        id: notification.notificationId,
+        type: notification.type,
+        title: notification.title,
+        data: toHRReportNotificationContent(notification),
+        at: notification.at,
+        read: notification.read,
+      }));
     return Response.json({ channels, notifications });
   } catch (error) {
     return handleMockPortalError(error);

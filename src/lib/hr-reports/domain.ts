@@ -1,5 +1,7 @@
 import {
   HR_REPORT_CATEGORIES,
+  type HRReportNotification,
+  type HRReportNotificationContent,
   type HRReportStableContext,
   type MessageHRReportCategory,
   type MessageHRReportInput,
@@ -75,14 +77,14 @@ function stableMessageContext(
   const channel = listOfficeChannelsForDay(officeDayValue).find(
     ({ id }) => id === officeChannelId,
   );
-  return channel
-    ? {
-        subjectType: "message",
-        officeDay: officeDayValue,
-        officeChannelId,
-        messageId,
-      }
-    : null;
+  if (!channel) return null;
+
+  return {
+    subjectType: "message",
+    officeDay: officeDayValue,
+    officeChannelId,
+    messageId,
+  };
 }
 
 export function parseMessageHRReportRequest(
@@ -123,6 +125,28 @@ export function parseProfileHRReportRequest(
     subjectType: "profile",
     category: value.category,
     profileId: value.profileId,
+  };
+}
+
+export function toHRReportNotificationContent(
+  notification: HRReportNotification,
+): HRReportNotificationContent {
+  if (notification.subjectType === "profile") {
+    return {
+      title: notification.title,
+      href: notification.href,
+      subjectType: "profile",
+      profileId: notification.profileId,
+    };
+  }
+
+  return {
+    title: notification.title,
+    href: notification.href,
+    subjectType: "message",
+    officeDay: notification.officeDay,
+    officeChannelId: notification.officeChannelId,
+    messageId: notification.messageId,
   };
 }
 
@@ -171,9 +195,10 @@ export function parseHRReportReviewTarget(
   const searchParams = new URLSearchParams(search);
   const profileId = searchParams.get("profile");
   if (profileId !== null) {
-    return searchParams.size === 1 && isHRReportIdentifier(profileId)
-      ? { subjectType: "profile", profileId }
-      : null;
+    if (searchParams.size !== 1 || !isHRReportIdentifier(profileId)) {
+      return null;
+    }
+    return { subjectType: "profile", profileId };
   }
 
   const officeDayValue = searchParams.get("officeDay");

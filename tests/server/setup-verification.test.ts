@@ -195,7 +195,7 @@ describe("fork setup verification", () => {
 
   test("the command returns the unavailable exit code without credentials", async () => {
     const subprocess = Bun.spawn({
-      cmd: ["bun", "scripts/setup-check.ts"],
+      cmd: ["bun", "--no-env-file", "scripts/setup-check.ts"],
       cwd: new URL("../..", import.meta.url).pathname,
       env: {
         PATH: process.env.PATH ?? "",

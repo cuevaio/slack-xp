@@ -199,6 +199,25 @@ Live mode never substitutes mock or browser-local messages. Mock chat uses a
 separate authenticated test-only route and in-memory Portal adapter; that route
 returns 404 outside guarded non-production mock mode.
 
+Standard Office Channels render Portal's detailed live presence only while the
+channel socket is current. Each non-anonymous participant's stable Clerk user ID
+is batch-resolved through `POST /api/office/profiles`; the UI shows an explicit
+lookup state and hides the roster if the profile projection cannot be read.
+All-hands renders only Portal's aggregate count and never turns broadcast
+presence into a fabricated participant list. Connecting, connected,
+reconnecting, and offline states are distinct, and cached presence and typing
+are hidden whenever the realtime connection is not current.
+
+Composer changes call Portal's transient `sendTyping()` activity API on standard
+channels. The pinned SDK throttles typing pulses to one every three seconds and
+expires a peer's last pulse after five seconds. Sending, blurring, switching
+channels, and disconnecting stop further pulses, so stale activity expires
+without being persisted; Portal ignores typing entirely on broadcast channels.
+IDs under `office-character:` and the existing `office-events:` reserved sender
+namespace are rejected by the controlled connection contract and filtered from
+profile lookup, detailed presence, and typing. Office Characters publish only
+scripted System Events and never connect as New Hires.
+
 ### Office Event v1 contract
 
 Office Events are persistent Portal messages with Portal message type

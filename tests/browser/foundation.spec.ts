@@ -189,7 +189,7 @@ test("general chat confirms, reconnects, validates text, and recovers from Porta
 
   await expect(
     page
-      .getByText("Online — messages are persistent")
+      .getByText("Connected — live updates available")
       .filter({ visible: true }),
   ).toBeVisible();
   const composer = page.getByLabel("Message # General");
@@ -235,7 +235,7 @@ test("general chat confirms, reconnects, validates text, and recovers from Porta
   await page.reload();
   await expect(
     page
-      .getByText("Online — messages are persistent")
+      .getByText("Connected — live updates available")
       .filter({ visible: true }),
   ).toBeVisible();
   await expect(
@@ -273,10 +273,59 @@ test("general chat confirms, reconnects, validates text, and recovers from Porta
   await page.getByRole("button", { name: "Retry connection" }).click();
   await expect(
     page
-      .getByText("Online — messages are persistent")
+      .getByText("Connected — live updates available")
       .filter({ visible: true }),
   ).toBeVisible();
   await expect(page.getByText("Please retry this memo")).toBeVisible();
+});
+
+test("live presence resolves New Hire Profiles and all-hands stays aggregate", async ({
+  page,
+}) => {
+  let releaseProfileRequest: () => void = () => {};
+  let observeProfileRequest: () => void = () => {};
+  const profileRequestSeen = new Promise<void>((resolve) => {
+    observeProfileRequest = resolve;
+  });
+  const profileRequestGate = new Promise<void>((resolve) => {
+    releaseProfileRequest = resolve;
+  });
+  await page.route("**/api/office/profiles", async (route) => {
+    observeProfileRequest();
+    await profileRequestGate;
+    await route.continue();
+  });
+
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+  await profileRequestSeen;
+  await expect(
+    page.getByText("Resolving 1 New Hire Profile…").filter({ visible: true }),
+  ).toBeVisible();
+
+  releaseProfileRequest();
+  const generalRoster = page.getByRole("list", {
+    name: "General current New Hires",
+  });
+  await expect(generalRoster).toContainText("Terry Byte");
+  await expect(
+    generalRoster.locator('[data-new-hire-id="user_mock_returning_new_hire"]'),
+  ).toBeVisible();
+  await expect(generalRoster).not.toContainText("Office Character");
+
+  const directory = page.getByRole("navigation", {
+    name: "Office Channel directory",
+  });
+  await directory.getByRole("button", { name: /# all-hands/ }).click();
+  await expect(page.getByText("All-hands attendance")).toBeVisible();
+  await expect(
+    page.getByText("1 New Hire is currently connected."),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("list", { name: "All Hands current New Hires" }),
+  ).toHaveCount(0);
 });
 
 test("a New Hire edits an Employee Record with accessible recovery and current attribution", async ({
@@ -370,7 +419,7 @@ test("the complete Office Channel directory switches without losing per-channel 
     .click();
   await expect(
     page
-      .getByText("Online — messages are persistent")
+      .getByText("Connected — live updates available")
       .filter({ visible: true }),
   ).toBeVisible();
 
@@ -435,7 +484,7 @@ test("history paginates backward without duplicates and displays canonical time 
     .click();
   await expect(
     page
-      .getByText("Online — messages are persistent")
+      .getByText("Connected — live updates available")
       .filter({ visible: true }),
   ).toBeVisible();
 
@@ -452,7 +501,7 @@ test("history paginates backward without duplicates and displays canonical time 
   await page.reload();
   await expect(
     page
-      .getByText("Online — messages are persistent")
+      .getByText("Connected — live updates available")
       .filter({ visible: true }),
   ).toBeVisible();
   await expect(
@@ -465,7 +514,7 @@ test("history paginates backward without duplicates and displays canonical time 
   await expect(
     page.getByText("Pagination memo 1", { exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("listitem")).toHaveCount(51);
+  await expect(page.locator(".message-history > li")).toHaveCount(51);
   await expect
     .poll(() => historyRegion.evaluate((element) => element.scrollTop))
     .toBeGreaterThan(0);

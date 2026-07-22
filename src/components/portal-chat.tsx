@@ -1,5 +1,10 @@
 "use client";
 
+import type {
+  AggregatePresence,
+  ChannelStatus,
+  DetailedPresence,
+} from "@portalsdk/core";
 import { Portal } from "@portalsdk/core";
 import { PortalProvider, useChannel } from "@portalsdk/react";
 import {
@@ -22,15 +27,17 @@ import {
   validateChatDraft,
 } from "@/lib/portal/chat";
 import { createPortalTokenSource } from "@/lib/portal/client";
+import {
+  connectionStatusCopy,
+  currentDetailedNewHireIds,
+  currentTypingNewHireIds,
+  hasCurrentRealtimeState,
+} from "@/lib/portal/presence";
+import { fetchProfileAttributions } from "@/lib/profiles/client";
+import type { ProfileAttribution } from "@/lib/profiles/types";
 
-type ChatConnectionStatus =
-  | "idle"
-  | "connecting"
-  | "ready"
-  | "reconnecting"
-  | "degraded"
-  | "degraded-http"
-  | "blocked";
+type ChatConnectionStatus = ChannelStatus;
+type PortalPresence = DetailedPresence | AggregatePresence;
 
 type PortalOfficeBaseProps = {
   channels: readonly OfficeChannel[];
@@ -62,6 +69,9 @@ type ChatSurfaceProps = {
   displayName: string;
   messages: readonly unknown[];
   status: ChatConnectionStatus;
+  presence?: PortalPresence;
+  typingUserIds: readonly string[];
+  onTyping(): void;
   onSend(text: string): Promise<void>;
   onRetryConnection(): void;
   loadPrevious?: () => Promise<unknown>;
@@ -89,23 +99,11 @@ type MockHistoryPage = {
   hasPrevious: boolean;
 };
 
-function connectionStatusCopy(status: ChatConnectionStatus): string {
-  switch (status) {
-    case "ready":
-      return "Online — messages are persistent";
-    case "degraded-http":
-      return "Reconnecting — sending remains available";
-    case "degraded":
-      return "Portal feature degraded — chat remains available";
-    case "reconnecting":
-      return "Offline — reconnecting to Portal";
-    case "blocked":
-      return "Portal connection refused — retry required";
-    case "idle":
-    case "connecting":
-      return "Connecting to Portal…";
-  }
-}
+type ProfileResolution = {
+  key: string;
+  status: "loading" | "ready" | "error";
+  profiles: readonly ProfileAttribution[];
+};
 
 function sendButtonCopy(isSending: boolean, hasError: boolean): string {
   if (isSending) {
@@ -174,6 +172,158 @@ function parseMockHistoryPage(value: unknown): MockHistoryPage | null {
     messages: value.messages,
     hasPrevious: value.hasPrevious,
   };
+}
+
+function useResolvedNewHireProfiles(
+  profileIds: readonly string[],
+  enabled: boolean,
+): Omit<ProfileResolution, "key"> {
+  const key = JSON.stringify(enabled ? profileIds : []);
+  const [resolution, setResolution] = useState<ProfileResolution>({
+    key: "[]",
+    status: "ready",
+    profiles: [],
+  });
+
+  useEffect(() => {
+    const requestedIds = JSON.parse(key) as string[];
+    if (requestedIds.length === 0) {
+      setResolution({ key, status: "ready", profiles: [] });
+      return;
+    }
+
+    const controller = new AbortController();
+    setResolution({ key, status: "loading", profiles: [] });
+    void fetchProfileAttributions(requestedIds, (input, init) =>
+      fetch(input, { ...init, signal: controller.signal }),
+    )
+      .then((profiles) => {
+        if (!controller.signal.aborted) {
+          setResolution({ key, status: "ready", profiles });
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setResolution({ key, status: "error", profiles: [] });
+        }
+      });
+
+    return () => controller.abort();
+  }, [key]);
+
+  return resolution.key === key
+    ? resolution
+    : { status: "loading", profiles: [] };
+}
+
+function typingCopy(names: readonly string[]): string {
+  if (names.length === 1) return `${names[0]} is typing…`;
+  if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
+  return `${names[0]}, ${names[1]}, and ${names.length - 2} others are typing…`;
+}
+
+function LiveActivity({
+  active,
+  channel,
+  presence,
+  status,
+  typingUserIds,
+}: {
+  active: boolean;
+  channel: OfficeChannel;
+  presence?: PortalPresence;
+  status: ChatConnectionStatus;
+  typingUserIds: readonly string[];
+}) {
+  const detailedPresence =
+    channel.mode === "standard" && presence?.kind === "detailed"
+      ? presence
+      : undefined;
+  const presentIds = currentDetailedNewHireIds(detailedPresence, status);
+  const currentTypingIds = currentTypingNewHireIds(typingUserIds, status);
+  const profileIds = [...new Set([...presentIds, ...currentTypingIds])];
+  const resolution = useResolvedNewHireProfiles(
+    profileIds,
+    active && channel.mode === "standard",
+  );
+  const profilesById = new Map(
+    resolution.profiles.map((profile) => [profile.clerkUserId, profile]),
+  );
+  const typingNames = currentTypingIds.map(
+    (userId) => profilesById.get(userId)?.displayName ?? "New Hire",
+  );
+
+  if (!hasCurrentRealtimeState(status)) {
+    return (
+      <aside className="live-activity-panel presence-unavailable">
+        <strong>Live presence unavailable</strong>
+        <span>
+          {status === "idle" || status === "connecting"
+            ? "Checking who is currently in this Office Channel…"
+            : "The roster and typing activity are hidden until Portal reconnects."}
+        </span>
+      </aside>
+    );
+  }
+
+  if (channel.mode === "broadcast") {
+    return (
+      <aside className="live-activity-panel aggregate-presence">
+        <strong>All-hands attendance</strong>
+        {presence?.kind === "aggregate" ? (
+          <span>
+            {presence.count.toLocaleString()} New Hire
+            {presence.count === 1 ? " is" : "s are"} currently connected.
+          </span>
+        ) : (
+          <span>Loading the aggregate attendance count…</span>
+        )}
+      </aside>
+    );
+  }
+
+  return (
+    <aside className="live-activity-panel detailed-presence">
+      <div className="presence-summary">
+        <strong>New Hires present</strong>
+        <span>{presentIds.length.toLocaleString()} connected</span>
+      </div>
+      {!detailedPresence ? (
+        <span>Loading current presence…</span>
+      ) : resolution.status === "loading" ? (
+        <span aria-live="polite">
+          Resolving {profileIds.length.toLocaleString()} New Hire Profile
+          {profileIds.length === 1 ? "" : "s"}…
+        </span>
+      ) : resolution.status === "error" ? (
+        <span role="alert">
+          New Hire Profiles are unavailable. The detailed roster is hidden.
+        </span>
+      ) : presentIds.length === 0 ? (
+        <span>No New Hires are currently present.</span>
+      ) : (
+        <ul aria-label={`${channel.name} current New Hires`}>
+          {presentIds.map((userId) => {
+            const profile = profilesById.get(userId);
+            return (
+              <li data-new-hire-id={userId} key={userId}>
+                <span className="new-hire-presence-dot" aria-hidden="true" />
+                <span>
+                  <strong>{profile?.displayName ?? "New Hire"}</strong>
+                  {profile?.status === "unavailable" ? (
+                    <small>Profile unavailable</small>
+                  ) : null}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <output className="typing-indicator" aria-live="polite">
+        {typingNames.length > 0 ? typingCopy(typingNames) : ""}
+      </output>
+    </aside>
+  );
 }
 
 async function fetchMockHistoryPage(
@@ -275,6 +425,9 @@ function ChatSurface({
   displayName,
   messages: rawMessages,
   status,
+  presence,
+  typingUserIds,
+  onTyping,
   onSend,
   onRetryConnection,
   loadPrevious,
@@ -362,6 +515,13 @@ function ChatSurface({
       </header>
 
       <div className="chat-scroll-region" ref={scrollRegionRef}>
+        <LiveActivity
+          active={active}
+          channel={channel}
+          presence={presence}
+          status={status}
+          typingUserIds={typingUserIds}
+        />
         {channel.mode === "broadcast" ? (
           <aside className="broadcast-notice">
             <strong>System Events receive priority display.</strong>
@@ -418,7 +578,18 @@ function ChatSurface({
           disabled={!canPublish}
           id={`message-${channel.id}`}
           maxLength={CHAT_TEXT_LIMIT}
-          onChange={(event) => setDraft(event.target.value)}
+          onChange={(event) => {
+            const nextDraft = event.target.value;
+            setDraft(nextDraft);
+            if (
+              active &&
+              canPublish &&
+              channel.mode === "standard" &&
+              nextDraft.trim().length > 0
+            ) {
+              onTyping();
+            }
+          }}
           placeholder={
             canPublish ? "Type a plain-text message…" : "Portal is offline"
           }
@@ -541,11 +712,14 @@ function LiveOfficeChannel({
       isLoadingPrevious={channel.isLoadingPrevious}
       loadPrevious={channel.loadPrevious}
       messages={channel.messages}
+      onTyping={channel.sendTyping}
       onRetryConnection={() => window.location.reload()}
       onSend={async (text) => {
         await channel.send({ content: validateChatDraft(text) });
       }}
       status={channel.status}
+      presence={channel.presence}
+      typingUserIds={channel.typing}
     />
   );
 }
@@ -723,9 +897,20 @@ function MockOfficeChannel({
       isLoadingPrevious={isLoadingPrevious}
       loadPrevious={loadPrevious}
       messages={messages}
+      onTyping={() => {}}
       onRetryConnection={() => void loadMockHistory()}
       onSend={sendMessage}
       status={status}
+      presence={
+        channel.mode === "broadcast"
+          ? { kind: "aggregate", count: 1, recent: [] }
+          : {
+              kind: "detailed",
+              participants: [{ id: identityId, anon: false }],
+              count: 1,
+            }
+      }
+      typingUserIds={[]}
     />
   );
 }

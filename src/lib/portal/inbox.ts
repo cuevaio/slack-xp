@@ -6,7 +6,7 @@ import {
 import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import { officeCharacterById } from "@/lib/office-days/contract";
 import type { OfficeChannel } from "@/lib/portal/channels";
-import { parseChatContent } from "@/lib/portal/chat";
+import { parseChatContent, SETUP_VERIFIER_USER_ID } from "@/lib/portal/chat";
 
 export type OfficeInboxEntry = {
   id: string;
@@ -250,7 +250,11 @@ function createInboxPreview(
   displayName: string,
 ): OfficeInboxPreview | null {
   const latest = entry?.latest;
-  if (!latest || !Number.isFinite(latest.at)) {
+  if (
+    !latest ||
+    latest.sender.id === SETUP_VERIFIER_USER_ID ||
+    !Number.isFinite(latest.at)
+  ) {
     return null;
   }
 

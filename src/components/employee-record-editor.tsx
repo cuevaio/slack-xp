@@ -1,13 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import {
-  type FormEvent,
-  type ReactNode,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -29,8 +23,7 @@ type FieldErrors = Partial<Record<"firstName" | "lastName" | "image", string>>;
 type EditorState = "idle" | "saving" | "awaiting" | "success" | "error";
 
 const EDITABLE_FIELDS = ["firstName", "lastName", "image"] as const;
-const EMPLOYEE_RECORD_UNAVAILABLE =
-  "Employee Record changes are temporarily unavailable.";
+const PROFILE_UNAVAILABLE = "We couldn't save your profile. Please try again.";
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object";
@@ -99,7 +92,7 @@ function readFailure(value: unknown): {
   if (!isObject(value)) {
     return {
       code: "unknown",
-      message: EMPLOYEE_RECORD_UNAVAILABLE,
+      message: PROFILE_UNAVAILABLE,
       fieldErrors: {},
     };
   }
@@ -114,10 +107,7 @@ function readFailure(value: unknown): {
 
   return {
     code: typeof value.error === "string" ? value.error : "unknown",
-    message:
-      typeof value.message === "string"
-        ? value.message
-        : EMPLOYEE_RECORD_UNAVAILABLE,
+    message: PROFILE_UNAVAILABLE,
     fieldErrors,
   };
 }
@@ -125,13 +115,13 @@ function readFailure(value: unknown): {
 function submitButtonLabel(state: EditorState): string {
   switch (state) {
     case "saving":
-      return "Saving with Clerk...";
+      return "Saving...";
     case "error":
-      return "Retry Employee Record";
+      return "Try again";
     case "idle":
     case "awaiting":
     case "success":
-      return "Save Employee Record";
+      return "Save profile";
   }
 }
 
@@ -139,13 +129,11 @@ export function EmployeeRecordEditor({
   initialRecord,
   headingId,
   onProjected,
-  footer,
   advanceAfterSuccess = false,
 }: {
   initialRecord: EditableRecord;
   headingId: string;
   onProjected(result: EmployeeRecordResult): void;
-  footer?: ReactNode;
   advanceAfterSuccess?: boolean;
 }) {
   const [record, setRecord] = useState(initialRecord);
@@ -174,9 +162,7 @@ export function EmployeeRecordEditor({
   function announceProjected(result: EmployeeRecordResult) {
     setRecord(result.record);
     setState("success");
-    setMessage(
-      "Employee Record updated in Clerk and the Shared Public Office.",
-    );
+    setMessage("Profile updated.");
     if (advanceAfterSuccess) {
       window.setTimeout(() => onProjected(result), 500);
     } else {
@@ -186,9 +172,7 @@ export function EmployeeRecordEditor({
 
   async function checkProjection(attempts = 1): Promise<void> {
     setState("awaiting");
-    setMessage(
-      "Clerk saved the changes. The Shared Public Office is updating now.",
-    );
+    setMessage("Your profile is still updating.");
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       if (attempt > 0) {
         await new Promise((resolve) => window.setTimeout(resolve, 300));
@@ -212,9 +196,7 @@ export function EmployeeRecordEditor({
       }
     }
     setState("awaiting");
-    setMessage(
-      "Clerk saved the changes, but office confirmation is taking longer than expected. Check again shortly.",
-    );
+    setMessage("Your profile is taking longer than expected to update.");
   }
 
   function focusFirstError(errors: FieldErrors) {
@@ -271,11 +253,11 @@ export function EmployeeRecordEditor({
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         setMessage(
-          "Clerk did not confirm the update in time. Your entries are still here and ready to retry.",
+          "Saving took too long. Your entries are ready to try again.",
         );
       } else {
         setMessage(
-          "Employee Record changes are temporarily unavailable. Your entries are still here and ready to retry.",
+          "We couldn't save your profile. Your entries are ready to try again.",
         );
       }
       setState("error");
@@ -289,11 +271,8 @@ export function EmployeeRecordEditor({
 
   return (
     <form aria-busy={busy} className="employee-record-form" onSubmit={submit}>
-      <h1 id={headingId}>Confirm your Employee Record</h1>
-      <p>
-        Your public name and picture live in Clerk. Changes are saved there
-        first, then projected into the Shared Public Office.
-      </p>
+      <h1 id={headingId}>Choose your name and picture</h1>
+      <p>This is how other New Hires will see you in the office.</p>
       <div className="profile-preview">
         {record.imageUrl ? (
           <Image
@@ -312,7 +291,6 @@ export function EmployeeRecordEditor({
         )}
         <p>
           <strong>{record.displayName}</strong>
-          <small>Current confirmed profile</small>
         </p>
       </div>
       <div className="profile-fields">
@@ -358,7 +336,7 @@ export function EmployeeRecordEditor({
           ) : null}
         </Label>
         <Label htmlFor="employee-image">
-          Profile picture (optional, 2 MB maximum)
+          Profile picture (optional)
           <Input
             accept="image/png,image/jpeg,image/webp"
             aria-describedby={
@@ -377,14 +355,13 @@ export function EmployeeRecordEditor({
           ) : null}
         </Label>
       </div>
-      {footer}
       <div className="employee-record-actions">
         <Button disabled={busy} type="submit">
           {submitButtonLabel(state)}
         </Button>
         {state === "awaiting" ? (
           <Button onClick={() => void checkProjection(4)} type="button">
-            Check office update
+            Check again
           </Button>
         ) : null}
       </div>

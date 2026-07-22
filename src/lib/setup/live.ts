@@ -4,7 +4,7 @@ import { neon } from "@neondatabase/serverless";
 import { type ChannelHandle, Portal, type PortalError } from "@portalsdk/core";
 import { readMigrationFiles } from "drizzle-orm/migrator";
 import type { EnvironmentSource } from "@/lib/config";
-import { generalChannelId } from "@/lib/portal/chat";
+import { generalChannelId, SETUP_VERIFIER_USER_ID } from "@/lib/portal/chat";
 import { createPortalControlPlane } from "@/lib/portal/server";
 import type {
   PortalVerificationEvidence,
@@ -13,7 +13,6 @@ import type {
 
 const PORTAL_API_URL = "https://api.useportal.co";
 const CONNECTION_TIMEOUT_MS = 15_000;
-const SETUP_VERIFIER_USER_ID = "portal-messenger-setup-verifier";
 const UNREGISTERED_ORIGIN = "https://portal-verification.invalid";
 const MISSING_MIGRATION_STORAGE_CODES = new Set(["42P01", "3F000"]);
 
@@ -214,7 +213,10 @@ async function verifyPortal(
     (member) => member.userId === SETUP_VERIFIER_USER_ID,
   );
   const marker = `setup-verification:${randomUUID()}`;
-  const acknowledgement = await channel.send({ content: { text: marker } });
+  const acknowledgement = await channel.send({
+    content: { text: marker },
+    to: SETUP_VERIFIER_USER_ID,
+  });
   channel.release();
 
   const reconnected = await connectToChannel<{ text: string }>(

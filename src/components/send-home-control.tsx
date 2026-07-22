@@ -119,10 +119,10 @@ export function SendHomeControl({
           <form className="hr-report-dialog" onSubmit={submit}>
             <h2 id={titleId}>Send Home for this Office Day?</h2>
             <p>
-              Access ends immediately and returns at the next midnight UTC
-              boundary. This does not create a Termination.
+              This ends access for the rest of this Office Day. Access returns
+              automatically tomorrow. This does not terminate the New Hire.
             </p>
-            <label htmlFor={reasonId}>Private Operator reason (required)</label>
+            <label htmlFor={reasonId}>Reason (private and required)</label>
             <Textarea
               id={reasonId}
               maxLength={SEND_HOME_PRIVATE_REASON_MAX_LENGTH}
@@ -134,7 +134,7 @@ export function SendHomeControl({
             />
             {error ? (
               <p className="chat-error" role="alert">
-                Send Home failed. Operator access was rechecked.
+                The New Hire could not be sent home. Please try again.
               </p>
             ) : null}
             <div className="hr-report-dialog-actions">
@@ -152,9 +152,7 @@ export function SendHomeControl({
           </form>
         </div>
       ) : null}
-      {completed ? (
-        <output>Access ended until the next Office Day.</output>
-      ) : null}
+      {completed ? <output>Sent home until the next Office Day.</output> : null}
     </div>
   );
 }

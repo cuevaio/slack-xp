@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { InboxEntry } from "@portalsdk/core";
 import { listOfficeChannels } from "@/lib/portal/channels";
+import { SETUP_VERIFIER_USER_ID } from "@/lib/portal/chat";
 import {
   parseHRReportInboxItem,
   parseOfficeInboxResponse,
@@ -208,5 +209,24 @@ describe("Office Channel inbox projection", () => {
       text: "Deploy <script>alert(1)</script>",
     });
     expect(rows[4]?.preview).toBeNull();
+  });
+
+  test("does not show setup verification messages in channel previews", () => {
+    const channels = listOfficeChannels(new Date("2026-07-22T12:00:00.000Z"));
+    const rows = reconcileOfficeInbox({
+      channels,
+      entries: [
+        inboxEntry(
+          "general:2026-07-22",
+          1,
+          "setup-verification:test-marker",
+          SETUP_VERIFIER_USER_ID,
+        ),
+      ],
+      identityId: "user_current",
+      displayName: "Pat Pending",
+    });
+
+    expect(rows[0]?.preview).toBeNull();
   });
 });

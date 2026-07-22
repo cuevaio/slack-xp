@@ -14,10 +14,8 @@ export function EmploymentAccessEnded({
       >
         <header className="window-titlebar">
           <span>Portal Messenger: Corporate Edition</span>
-          <span aria-hidden="true">×</span>
         </header>
         <div className="shift-ended-content">
-          <p className="eyebrow">Shared Public Office access ended</p>
           <h1 id="access-ended-title">
             {sentHome
               ? "You were sent home for this Office Day"
@@ -25,14 +23,17 @@ export function EmploymentAccessEnded({
           </h1>
           <p>
             {sentHome
-              ? "Your Portal connections were closed. You can return automatically after the next midnight UTC Office Day boundary."
-              : "Your New Hire record is not currently eligible to enter the Shared Public Office."}
+              ? "You can return automatically at the start of the next Office Day."
+              : "Your New Hire Profile is not currently eligible to enter the Shared Public Office."}
           </p>
           {access.until ? (
             <p>
-              Eligible again after{" "}
+              You can return after{" "}
               <time dateTime={access.until.toISOString()}>
-                {access.until.toISOString()}
+                {access.until.toLocaleString("en-US", {
+                  dateStyle: "medium",
+                  timeStyle: "short",
+                })}
               </time>
             </p>
           ) : null}

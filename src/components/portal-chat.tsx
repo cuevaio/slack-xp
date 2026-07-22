@@ -24,7 +24,6 @@ import { HRReportReviewQueue } from "@/components/hr-report-review-queue";
 import { MessageHRReportControls } from "@/components/message-hr-report-controls";
 import { MessageRemovalControls } from "@/components/message-removal-controls";
 import { NewHireProfileContext } from "@/components/new-hire-profile-context";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { fetchEmploymentAccess } from "@/lib/employment/client";
@@ -72,10 +71,8 @@ import {
 } from "@/lib/portal/chat";
 import { createPortalTokenSource } from "@/lib/portal/client";
 import {
-  type HRReportInboxItem,
   type OfficeInboxEntry,
   type OfficeInboxRow,
-  parseHRReportInboxItem,
   parseOfficeInboxSnapshot,
   reconcileOfficeInbox,
 } from "@/lib/portal/inbox";
@@ -87,8 +84,6 @@ import {
 import {
   connectionStatusCopy,
   currentDetailedNewHireIds,
-  currentTypingNewHireIds,
-  hasCurrentRealtimeState,
 } from "@/lib/portal/presence";
 import {
   isNewHireMessage,
@@ -115,7 +110,6 @@ type PortalOfficeBaseProps = {
   employeeRecord: ReactNode;
   eventChannelId: string;
   officeDay: string;
-  jobTitle: string;
   isOperator: boolean;
   canSignOut: boolean;
 };
@@ -143,23 +137,6 @@ type ReactionProps = {
   onReact(input: ReactionMutation): Promise<void>;
 };
 
-function hrReportNotificationCopy(notification: HRReportInboxItem): {
-  actionLabel: string;
-  summary: string;
-} {
-  if (notification.subjectType === "message") {
-    return {
-      actionLabel: "open message context",
-      summary: `${notification.officeDay} · Open message context`,
-    };
-  }
-
-  return {
-    actionLabel: "open current New Hire Profile",
-    summary: "Open current New Hire Profile",
-  };
-}
-
 type OfficeDayWorkspace = Pick<
   PortalOfficeBaseProps,
   "channels" | "eventChannelId" | "officeDay"
@@ -173,7 +150,6 @@ type ChatSurfaceProps = ReactionProps & {
   messages: readonly unknown[];
   status: ChannelStatus;
   presence?: PortalPresence;
-  typingUserIds: readonly string[];
   onTyping(): void;
   onSend(text: string): Promise<void>;
   onRetryConnection(): void;
@@ -189,19 +165,16 @@ type OfficeWorkspaceProps = Pick<
   | "identityId"
   | "displayName"
   | "employeeRecord"
-  | "jobTitle"
   | "isOperator"
   | "canSignOut"
 > & {
   activeChannelId: string;
   inboxRows: readonly OfficeInboxRow[];
   inboxStatus: InboxStatus;
-  reportNotifications: readonly HRReportInboxItem[];
   isMobile: boolean | null;
   mobileNavigationOpen: boolean;
   onOpenMobileNavigation(): void;
   onSelectChannel(channelId: string): void;
-  onReadReportNotification(notificationId: string): void;
   children: ReactNode;
 };
 
@@ -218,17 +191,15 @@ type ProfileResolution = {
 type LiveActivityProps = {
   active: boolean;
   channel: OfficeChannel;
+  participantIds: readonly string[];
   presence?: PortalPresence;
   status: ChannelStatus;
-  typingUserIds: readonly string[];
 };
 
 type MockOfficeInbox = {
   entries: readonly OfficeInboxEntry[];
-  reportNotifications: readonly HRReportInboxItem[];
   status: InboxStatus;
   markAsRead(channelId: string): Promise<void>;
-  markReportNotificationAsRead(notificationId: string): Promise<void>;
 };
 
 type ResponsiveOfficeNavigation = {
@@ -264,12 +235,12 @@ function sendButtonCopy(isSending: boolean, hasError: boolean): string {
 function inboxStatusCopy(status: InboxStatus): string {
   switch (status) {
     case "ready":
-      return "Inbox current";
+      return "";
     case "reconnecting":
-      return "Reconnecting inbox…";
+      return "Reconnecting…";
     case "idle":
     case "connecting":
-      return "Loading inbox…";
+      return "Connecting…";
   }
 }
 
@@ -387,74 +358,59 @@ function useResolvedNewHireProfiles(
   return { status: "ready", profiles: query.data };
 }
 
-function typingCopy(names: readonly string[]): string {
-  if (names.length === 1) {
-    return `${names[0]} is typing…`;
-  }
-  if (names.length === 2) {
-    return `${names[0]} and ${names[1]} are typing…`;
-  }
-  return `${names[0]}, ${names[1]}, and ${names.length - 2} others are typing…`;
-}
-
-function DetailedPresenceContent({
+function ParticipantList({
   channel,
-  detailedPresence,
-  presentIds,
-  profileIds,
+  activeIds,
+  participantIds,
   profilesById,
   resolutionStatus,
 }: {
   channel: OfficeChannel;
-  detailedPresence: DetailedPresence | undefined;
-  presentIds: readonly string[];
-  profileIds: readonly string[];
+  activeIds: ReadonlySet<string>;
+  participantIds: readonly string[];
   profilesById: ReadonlyMap<string, ProfileAttribution>;
   resolutionStatus: ProfileResolution["status"];
 }) {
-  if (!detailedPresence) {
-    return <span>Loading current presence…</span>;
-  }
-
   if (resolutionStatus === "loading") {
-    return (
-      <span aria-live="polite">
-        Resolving {profileIds.length.toLocaleString()} New Hire Profile
-        {profileIds.length === 1 ? "" : "s"}…
-      </span>
-    );
+    return <span aria-live="polite">Loading New Hires…</span>;
   }
 
   if (resolutionStatus === "error") {
-    return (
-      <span role="alert">
-        New Hire Profiles are unavailable. The detailed roster is hidden.
-      </span>
-    );
+    return <span role="alert">New Hires are temporarily unavailable.</span>;
   }
 
-  if (presentIds.length === 0) {
-    return <span>No New Hires are currently present.</span>;
+  if (participantIds.length === 0) {
+    return <span>No one is here yet.</span>;
   }
+
+  const sortedParticipantIds = participantIds.toSorted((left, right) => {
+    const activityDifference =
+      Number(activeIds.has(right)) - Number(activeIds.has(left));
+    if (activityDifference !== 0) return activityDifference;
+    return profileDisplayName(profilesById.get(left)).localeCompare(
+      profileDisplayName(profilesById.get(right)),
+    );
+  });
 
   return (
-    <ul aria-label={`${channel.name} current New Hires`}>
-      {presentIds.map((userId) => {
+    <ul aria-label={`${channel.name} participants`}>
+      {sortedParticipantIds.map((userId) => {
         const profile = profilesById.get(userId);
+        const isActive = activeIds.has(userId);
         return (
           <li data-new-hire-id={userId} key={userId}>
             <a
-              aria-label={`Open current New Hire Profile for ${profileDisplayName(profile)}`}
+              aria-label={`${profileDisplayName(profile)}, ${isActive ? "active" : "inactive"}. Open current New Hire Profile`}
               className="profile-context-trigger"
               href={`/office?profile=${encodeURIComponent(userId)}`}
             >
-              <ProfileAvatar
-                placeholderClassName="new-hire-presence-dot"
-                profile={profile}
-                size={22}
+              <span
+                aria-hidden="true"
+                className="participant-activity-dot"
+                data-active={isActive}
               />
               <span>
-                <strong>{profile?.displayName ?? "New Hire"}</strong>
+                <strong>{profileDisplayName(profile)}</strong>
                 {profile?.status === "unavailable" ? (
                   <small>Profile unavailable</small>
                 ) : null}
@@ -470,17 +426,16 @@ function DetailedPresenceContent({
 function LiveActivity({
   active,
   channel,
+  participantIds,
   presence,
   status,
-  typingUserIds,
 }: LiveActivityProps) {
   const detailedPresence =
     channel.mode === "standard" && presence?.kind === "detailed"
       ? presence
       : undefined;
   const presentIds = currentDetailedNewHireIds(detailedPresence, status);
-  const currentTypingIds = currentTypingNewHireIds(typingUserIds, status);
-  const profileIds = [...new Set([...presentIds, ...currentTypingIds])];
+  const profileIds = [...new Set([...presentIds, ...participantIds])];
   const resolution = useResolvedNewHireProfiles(
     profileIds,
     active && channel.mode === "standard",
@@ -488,34 +443,17 @@ function LiveActivity({
   const profilesById = new Map(
     resolution.profiles.map((profile) => [profile.clerkUserId, profile]),
   );
-  const typingNames = currentTypingIds.map(
-    (userId) => profilesById.get(userId)?.displayName ?? "New Hire",
-  );
-
-  if (!hasCurrentRealtimeState(status)) {
-    return (
-      <aside className="live-activity-panel presence-unavailable">
-        <strong>Live presence unavailable</strong>
-        <span>
-          {status === "idle" || status === "connecting"
-            ? "Checking who is currently in this Office Channel…"
-            : "The roster and typing activity are hidden until Portal reconnects."}
-        </span>
-      </aside>
-    );
-  }
 
   if (channel.mode === "broadcast") {
     return (
       <aside className="live-activity-panel aggregate-presence">
-        <strong>All-hands attendance</strong>
         {presence?.kind === "aggregate" ? (
           <span>
             {presence.count.toLocaleString()} New Hire
-            {presence.count === 1 ? " is" : "s are"} currently connected.
+            {presence.count === 1 ? "" : "s"} here
           </span>
         ) : (
-          <span>Loading the aggregate attendance count…</span>
+          <span>Checking who&apos;s here…</span>
         )}
       </aside>
     );
@@ -523,21 +461,14 @@ function LiveActivity({
 
   return (
     <aside className="live-activity-panel detailed-presence">
-      <div className="presence-summary">
-        <strong>New Hires present</strong>
-        <span>{presentIds.length.toLocaleString()} connected</span>
-      </div>
-      <DetailedPresenceContent
+      <strong className="participants-heading">Participants</strong>
+      <ParticipantList
+        activeIds={new Set(presentIds)}
         channel={channel}
-        detailedPresence={detailedPresence}
-        presentIds={presentIds}
-        profileIds={profileIds}
+        participantIds={profileIds}
         profilesById={profilesById}
         resolutionStatus={resolution.status}
       />
-      <output className="typing-indicator" aria-live="polite">
-        {typingNames.length > 0 ? typingCopy(typingNames) : ""}
-      </output>
     </aside>
   );
 }
@@ -565,9 +496,6 @@ async function fetchMockHistoryPage(
 
 function useMockOfficeInbox(): MockOfficeInbox {
   const [entries, setEntries] = useState<readonly OfficeInboxEntry[]>([]);
-  const [reportNotifications, setReportNotifications] = useState<
-    readonly HRReportInboxItem[]
-  >([]);
   const [status, setStatus] = useState<InboxStatus>("connecting");
   const requestInFlight = useRef(false);
 
@@ -587,7 +515,6 @@ function useMockOfficeInbox(): MockOfficeInbox {
         throw new Error("Mock Portal inbox unavailable");
       }
       setEntries(snapshot.entries);
-      setReportNotifications(snapshot.reportNotifications);
       setStatus("ready");
     } catch {
       setStatus("reconnecting");
@@ -619,29 +546,10 @@ function useMockOfficeInbox(): MockOfficeInbox {
     [refresh],
   );
 
-  const markReportNotificationAsRead = useCallback(
-    async (notificationId: string) => {
-      const response = await fetch("/api/office/portal/mock-inbox", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notificationId }),
-      });
-      if (!response.ok) {
-        setStatus("reconnecting");
-        return;
-      }
-      await refresh();
-    },
-    [refresh],
-  );
-
   return {
     entries,
-    reportNotifications,
     status,
     markAsRead,
-    markReportNotificationAsRead,
   };
 }
 
@@ -899,10 +807,7 @@ function SendHomeSystemEventListItem({
           {formatOfficeTimestamp(message.timestamp)}
         </time>
       </div>
-      <p>
-        Operator {message.operatorId} sent New Hire {message.targetNewHireId}{" "}
-        home until the next Office Day.
-      </p>
+      <p>A New Hire was sent home for the rest of this Office Day.</p>
     </li>
   );
 }
@@ -928,9 +833,8 @@ function TerminationSystemEventListItem({
         </time>
       </div>
       <p>
-        Operator {message.operatorId}{" "}
-        {message.action === "terminated" ? "terminated" : "reinstated"} New Hire{" "}
-        {message.targetNewHireId}.
+        A New Hire was{" "}
+        {message.action === "terminated" ? "terminated" : "reinstated"}.
       </p>
     </li>
   );
@@ -955,10 +859,7 @@ function MessageHistory({
   if (messages.length === 0) {
     return (
       <div className="empty-chat">
-        <strong>The {channel.name} Office Channel is quiet.</strong>
-        <p>
-          Start today&apos;s paper trail. Confirmed messages survive reconnects.
-        </p>
+        <strong>No messages yet.</strong>
       </div>
     );
   }
@@ -1120,7 +1021,6 @@ function ChatSurface({
   messages: rawMessages,
   status,
   presence,
-  typingUserIds,
   onTyping,
   reactionEvents,
   reactionsEnabled,
@@ -1144,12 +1044,20 @@ function ChatSurface({
     [channel.id, rawMessages],
   );
   const messages = parsedMessages.messages;
-  const invalidMessageCount = parsedMessages.invalidCount;
   const latestMessageId = messages.at(-1)?.id ?? null;
   const removalQuery = useMessageRemovals(channel.id);
   const removedMessageIds = useMemo(
     () => new Set((removalQuery.data ?? []).map(({ messageId }) => messageId)),
     [removalQuery.data],
+  );
+  const participantIds = useMemo(
+    () => [
+      ...new Set([
+        identityId,
+        ...messages.filter(isNewHireMessage).map(({ senderId }) => senderId),
+      ]),
+    ],
+    [identityId, messages],
   );
   const profileIds = useMemo(
     () =>
@@ -1179,29 +1087,21 @@ function ChatSurface({
   if (removalQuery.isError) {
     messageHistory = (
       <div className="portal-outage" role="alert">
-        <strong>Removed Message records are unavailable.</strong>
-        <span className="outage-detail">
-          Message history is hidden until canonical removal records return.
-        </span>
+        <strong>Messages are temporarily unavailable.</strong>
+        <span className="outage-detail">Please try again later.</span>
       </div>
     );
   } else if (removalQuery.isPending) {
-    messageHistory = (
-      <p className="profile-status">Checking Removed Messages…</p>
-    );
+    messageHistory = <p className="profile-status">Loading messages…</p>;
   } else if (profileQuery.isError) {
     messageHistory = (
       <div className="portal-outage" role="alert">
-        <strong>New Hire Profiles are unavailable.</strong>
-        <span className="outage-detail">
-          Message history is hidden until canonical profile records return.
-        </span>
+        <strong>Messages are temporarily unavailable.</strong>
+        <span className="outage-detail">Please try again later.</span>
       </div>
     );
   } else if (profileQuery.isPending) {
-    messageHistory = (
-      <p className="profile-status">Resolving New Hire Profiles…</p>
-    );
+    messageHistory = <p className="profile-status">Loading messages…</p>;
   } else {
     messageHistory = (
       <MessageHistory
@@ -1385,74 +1285,55 @@ function ChatSurface({
             aria-hidden="true"
           />
           <strong id={headingId}># {channel.slug}</strong>
-          {channel.mode === "broadcast" ? (
-            <Badge className="channel-mode-badge" variant="warning">
-              Broadcast
-            </Badge>
-          ) : null}
           <span className="channel-purpose">{channel.purpose}</span>
         </div>
-        <output className="connection-status" aria-live="polite">
-          {connectionStatusCopy(status)}
-        </output>
+        {status === "ready" ? null : (
+          <output className="connection-status" aria-live="polite">
+            {connectionStatusCopy(status)}
+          </output>
+        )}
       </header>
 
-      <div
-        className="chat-scroll-region"
-        onScroll={(event) => {
-          if (!visible || !messageHistoryReady || !isChatContentReady(status))
-            return;
-          const region = event.currentTarget;
-          followingLatestMessage.current =
-            region.scrollHeight - region.scrollTop - region.clientHeight <=
-            LATEST_MESSAGE_THRESHOLD;
-        }}
-        ref={scrollRegionRef}
-      >
+      <div className="conversation-content">
         <LiveActivity
           active={visible}
           channel={channel}
+          participantIds={participantIds}
           presence={presence}
           status={status}
-          typingUserIds={typingUserIds}
         />
-        {channel.mode === "broadcast" ? (
-          <aside className="broadcast-notice">
-            <strong>System Events receive priority display.</strong>
-            <span>
-              Broadcast mode changes presentation and presence only. Every
-              authenticated New Hire can still publish here.
-            </span>
-          </aside>
-        ) : null}
-        {hasPrevious && loadPrevious ? (
-          <Button
-            className="load-history-button"
-            disabled={isLoadingPrevious}
-            onClick={() => void loadEarlier()}
-            type="button"
-          >
-            {isLoadingPrevious ? "Loading…" : "Load earlier messages"}
-          </Button>
-        ) : null}
-        {status === "blocked" || status === "reconnecting" ? (
-          <div className="portal-outage" aria-live="polite">
-            <strong>Portal is offline.</strong>
-            <span className="outage-detail">
-              Confirmed history will return after the connection recovers.
-            </span>
-            <Button onClick={onRetryConnection} type="button">
-              Retry connection
+        <div
+          className="chat-scroll-region"
+          onScroll={(event) => {
+            if (!visible || !messageHistoryReady || !isChatContentReady(status))
+              return;
+            const region = event.currentTarget;
+            followingLatestMessage.current =
+              region.scrollHeight - region.scrollTop - region.clientHeight <=
+              LATEST_MESSAGE_THRESHOLD;
+          }}
+          ref={scrollRegionRef}
+        >
+          {hasPrevious && loadPrevious ? (
+            <Button
+              className="load-history-button"
+              disabled={isLoadingPrevious}
+              onClick={() => void loadEarlier()}
+              type="button"
+            >
+              {isLoadingPrevious ? "Loading…" : "Load earlier messages"}
             </Button>
-          </div>
-        ) : null}
-        {invalidMessageCount > 0 ? (
-          <output className="invalid-message-notice">
-            {invalidMessageCount} invalid message
-            {invalidMessageCount === 1 ? " was" : "s were"} hidden.
-          </output>
-        ) : null}
-        {messageHistory}
+          ) : null}
+          {status === "blocked" || status === "reconnecting" ? (
+            <div className="portal-outage" aria-live="polite">
+              <strong>Connection lost.</strong>
+              <Button onClick={onRetryConnection} type="button">
+                Retry
+              </Button>
+            </div>
+          ) : null}
+          {messageHistory}
+        </div>
       </div>
 
       <form className="chat-composer" onSubmit={submit}>
@@ -1475,9 +1356,7 @@ function ChatSurface({
               onTyping();
             }
           }}
-          placeholder={
-            canPublish ? "Type a plain-text message…" : "Portal is offline"
-          }
+          placeholder={canPublish ? "Type a message…" : "Reconnecting…"}
           rows={3}
           value={draft}
         />
@@ -1508,18 +1387,15 @@ function OfficeWorkspace({
   identityId,
   displayName,
   employeeRecord,
-  jobTitle,
   isOperator,
   canSignOut,
   activeChannelId,
   inboxRows,
   inboxStatus,
-  reportNotifications,
   isMobile,
   mobileNavigationOpen,
   onOpenMobileNavigation,
   onSelectChannel,
-  onReadReportNotification,
   children,
 }: OfficeWorkspaceProps) {
   const currentProfile = useProfileBatch([identityId]);
@@ -1534,13 +1410,6 @@ function OfficeWorkspace({
   const inboxRowsByChannelId = new Map(
     inboxRows.map((row) => [row.channelId, row]),
   );
-  const unreadHRReportNotifications = hasOperatorAccess
-    ? reportNotifications.filter(({ read }) => !read).length
-    : 0;
-  const totalUnread =
-    inboxRows.reduce((total, row) => total + row.unread, 0) +
-    unreadHRReportNotifications;
-
   useEffect(() => {
     if (isMobile !== true) return;
     if (mobileNavigationOpen) {
@@ -1559,13 +1428,11 @@ function OfficeWorkspace({
         <aside className="channel-panel" aria-label="Office Channels">
           <p className="eyebrow">Shared Public Office</p>
           <h1>Welcome, {currentDisplayName}</h1>
-          <p className="job-title">{jobTitle}</p>
-          {hasOperatorAccess ? (
-            <Badge className="operator-badge">Operator access</Badge>
-          ) : null}
-          <output className="inbox-status" aria-live="polite">
-            {inboxStatusCopy(inboxStatus)}
-          </output>
+          {inboxStatus === "ready" ? null : (
+            <output className="inbox-status" aria-live="polite">
+              {inboxStatusCopy(inboxStatus)}
+            </output>
+          )}
           <nav aria-label="Office Channel directory">
             {channels.map((channel) => {
               const row = inboxRowsByChannelId.get(channel.id);
@@ -1590,7 +1457,6 @@ function OfficeWorkspace({
                 >
                   <span className="channel-button-copy">
                     <strong># {channel.slug}</strong>
-                    <small> {channel.name}</small>
                     <small className="channel-preview">
                       {row?.preview ? (
                         <>
@@ -1615,38 +1481,6 @@ function OfficeWorkspace({
             })}
           </nav>
           <HRReportReviewQueue enabled={hasOperatorAccess} />
-          {hasOperatorAccess ? (
-            <section
-              aria-label="HR Report notifications"
-              className="hr-report-inbox"
-            >
-              <h2>HR Inbox</h2>
-              {reportNotifications.length === 0 ? (
-                <p>No open HR Report notifications.</p>
-              ) : (
-                <ul>
-                  {reportNotifications.map((notification) => {
-                    const copy = hrReportNotificationCopy(notification);
-                    return (
-                      <li key={notification.id}>
-                        <a
-                          aria-label={`${notification.title}, ${copy.actionLabel}`}
-                          className={notification.read ? "is-read" : undefined}
-                          href={notification.href}
-                          onClick={() =>
-                            onReadReportNotification(notification.id)
-                          }
-                        >
-                          <strong>{notification.title}</strong>
-                          <small>{copy.summary}</small>
-                        </a>
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </section>
-          ) : null}
           {employeeRecord}
           {canSignOut ? (
             <form action="/api/auth/sign-out" method="post">
@@ -1670,17 +1504,6 @@ function OfficeWorkspace({
         </section>
       </div>
       <NewHireProfileContext canSendHome={hasOperatorAccess} />
-      <footer className="office-taskbar">
-        <button
-          aria-label={`Focus Office Channel directory, ${totalUnread} unread`}
-          onClick={() => directoryButtons.current.get(activeChannelId)?.focus()}
-          type="button"
-        >
-          <span aria-hidden="true">▣</span>
-          Portal Messenger — {totalUnread} unread
-        </button>
-        <output aria-live="polite">{inboxStatusCopy(inboxStatus)}</output>
-      </footer>
     </OperatorAccessContext.Provider>
   );
 }
@@ -1728,7 +1551,6 @@ function LiveOfficeChannel({
       reactionsEnabled={reactionsEnabled}
       status={channel.status}
       presence={channel.presence}
-      typingUserIds={channel.typing}
       visible={visible}
     />
   );
@@ -1809,7 +1631,6 @@ function LivePortalWorkspace({
   employeeRecord,
   eventChannelId,
   officeDay: currentOfficeDay,
-  jobTitle,
   isOperator,
   canSignOut,
   onEmploymentAccessEnded,
@@ -1875,14 +1696,6 @@ function LivePortalWorkspace({
       }),
     [channels, displayName, identityId, inbox.channels],
   );
-  const reportNotifications = useMemo(
-    () =>
-      inbox.items.flatMap((item) => {
-        const parsed = parseHRReportInboxItem(item);
-        return parsed ? [parsed] : [];
-      }),
-    [inbox.items],
-  );
   const markInboxRead = useCallback(
     (channelId: string) => {
       const entry = inbox.channels.get(channelId);
@@ -1919,16 +1732,11 @@ function LivePortalWorkspace({
       identityId={identityId}
       inboxRows={inboxRows}
       inboxStatus={inbox.status}
-      reportNotifications={reportNotifications}
       isMobile={navigation.isMobile}
       isOperator={isOperator}
-      jobTitle={jobTitle}
       mobileNavigationOpen={navigation.mobileNavigationOpen}
       onOpenMobileNavigation={navigation.openMobileNavigation}
       onSelectChannel={selectChannel}
-      onReadReportNotification={(notificationId) => {
-        inbox.items.find(({ id }) => id === notificationId)?.markAsRead();
-      }}
     >
       {channels.map((channel) => (
         <LiveOfficeChannel
@@ -2128,7 +1936,6 @@ function MockOfficeChannel({
               count: 1,
             }
       }
-      typingUserIds={[]}
       visible={visible}
     />
   );
@@ -2147,7 +1954,6 @@ function MockPortalOffice(
     employeeRecord,
     eventChannelId,
     officeDay: currentOfficeDay,
-    jobTitle,
     isOperator,
     canSignOut,
     onOfficeDayExpired,
@@ -2268,16 +2074,11 @@ function MockPortalOffice(
       identityId={identityId}
       inboxRows={inboxRows}
       inboxStatus={inbox.status}
-      reportNotifications={inbox.reportNotifications}
       isMobile={navigation.isMobile}
       isOperator={isOperator}
-      jobTitle={jobTitle}
       mobileNavigationOpen={navigation.mobileNavigationOpen}
       onOpenMobileNavigation={navigation.openMobileNavigation}
       onSelectChannel={selectChannel}
-      onReadReportNotification={(notificationId) => {
-        void inbox.markReportNotificationAsRead(notificationId);
-      }}
     >
       {channels.map((channel) => (
         <MockOfficeChannel
@@ -2302,13 +2103,7 @@ function MockPortalOffice(
   );
 }
 
-function ShiftEndedDialog({
-  endedOfficeDay,
-  onContinue,
-}: {
-  endedOfficeDay: string;
-  onContinue(): void;
-}) {
+function ShiftEndedDialog({ onContinue }: { onContinue(): void }) {
   const continueButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -2326,14 +2121,11 @@ function ShiftEndedDialog({
       >
         <header className="window-titlebar">
           <span>Portal Messenger</span>
-          <span aria-hidden="true">×</span>
         </header>
         <div className="shift-ended-content">
-          <p className="eyebrow">Office Day {endedOfficeDay}</p>
-          <h2 id="shift-ended-title">Your shift has ended</h2>
+          <h2 id="shift-ended-title">A new Office Day is ready</h2>
           <p id="shift-ended-description">
-            Midnight UTC has passed. Your old desk is disconnected and the new
-            Office Day is ready with fresh channels.
+            Continue to today&apos;s fresh channels and conversations.
           </p>
           <Button
             onClick={onContinue}
@@ -2364,18 +2156,18 @@ function SentHomeDialog({
       >
         <header className="window-titlebar">
           <span>Portal Messenger</span>
-          <span aria-hidden="true">×</span>
         </header>
         <div className="shift-ended-content">
-          <p className="eyebrow">Shared Public Office access ended</p>
           <h2 id="sent-home-title">You were sent home for this Office Day</h2>
           <p>
-            Your Portal connections were closed. You can return automatically at
-            the next midnight UTC Office Day boundary.
+            You can return automatically at the start of the next Office Day.
           </p>
           {access.until ? (
             <time dateTime={access.until.toISOString()}>
-              {access.until.toISOString()}
+              {access.until.toLocaleString(undefined, {
+                dateStyle: "medium",
+                timeStyle: "short",
+              })}
             </time>
           ) : null}
         </div>
@@ -2455,12 +2247,7 @@ function PortalChatWorkspace(props: PortalChatProps): ReactNode {
   }
 
   if (endedOfficeDay) {
-    return (
-      <ShiftEndedDialog
-        endedOfficeDay={endedOfficeDay}
-        onContinue={continueToCurrentOfficeDay}
-      />
-    );
+    return <ShiftEndedDialog onContinue={continueToCurrentOfficeDay} />;
   }
 
   if (props.mode === "live") {

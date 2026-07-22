@@ -9,6 +9,7 @@ import {
   linkifyChatText,
   parseChatContent,
   parsePortalChatMessage,
+  SETUP_VERIFIER_USER_ID,
   validateChatDraft,
 } from "@/lib/portal/chat";
 import { createPortalTokenSource } from "@/lib/portal/client";
@@ -118,6 +119,13 @@ describe("Office Channel chat contract", () => {
     expect(parsePortalChatMessage({ ...message, type: "unknown" })).toBeNull();
     expect(parsePortalChatMessage({ ...message, ephemeral: true })).toBeNull();
     expect(parsePortalChatMessage({ ...message, retracted: true })).toBeNull();
+    expect(
+      parsePortalChatMessage({
+        ...message,
+        sender: { id: SETUP_VERIFIER_USER_ID, anon: false },
+        content: { text: "setup-verification:test-marker" },
+      }),
+    ).toBeNull();
     expect(
       parsePortalChatMessage({ ...message, timestamp: Number.MAX_VALUE }),
     ).toBeNull();

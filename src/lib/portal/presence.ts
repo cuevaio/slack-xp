@@ -47,17 +47,17 @@ export function currentTypingNewHireIds(
 export function connectionStatusCopy(status: ChannelStatus): string {
   switch (status) {
     case "ready":
-      return "Connected — live updates available";
+      return "";
     case "degraded":
-      return "Connected — a Portal feature is degraded";
+      return "Updates may be delayed";
     case "degraded-http":
-      return "Reconnecting — live updates are paused";
+      return "Reconnecting…";
     case "reconnecting":
-      return "Reconnecting — Portal is offline";
+      return "Reconnecting…";
     case "blocked":
-      return "Offline — Portal connection refused";
+      return "Unable to connect";
     case "idle":
     case "connecting":
-      return "Connecting to Portal…";
+      return "Connecting…";
   }
 }

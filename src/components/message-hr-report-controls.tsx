@@ -78,7 +78,7 @@ function confirmationMessage(
     case "already-reported":
       return `You already have an open report for this ${subjectLabel}.`;
     case "created-notification-pending":
-      return "Private HR Report submitted. Operator notification is queued.";
+      return "Private HR Report submitted.";
     default:
       return null;
   }
@@ -254,7 +254,7 @@ export function MessageHRReportControls({
         officeChannelId: message.channelId,
         messageId: message.id,
       }}
-      description="Choose the reason for Operator review. The message stays in Portal; only its stable reference is stored with this report."
+      description="Choose why you want an Operator to review this message. Reporting it does not remove it automatically."
       subjectLabel="message"
     />
   );
@@ -266,7 +266,7 @@ export function ProfileHRReportControls({ profileId }: { profileId: string }) {
       categories={PROFILE_HR_REPORT_CATEGORIES}
       categoryLabels={PROFILE_HR_REPORT_CATEGORY_LABELS}
       context={{ subjectType: "profile", profileId }}
-      description="Choose the reason for Operator review. Only this stable New Hire identity is stored; the current name and picture are resolved when an Operator reviews it."
+      description="Choose why you want an Operator to review this profile."
       subjectLabel="New Hire Profile"
     />
   );

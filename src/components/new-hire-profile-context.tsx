@@ -25,14 +25,14 @@ function ProfileContextContent({
   if (isError) {
     return (
       <div className="portal-outage" role="alert">
-        <strong>New Hire Profile unavailable.</strong>
-        <span>Canonical profile records could not be loaded safely.</span>
+        <strong>Profile unavailable.</strong>
+        <span>Please try again later.</span>
       </div>
     );
   }
 
   if (isPending) {
-    return <p aria-live="polite">Resolving current New Hire Profile…</p>;
+    return <p aria-live="polite">Loading profile…</p>;
   }
 
   const current = profile?.status === "current";
@@ -55,9 +55,6 @@ function ProfileContextContent({
           </span>
         )}
         <div>
-          <p className="eyebrow">
-            {current ? "Current public profile" : "Profile unavailable"}
-          </p>
           <h3>{displayName}</h3>
         </div>
       </div>
@@ -73,10 +70,7 @@ function ProfileContextContent({
           ) : null}
         </>
       ) : (
-        <p>
-          This account no longer has public profile attributes. The stable
-          context remains available for Operator review.
-        </p>
+        <p>This profile is no longer available.</p>
       )}
     </>
   );

@@ -67,11 +67,11 @@ describe("Portal presence presentation contract", () => {
     ).toEqual(["user_terry"]);
   });
 
-  test("names connecting, connected, reconnecting, and offline states plainly", () => {
+  test("shows only exceptional connection states", () => {
     expect(connectionStatusCopy("connecting")).toContain("Connecting");
-    expect(connectionStatusCopy("ready")).toContain("Connected");
+    expect(connectionStatusCopy("ready")).toBe("");
     expect(connectionStatusCopy("reconnecting")).toContain("Reconnecting");
-    expect(connectionStatusCopy("blocked")).toContain("Offline");
+    expect(connectionStatusCopy("blocked")).toContain("Unable");
   });
 
   test("loads only the current stable identities through the profile batch boundary", async () => {

@@ -18,21 +18,14 @@ export default function SignInPage() {
 
   return (
     <main className="installation-shell">
-      <output className="mock-watermark">
-        MOCK AUTHENTICATION - TEST ONLY
-      </output>
+      <output className="mock-watermark">Development mode</output>
       <section className="system-window" aria-labelledby="sign-in-title">
         <header className="window-titlebar">
-          <span>Portal Systems Network Logon</span>
-          <span aria-hidden="true">🔑</span>
+          <span>Portal Messenger</span>
         </header>
         <div className="mock-sign-in-content">
-          <p className="eyebrow">Credential-free development</p>
-          <h1 id="sign-in-title">Clock in to the mock office</h1>
-          <p>
-            These deterministic identities never contact Clerk and are refused
-            by production deployments.
-          </p>
+          <h1 id="sign-in-title">Choose a test identity</h1>
+          <p>This sign-in screen is available only in development.</p>
           <div className="mock-sign-in-actions">
             <form action="/api/auth/mock-session" method="post">
               <input type="hidden" name="identity" value="new-hire" />

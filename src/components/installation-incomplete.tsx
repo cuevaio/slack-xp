@@ -7,7 +7,7 @@ type IncompleteConfiguration = Extract<
 >;
 
 export function InstallationIncomplete({
-  configuration,
+  configuration: _configuration,
 }: {
   configuration: IncompleteConfiguration;
 }) {
@@ -15,31 +15,19 @@ export function InstallationIncomplete({
     <main className="installation-shell">
       <section className="system-window" aria-labelledby="installation-title">
         <header className="window-titlebar">
-          <span>Portal Messenger Setup</span>
-          <span aria-hidden="true">!</span>
+          <span>Portal Messenger</span>
         </header>
         <div className="installation-content">
           <div className="warning-icon" aria-hidden="true">
             !
           </div>
           <div>
-            <p className="eyebrow">Configuration required</p>
-            <h1 id="installation-title">Installation Incomplete</h1>
+            <h1 id="installation-title">The office is unavailable</h1>
             <p>
-              This {configuration.environment} deployment is closed until its
-              service configuration is valid. No live office data was loaded.
+              Portal Messenger is not ready right now. Please try again later.
             </p>
-            <h2>Check these variable names</h2>
-            <ul className="variable-list">
-              {configuration.issues.map((issue) => (
-                <li key={issue.name}>
-                  <code>{issue.name}</code>
-                  <span>{issue.reason}</span>
-                </li>
-              ))}
-            </ul>
-            <a className={buttonVariants()} href="/docs/setup">
-              Open setup guide
+            <a className={buttonVariants()} href="/office">
+              Try again
             </a>
           </div>
         </div>

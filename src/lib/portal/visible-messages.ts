@@ -11,6 +11,7 @@ import {
   type SafeScriptedSystemEventMessage,
 } from "@/lib/office-days/contract";
 import {
+  isSetupVerificationMessage,
   parsePortalChatMessage,
   type SafePortalChatMessage,
 } from "@/lib/portal/chat";
@@ -58,6 +59,10 @@ export function parseOfficeChannelMessages(
   let invalidCount = 0;
 
   for (const rawMessage of rawMessages) {
+    if (isSetupVerificationMessage(rawMessage)) {
+      continue;
+    }
+
     const newHireMessage = parsePortalChatMessage(rawMessage);
     if (newHireMessage?.channelId === channelId) {
       messages.push(newHireMessage);

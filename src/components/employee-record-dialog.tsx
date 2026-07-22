@@ -45,7 +45,7 @@ export function EmployeeRecordDialog({
         ref={triggerRef}
         type="button"
       >
-        Employee Record
+        Edit profile
       </Button>
       <dialog
         aria-labelledby="employee-record-dialog-title"
@@ -54,9 +54,9 @@ export function EmployeeRecordDialog({
         ref={dialogRef}
       >
         <header className="window-titlebar">
-          <span>Employee Record</span>
+          <span>Edit profile</span>
           <Button
-            aria-label="Close Employee Record"
+            aria-label="Close profile editor"
             onClick={closeDialog}
             size="icon-sm"
             type="button"

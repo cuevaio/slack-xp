@@ -25,14 +25,14 @@ const ACTION_COPY: Record<
     trigger: "Terminate",
     title: "Terminate this New Hire?",
     description:
-      "Access ends immediately and remains blocked across future Office Days until an Operator reverses it.",
+      "This New Hire will lose access until an Operator reinstates them.",
     confirmation: "Confirm Termination",
   },
   reinstate: {
     trigger: "Reinstate",
     title: "Reinstate this New Hire?",
     description:
-      "Persistent access denial will be removed. Any active Send Home or account-deletion restriction remains in force.",
+      "This New Hire will be able to enter again unless another restriction applies.",
     confirmation: "Confirm Reinstatement",
   },
 };
@@ -184,7 +184,7 @@ export function TerminationControl({
             </h2>
             <p>{selectedActionCopy.description}</p>
             <label htmlFor={`employment-action-reason-${instanceId}`}>
-              Private Operator reason (required)
+              Reason (private and required)
             </label>
             <textarea
               id={`employment-action-reason-${instanceId}`}
@@ -197,7 +197,7 @@ export function TerminationControl({
             />
             {error ? (
               <p className="chat-error" role="alert">
-                Employment action failed. Operator access was rechecked.
+                The change could not be saved. Please try again.
               </p>
             ) : null}
             <div className="hr-report-dialog-actions">

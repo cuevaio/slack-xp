@@ -517,10 +517,11 @@ publishing, allowed and unregistered origins, and history after a fresh
 connection.
 
 Portal verification creates an isolated synthetic New Hire membership and sends
-one small `setup-verification` message to the current General Office Channel.
-That message is intentionally persistent so reconnect history can be proven. The
-command never prints its body, ID, credentials, connection strings, profile data,
-or upstream response bodies.
+one small, verifier-targeted `setup-verification` message to the current General
+Office Channel. That message is intentionally persistent so reconnect history can
+be proven, but it is not delivered to or rendered for New Hires. The command never
+prints its body, ID, credentials, connection strings, profile data, or upstream
+response bodies.
 
 Exit codes are stable: `0` means every required check passed, `1` means a check
 failed (or production proof is incomplete), and `2` means non-production live

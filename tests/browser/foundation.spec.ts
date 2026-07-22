@@ -1,4 +1,10 @@
-import { expect, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
+
+async function expectOfficeConnected(page: Page) {
+  await expect(
+    page.locator(".general-chat:not([hidden]) .connection-ready"),
+  ).toBeVisible();
+}
 
 test.beforeEach(async ({ request }) => {
   const response = await request.post("/api/auth/mock-onboarding/reset");
@@ -18,41 +24,18 @@ test("Observer teaser supports accessible first entry and returning entry", asyn
   await expect(
     page.getByRole("heading", { name: /Your coworkers are online/ }),
   ).toBeVisible();
-  await expect(page.getByText("0 LIVE CONNECTIONS")).toBeVisible();
+  await expect(
+    page.getByText("Preview only. Sign in to join the live office."),
+  ).toBeVisible();
   await expect(page.getByText(/MOCK SERVICES/)).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Open Start menu" }),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: "Minimize observer preview window" }),
-  ).toBeVisible();
-
-  await page.getByRole("button", { name: "Open Start menu" }).click();
-  await expect(page.getByRole("menu", { name: "Start menu" })).toBeVisible();
-  await page.keyboard.press("Escape");
+  ).toHaveCount(0);
   await expect(
-    page.getByRole("button", { name: "Open Start menu" }),
-  ).toBeFocused();
-  await expect(
-    page.getByRole("menu", { name: "Start menu" }),
-  ).not.toBeVisible();
-
-  await page.getByRole("button", { name: "Open Start menu" }).focus();
-  await page.keyboard.press("Enter");
-  await expect(page.getByRole("menu", { name: "Start menu" })).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "Enter the Shared Public Office" }),
-  ).toBeFocused();
-
-  await page
-    .getByRole("button", { name: "Minimize observer preview window" })
-    .click();
-  await expect(page.getByText("Preview window minimized")).toBeVisible();
-  await page
-    .getByRole("button", { name: "Restore observer preview window" })
-    .click();
-  await expect(
-    page.getByRole("region", { name: "Non-live product preview" }),
+    page.getByRole("region", { name: "Office preview" }),
   ).toBeVisible();
 
   expect(
@@ -63,45 +46,41 @@ test("Observer teaser supports accessible first entry and returning entry", asyn
     .getByRole("link", { name: "Enter the Shared Public Office" })
     .click();
   await expect(page).toHaveURL(/\/sign-in\?redirect_url=%2Foffice$/);
-  await expect(page.getByText("MOCK AUTHENTICATION - TEST ONLY")).toBeVisible();
+  await expect(page.getByText("Development mode")).toBeVisible();
 
   await page.getByRole("button", { name: "Sign in as New Hire" }).click();
   await expect(page).toHaveURL(/\/office$/);
   await expect(
-    page.getByRole("heading", { name: "Confirm your Employee Record" }),
+    page.getByRole("heading", { name: "Choose your name and picture" }),
   ).toBeVisible();
 
-  const assignedTitle = await page
-    .locator(".assignment-card strong")
-    .textContent();
   await page.getByLabel("First name").fill("Patricia");
-  await page.getByRole("button", { name: "Save Employee Record" }).click();
+  await page.getByRole("button", { name: "Save profile" }).click();
 
   await expect(
     page.getByRole("heading", { name: "Review the Code of Conduct" }),
   ).toBeVisible();
-  await expect(page.locator(".assignment-card strong")).toHaveText(
-    assignedTitle ?? "",
-  );
+  await expect(page.locator(".assignment-card")).toHaveCount(0);
   await page.reload();
   await expect(
     page.getByRole("heading", { name: "Review the Code of Conduct" }),
   ).toBeVisible();
-  await expect(page.locator(".assignment-card strong")).toHaveText(
-    assignedTitle ?? "",
-  );
+  await expect(page.locator(".assignment-card")).toHaveCount(0);
 
   await page.getByRole("checkbox").check();
-  await page.getByRole("button", { name: "Accept and Continue" }).click();
+  await page.getByRole("button", { name: "Accept and continue" }).click();
   await expect(
     page.getByRole("heading", { name: "Your desk is almost ready" }),
   ).toBeVisible();
+  const assignedTitle = await page
+    .locator(".assignment-card strong")
+    .textContent();
   await page.getByRole("button", { name: "CLOCK IN" }).click();
 
   await expect(
     page.getByRole("heading", { name: "Welcome, Patricia Pending" }),
   ).toBeVisible();
-  await expect(page.getByText(assignedTitle ?? "")).toBeVisible();
+  expect(assignedTitle).toBeTruthy();
 
   const retry = await page.request.post("/api/office/onboarding", {
     form: { intent: "clock-in" },
@@ -112,7 +91,7 @@ test("Observer teaser supports accessible first entry and returning entry", asyn
   await page.goto("/office");
   await page.getByRole("button", { name: "Sign in as New Hire" }).click();
   await expect(page.getByText("Welcome, Patricia Pending")).toBeVisible();
-  await expect(page.getByText("New Employee Setup Wizard")).toHaveCount(0);
+  await expect(page.getByText("New Hire Setup")).toHaveCount(0);
   expect(
     requests.filter((url) => /useportal\.co|clerk\.com/i.test(url)),
   ).toHaveLength(0);
@@ -123,7 +102,7 @@ test("Observer compact teaser keeps sign-in reachable", async ({ page }) => {
   await page.goto("/");
 
   await expect(
-    page.getByRole("region", { name: "Non-live product preview" }),
+    page.getByRole("region", { name: "Office preview" }),
   ).toBeVisible();
   const officeLink = page
     .getByRole("link", { name: "Enter the Shared Public Office" })
@@ -133,52 +112,19 @@ test("Observer compact teaser keeps sign-in reachable", async ({ page }) => {
   await expect(page).toHaveURL(/\/sign-in\?redirect_url=%2Foffice$/);
 });
 
-test("office window full screen fills the viewport and locks document scrolling", async ({
-  page,
-}) => {
+test("office window omits decorative window controls", async ({ page }) => {
   await page.goto("/office");
   await page
     .getByRole("button", { name: "Sign in as Returning New Hire" })
     .click();
 
-  const messengerWindow = page.locator(".messenger-window");
-  const fullScreenToggle = page.getByRole("checkbox", {
-    name: "Toggle full screen",
-  });
-  await fullScreenToggle.focus();
-  await page.keyboard.press("Space");
-  await expect(fullScreenToggle).toBeChecked();
-
-  const viewport = page.viewportSize();
-  expect(viewport).not.toBeNull();
-  await expect
-    .poll(() => messengerWindow.boundingBox())
-    .toMatchObject({
-      x: 0,
-      y: 0,
-      width: viewport?.width,
-      height: viewport?.height,
-    });
-  expect(
-    await page.evaluate(() => ({
-      body: getComputedStyle(document.body).overflow,
-      html: getComputedStyle(document.documentElement).overflow,
-    })),
-  ).toEqual({ body: "hidden", html: "hidden" });
-  expect(
-    await messengerWindow.evaluate(
-      (element) => getComputedStyle(element).boxShadow,
-    ),
-  ).toBe("none");
-
-  await page.keyboard.press("Space");
-  await expect(fullScreenToggle).not.toBeChecked();
-  expect(
-    await page.evaluate(() => ({
-      body: getComputedStyle(document.body).overflow,
-      html: getComputedStyle(document.documentElement).overflow,
-    })),
-  ).toEqual({ body: "visible", html: "visible" });
+  await expect(
+    page.getByRole("checkbox", { name: "Toggle full screen" }),
+  ).toHaveCount(0);
+  await expect(
+    page.locator(".messenger-window > .window-titlebar button"),
+  ).toHaveCount(0);
+  await expect(page.getByLabel("Message # General")).toBeEnabled();
 });
 
 test("server boundaries reject invalid setup and forged identity", async ({
@@ -306,11 +252,13 @@ test("message HR Reports stay private and deep-link Operators to review context"
   await page.request.post("/api/auth/sign-out");
   await page.goto("/office");
   await page.getByRole("button", { name: "Sign in as Operator" }).click();
-  const notification = page.getByRole("link", {
-    name: "Message HR Report ready for review, open message context",
+  const queue = page.getByRole("region", {
+    name: "HR Report review queue",
   });
-  await expect(notification).toBeVisible();
-  await notification.click();
+  const queueItem = queue
+    .getByRole("listitem")
+    .filter({ hasText: "Threatening behavior" });
+  await queueItem.getByRole("link", { name: "Review message context" }).click();
   await expect(page).toHaveURL(
     /officeDay=.*&channel=general&message=mock_message_/,
   );
@@ -320,19 +268,13 @@ test("message HR Reports stay private and deep-link Operators to review context"
   await expect(reviewMessage).toBeVisible();
   await expect(reviewMessage).toBeFocused();
 
-  const queue = page.getByRole("region", {
-    name: "HR Report review queue",
-  });
-  const queueItem = queue
-    .getByRole("listitem")
-    .filter({ hasText: "Threatening behavior" });
-  await expect(queueItem).toContainText("Message HR Report");
-  await expect(queueItem).toContainText("open");
+  await expect(queueItem).toContainText("Message report");
+  await expect(queueItem).toContainText("Open");
   await queueItem
-    .getByLabel("Private Operator note (optional)")
+    .getByLabel("Private note (optional)")
     .fill("Reviewed in context; harmless office banter.");
-  await queueItem.getByRole("button", { name: "Dismiss HR Report" }).click();
-  await expect(queueItem).toContainText("dismissed");
+  await queueItem.getByRole("button", { name: "Dismiss report" }).click();
+  await expect(queueItem).toContainText("Dismissed");
   await expect(queueItem).toContainText(
     "Reviewed in context; harmless office banter.",
   );
@@ -397,18 +339,15 @@ test("Operators remove messages inline while every connected client renders a pe
   });
   await trigger.click();
   const dialog = page.getByRole("dialog", { name: "Remove this message?" });
-  await expect(dialog.getByLabel("Private Operator reason")).toBeFocused();
+  await expect(dialog.getByLabel("Reason (private)")).toBeFocused();
   await expect(dialog).toContainText(
-    "does not retract or erase the payload from Portal storage",
-  );
-  await expect(dialog).toContainText(
-    "authorized direct Portal client may still retrieve it",
+    "does not permanently erase it from the underlying message service",
   );
   await page.keyboard.press("Escape");
   await expect(trigger).toBeFocused();
   await trigger.click();
   await dialog
-    .getByLabel("Private Operator reason")
+    .getByLabel("Reason (private)")
     .fill("Private review confirmed a policy violation.");
 
   const removalRequest = page.waitForRequest(
@@ -465,7 +404,7 @@ test("Operators remove messages inline while every connected client renders a pe
   await page.reload();
   await expect(
     page
-      .getByText("Removed Message records are unavailable.")
+      .getByText("Messages are temporarily unavailable.")
       .filter({ visible: true }),
   ).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText(removedText, { exact: true })).toHaveCount(0);
@@ -539,17 +478,15 @@ test("New Hire Profile HR Reports follow current canonical profile context", asy
   expect(await duplicate.json()).toMatchObject({ status: "already-reported" });
 
   await profile.getByRole("button", { name: "Close New Hire Profile" }).click();
-  await page.getByRole("button", { name: "Employee Record" }).click();
+  await page.getByRole("button", { name: "Edit profile" }).click();
   const employeeRecord = page.getByRole("dialog", {
-    name: "Confirm your Employee Record",
+    name: "Choose your name and picture",
   });
   await employeeRecord.getByLabel("First name").fill("Current");
   await employeeRecord.getByLabel("Last name").fill("Profile");
-  await employeeRecord
-    .getByRole("button", { name: "Save Employee Record" })
-    .click();
+  await employeeRecord.getByRole("button", { name: "Save profile" }).click();
   await expect(employeeRecord.getByRole("status")).toContainText(
-    "updated in Clerk and the Shared Public Office",
+    "Profile updated.",
   );
   await employeeRecord.getByRole("button", { name: "Done" }).click();
 
@@ -561,11 +498,11 @@ test("New Hire Profile HR Reports follow current canonical profile context", asy
   await page.request.post("/api/auth/sign-out");
   await page.goto("/office");
   await page.getByRole("button", { name: "Sign in as Operator" }).click();
-  const notification = page.getByRole("link", {
-    name: "New Hire Profile HR Report ready for review, open current New Hire Profile",
-  });
-  await expect(notification).toBeVisible();
-  await notification.click();
+  const queueItem = page
+    .getByRole("region", { name: "HR Report review queue" })
+    .getByRole("listitem")
+    .filter({ hasText: "Abusive or explicit picture" });
+  await queueItem.getByRole("link", { name: "Review profile" }).click();
   await expect(page).toHaveURL(
     /\/office\?profile=user_mock_returning_new_hire$/,
   );
@@ -576,12 +513,8 @@ test("New Hire Profile HR Reports follow current canonical profile context", asy
     reviewProfile.getByRole("heading", { name: "Current Profile" }),
   ).toBeVisible();
   await expect(reviewProfile.getByText("Terry Byte")).toHaveCount(0);
-  const queueItem = page
-    .getByRole("region", { name: "HR Report review queue" })
-    .getByRole("listitem")
-    .filter({ hasText: "Abusive or explicit picture" });
-  await expect(queueItem).toContainText("Profile HR Report");
-  await expect(queueItem).toContainText("open");
+  await expect(queueItem).toContainText("Profile report");
+  await expect(queueItem).toContainText("Open");
   await expect(
     queueItem.getByRole("button", { name: "Send Home" }),
   ).toBeVisible();
@@ -605,7 +538,7 @@ test("New Hire Profile HR Reports follow current canonical profile context", asy
   await expect(confirmSendHome).toBeDisabled();
   const privateReason = "Reviewed privately; access should end for today.";
   await sendHomeDialog
-    .getByLabel("Private Operator reason (required)")
+    .getByLabel("Reason (private and required)")
     .fill(privateReason);
   const sendHomeRequest = page.waitForRequest(
     (request) =>
@@ -618,7 +551,7 @@ test("New Hire Profile HR Reports follow current canonical profile context", asy
     targetNewHireId: "user_mock_returning_new_hire",
     privateReason,
   });
-  await expect(queueItem).toContainText("actioned");
+  await expect(queueItem).toContainText("Action taken");
 
   const allHands = await page.request.get(
     "/api/office/portal/mock-chat?channel=all-hands",
@@ -675,7 +608,7 @@ test("Operator terminates across Office Days and reinstates from New Hire Profil
   });
   const terminationReason = "Private persistent safety review.";
   await terminationDialog
-    .getByLabel("Private Operator reason (required)")
+    .getByLabel("Reason (private and required)")
     .fill(terminationReason);
   await terminationDialog
     .getByRole("button", { name: "Confirm Termination" })
@@ -718,7 +651,7 @@ test("Operator terminates across Office Days and reinstates from New Hire Profil
   });
   const reinstatementReason = "Private review completed.";
   await reinstatementDialog
-    .getByLabel("Private Operator reason (required)")
+    .getByLabel("Reason (private and required)")
     .fill(reinstatementReason);
   await reinstatementDialog
     .getByRole("button", { name: "Confirm Reinstatement" })
@@ -755,11 +688,7 @@ test("general chat confirms, reconnects, validates text, and recovers from Porta
     .getByRole("button", { name: "Sign in as Returning New Hire" })
     .click();
 
-  await expect(
-    page
-      .getByText("Connected — live updates available")
-      .filter({ visible: true }),
-  ).toBeVisible();
+  await expectOfficeConnected(page);
   const composer = page.getByLabel("Message # General");
   await composer.fill(
     "Read <b>carefully</b> at https://example.com/handbook. javascript:alert(1)",
@@ -801,11 +730,7 @@ test("general chat confirms, reconnects, validates text, and recovers from Porta
   ).toBe(422);
 
   await page.reload();
-  await expect(
-    page
-      .getByText("Connected — live updates available")
-      .filter({ visible: true }),
-  ).toBeVisible();
+  await expectOfficeConnected(page);
   await expect(
     page.getByRole("listitem").filter({ hasText: "Read <b>carefully</b>" }),
   ).toBeVisible();
@@ -831,19 +756,13 @@ test("general chat confirms, reconnects, validates text, and recovers from Porta
     form: { intent: "offline" },
   });
   await page.reload();
-  await expect(
-    page.getByText("Portal is offline.").filter({ visible: true }),
-  ).toBeVisible();
+  await expect(page.getByText("Connection lost.")).toBeVisible();
   await expect(composer).toBeDisabled();
   await page.request.post("/api/auth/mock-portal", {
     form: { intent: "online" },
   });
-  await page.getByRole("button", { name: "Retry connection" }).click();
-  await expect(
-    page
-      .getByText("Connected — live updates available")
-      .filter({ visible: true }),
-  ).toBeVisible();
+  await page.getByRole("button", { name: "Retry" }).click();
+  await expectOfficeConnected(page);
   await expect(
     page.getByText("Please retry this memo", { exact: true }),
   ).toBeVisible();
@@ -857,22 +776,27 @@ test("live presence resolves New Hire Profiles and all-hands stays aggregate", a
     .getByRole("button", { name: "Sign in as Returning New Hire" })
     .click();
   const generalRoster = page.getByRole("list", {
-    name: "General current New Hires",
+    name: "General participants",
   });
   await expect(generalRoster).toContainText("Terry Byte");
+  const activeNewHire = generalRoster.locator(
+    '[data-new-hire-id="user_mock_returning_new_hire"]',
+  );
+  await expect(activeNewHire).toBeVisible();
+  await expect(generalRoster.locator("li").first()).toHaveAttribute(
+    "data-new-hire-id",
+    "user_mock_returning_new_hire",
+  );
   await expect(
-    generalRoster.locator('[data-new-hire-id="user_mock_returning_new_hire"]'),
-  ).toBeVisible();
+    activeNewHire.locator(".participant-activity-dot"),
+  ).toHaveAttribute("data-active", "true");
   await expect(generalRoster).not.toContainText("Office Character");
 
   const directory = page.getByRole("navigation", {
     name: "Office Channel directory",
   });
   await directory.getByRole("button", { name: /# all-hands/ }).click();
-  await expect(page.getByText("All-hands attendance")).toBeVisible();
-  await expect(
-    page.getByText("1 New Hire is currently connected."),
-  ).toBeVisible();
+  await expect(page.getByText("1 New Hire here")).toBeVisible();
   await expect(
     page.getByRole("list", { name: "All Hands current New Hires" }),
   ).toHaveCount(0);
@@ -897,7 +821,7 @@ test("scripted System Events visibly identify fictional Office Characters", asyn
   ).toHaveCount(0);
 
   const generalRoster = page.getByRole("list", {
-    name: "General current New Hires",
+    name: "General participants",
   });
   await expect(generalRoster).not.toContainText("Barb Dwyer");
 });
@@ -909,11 +833,7 @@ test("emoji reactions use the fixed accessible palette and survive reconnect", a
   await page
     .getByRole("button", { name: "Sign in as Returning New Hire" })
     .click();
-  await expect(
-    page
-      .getByText("Connected — live updates available")
-      .filter({ visible: true }),
-  ).toBeVisible();
+  await expectOfficeConnected(page);
 
   await page.getByLabel("Message # General").fill("Please react to this memo");
   await page.getByRole("button", { name: "Send" }).click();
@@ -962,11 +882,7 @@ test("emoji reactions use the fixed accessible palette and survive reconnect", a
   await expect(trigger).toBeFocused();
 
   await page.reload();
-  await expect(
-    page
-      .getByText("Connected — live updates available")
-      .filter({ visible: true }),
-  ).toBeVisible();
+  await expectOfficeConnected(page);
   const replayedMessage = page.getByRole("listitem").filter({
     hasText: "Please react to this memo",
   });
@@ -978,11 +894,7 @@ test("emoji reactions use the fixed accessible palette and survive reconnect", a
   await expect(replayedReaction).toHaveCount(0);
 
   await page.reload();
-  await expect(
-    page
-      .getByText("Connected — live updates available")
-      .filter({ visible: true }),
-  ).toBeVisible();
+  await expectOfficeConnected(page);
   await expect(
     page.getByRole("listitem").filter({ hasText: "Please react to this memo" }),
   ).toBeVisible();
@@ -1006,10 +918,10 @@ test("a New Hire edits an Employee Record with accessible recovery and current a
   });
   await expect(historicalMessage.getByRole("strong")).toHaveText("Terry Byte");
 
-  const trigger = page.getByRole("button", { name: "Employee Record" });
+  const trigger = page.getByRole("button", { name: "Edit profile" });
   await trigger.click();
   const dialog = page.getByRole("dialog", {
-    name: "Confirm your Employee Record",
+    name: "Choose your name and picture",
   });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByLabel("First name")).toBeFocused();
@@ -1019,7 +931,7 @@ test("a New Hire edits an Employee Record with accessible recovery and current a
   await trigger.click();
   await dialog.getByLabel("First name").fill("A".repeat(40));
   await dialog.getByLabel("Last name").fill("B".repeat(50));
-  await dialog.getByRole("button", { name: "Save Employee Record" }).click();
+  await dialog.getByRole("button", { name: "Save profile" }).click();
   await expect(dialog.locator("#employee-first-name-error")).toContainText(
     "80 characters or fewer",
   );
@@ -1035,10 +947,10 @@ test("a New Hire edits an Employee Record with accessible recovery and current a
   });
   await dialog.getByLabel("First name").fill("Taylor");
   await dialog.getByLabel("Last name").fill("Byte");
-  const retry = dialog.getByRole("button", { name: "Retry Employee Record" });
+  const retry = dialog.getByRole("button", { name: "Try again" });
   await retry.click();
   const errorAlert = dialog.getByRole("alert");
-  await expect(errorAlert).toContainText("Clerk did not accept");
+  await expect(errorAlert).toContainText("We couldn't save your profile");
   await expect(dialog.getByLabel("First name")).toHaveValue("Taylor");
   await expect(errorAlert).toBeFocused();
 
@@ -1051,19 +963,17 @@ test("a New Hire edits an Employee Record with accessible recovery and current a
     form: { intent: "partially-update-next" },
   });
   await retry.click();
-  await expect(dialog.getByRole("alert")).toContainText("Clerk saved the name");
+  await expect(dialog.getByRole("alert")).toContainText(
+    "We couldn't save your profile",
+  );
   await expect(dialog.getByLabel("First name")).toHaveValue("Taylor");
 
   await page.request.post("/api/auth/mock-profile", {
     form: { intent: "delay-next-projection" },
   });
-  await dialog.getByRole("button", { name: "Retry Employee Record" }).click();
-  await expect(dialog.getByRole("status")).toContainText(
-    "Clerk saved the changes",
-  );
-  await expect(dialog.getByRole("status")).toContainText(
-    "updated in Clerk and the Shared Public Office",
-  );
+  await dialog.getByRole("button", { name: "Try again" }).click();
+  await expect(dialog.getByRole("status")).toContainText("still updating");
+  await expect(dialog.getByRole("status")).toContainText("Profile updated.");
   await dialog.getByRole("button", { name: "Done" }).click();
   await expect(trigger).toBeFocused();
 
@@ -1080,22 +990,18 @@ test("the complete Office Channel directory switches without losing per-channel 
   await page
     .getByRole("button", { name: "Sign in as Returning New Hire" })
     .click();
-  await expect(
-    page
-      .getByText("Connected — live updates available")
-      .filter({ visible: true }),
-  ).toBeVisible();
+  await expectOfficeConnected(page);
 
   const directory = page.getByRole("navigation", {
     name: "Office Channel directory",
   });
   await expect(directory.getByRole("button")).toHaveCount(5);
   await expect(directory.getByRole("button")).toHaveText([
-    /# general\s+General/,
-    /# watercooler\s+Watercooler/,
-    /# tech-support\s+Technical Support/,
-    /# urgent\s+Urgent/,
-    /# all-hands\s+All Hands/,
+    /# general/,
+    /# watercooler/,
+    /# tech-support/,
+    /# urgent/,
+    /# all-hands/,
   ]);
 
   const portalSession = await page.request.post("/api/office/portal/token");
@@ -1131,10 +1037,10 @@ test("the complete Office Channel directory switches without losing per-channel 
   await directory.getByRole("button", { name: /# all-hands/ }).click();
   await expect(
     page.getByText("System Events receive priority display."),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(
     page.getByText(/Broadcast mode changes presentation and presence only/),
-  ).toBeVisible();
+  ).toHaveCount(0);
   await expect(page.getByLabel("Message # All Hands")).toBeEnabled();
 });
 
@@ -1146,15 +1052,15 @@ test("Portal inbox attention reconciles across New Hires and visible desktop/mob
   await page
     .getByRole("button", { name: "Sign in as Returning New Hire" })
     .click();
-  await expect(page.getByText("Inbox current").first()).toBeVisible();
+  await expectOfficeConnected(page);
 
   const colleagueContext = await browser.newContext();
   const colleague = await colleagueContext.newPage();
   await colleague.goto("/office");
   await colleague.getByRole("button", { name: "Sign in as New Hire" }).click();
-  await colleague.getByRole("button", { name: "Save Employee Record" }).click();
+  await colleague.getByRole("button", { name: "Save profile" }).click();
   await colleague.getByRole("checkbox").check();
-  await colleague.getByRole("button", { name: "Accept and Continue" }).click();
+  await colleague.getByRole("button", { name: "Accept and continue" }).click();
   await colleague.getByRole("button", { name: "CLOCK IN" }).click();
 
   const readerDirectory = page.locator(
@@ -1178,11 +1084,7 @@ test("Portal inbox attention reconciles across New Hires and visible desktop/mob
     "New Hire: The coffee machine has requested legal representation.",
   );
   await expect(watercoolerRow).toHaveAccessibleName(/2 unread/);
-  await expect(
-    page.getByRole("button", {
-      name: "Focus Office Channel directory, 5 unread",
-    }),
-  ).toBeVisible();
+  await expect(page.locator(".office-taskbar")).toHaveCount(0);
 
   await watercoolerRow.click();
   await expect(
@@ -1195,7 +1097,7 @@ test("Portal inbox attention reconciles across New Hires and visible desktop/mob
   await page.request.post("/api/auth/mock-portal", {
     form: { intent: "offline" },
   });
-  await expect(page.getByText("Reconnecting inbox…").first()).toBeVisible();
+  await expect(page.getByText("Reconnecting…").first()).toBeVisible();
   await page.request.post("/api/auth/mock-portal", {
     form: { intent: "online" },
   });
@@ -1257,11 +1159,7 @@ test("an open office ends at midnight and reconnects only after a delayed contin
   await page
     .getByRole("button", { name: "Sign in as Returning New Hire" })
     .click();
-  await expect(
-    page
-      .getByText("Connected — live updates available")
-      .filter({ visible: true }),
-  ).toBeVisible();
+  await expectOfficeConnected(page);
 
   const oldComposer = page.getByLabel("Message # General");
   await oldComposer.fill("This stale draft must be cleared");
@@ -1269,7 +1167,7 @@ test("an open office ends at midnight and reconnects only after a delayed contin
   await page.clock.fastForward(1);
 
   const shiftEndedDialog = page.getByRole("dialog", {
-    name: "Your shift has ended",
+    name: "A new Office Day is ready",
   });
   await expect(shiftEndedDialog).toBeVisible();
   const continueButton = shiftEndedDialog.getByRole("button", {
@@ -1330,11 +1228,7 @@ test("history paginates backward without duplicates and displays canonical time 
 }) => {
   await page.goto("/office");
   await page.getByRole("button", { name: "Sign in as Operator" }).click();
-  await expect(
-    page
-      .getByText("Connected — live updates available")
-      .filter({ visible: true }),
-  ).toBeVisible();
+  await expectOfficeConnected(page);
 
   let latestTimestamp = 0;
   let earliestMessageId = "";
@@ -1363,11 +1257,7 @@ test("history paginates backward without duplicates and displays canonical time 
   expect(removal.status()).toBe(201);
 
   await page.reload();
-  await expect(
-    page
-      .getByText("Connected — live updates available")
-      .filter({ visible: true }),
-  ).toBeVisible();
+  await expectOfficeConnected(page);
   await expect(
     page.getByText("Pagination memo 1", { exact: true }),
   ).toHaveCount(0);
@@ -1418,11 +1308,7 @@ test("chat starts at the latest message and follows new messages only from the b
   }
 
   await page.reload();
-  await expect(
-    page
-      .getByText("Connected — live updates available")
-      .filter({ visible: true }),
-  ).toBeVisible();
+  await expectOfficeConnected(page);
   const historyRegion = page
     .locator(".chat-scroll-region")
     .filter({ visible: true });
@@ -1470,7 +1356,10 @@ test("interrupted setup resumes and the returning fixture enters the Office Day"
 }) => {
   await page.goto("/office");
   await page.getByRole("button", { name: "Sign in as New Hire" }).click();
-  await page.getByRole("button", { name: "Save Employee Record" }).click();
+  await page.getByRole("button", { name: "Save profile" }).click();
+  await expect(
+    page.getByRole("heading", { name: "Review the Code of Conduct" }),
+  ).toBeVisible();
   await page.reload();
   await expect(
     page.getByRole("heading", { name: "Review the Code of Conduct" }),
@@ -1482,7 +1371,7 @@ test("interrupted setup resumes and the returning fixture enters the Office Day"
     .getByRole("button", { name: "Sign in as Returning New Hire" })
     .click();
   await expect(page.getByText("Welcome, Terry Byte")).toBeVisible();
-  await expect(page.getByText("New Employee Setup Wizard")).toHaveCount(0);
+  await expect(page.getByText("New Hire Setup")).toHaveCount(0);
 });
 
 test("completed mock office remains usable at a mobile viewport", async ({
@@ -1506,5 +1395,5 @@ test("completed mock office remains usable at a mobile viewport", async ({
   await expect(page.getByLabel("Message # All Hands")).toBeVisible();
   await expect(
     page.getByText("System Events receive priority display."),
-  ).toBeVisible();
+  ).toHaveCount(0);
 });

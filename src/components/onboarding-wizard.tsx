@@ -39,7 +39,7 @@ export function OnboardingWizard({
       });
       const result = await response.json();
       if (!response.ok) {
-        setError(result.message ?? "New Employee Setup could not be saved.");
+        setError(result.message ?? "Your setup could not be saved.");
         return;
       }
       setOnboarding(result);
@@ -47,7 +47,7 @@ export function OnboardingWizard({
         router.refresh();
       }
     } catch {
-      setError("New Employee Setup is temporarily unavailable. Please retry.");
+      setError("Setup is temporarily unavailable. Please try again.");
     } finally {
       setPending(false);
     }
@@ -56,19 +56,13 @@ export function OnboardingWizard({
   return (
     <main className="onboarding-shell">
       {isMock ? (
-        <output className="mock-watermark">MOCK SERVICES - NO LIVE DATA</output>
+        <output className="mock-watermark">Development mode</output>
       ) : null}
       <section className="setup-window" aria-labelledby="setup-title">
         <header className="window-titlebar">
-          <span>New Employee Setup Wizard</span>
-          <span aria-hidden="true">? ×</span>
+          <span>New Hire Setup</span>
         </header>
         <div className="setup-body">
-          <aside className="setup-sidebar" aria-hidden="true">
-            <span className="setup-brand-word">PORTAL</span>
-            <strong className="setup-brand-word">SYSTEMS</strong>
-            <div className="setup-orb">P</div>
-          </aside>
           <div className="setup-content">
             <p className="setup-progress">
               Step {stepNumber[onboarding.step]} of 3
@@ -114,7 +108,6 @@ function ProfileStepForm({ onboarding, onProfileProjected }: StepFormProps) {
   return (
     <EmployeeRecordEditor
       advanceAfterSuccess
-      footer={<Assignment jobTitle={onboarding.jobTitle} />}
       headingId="setup-title"
       initialRecord={onboarding}
       onProjected={onProfileProjected}
@@ -122,33 +115,24 @@ function ProfileStepForm({ onboarding, onProfileProjected }: StepFormProps) {
   );
 }
 
-function ConductStepForm({
-  onboarding,
-  error,
-  pending,
-  onSubmit,
-}: StepFormProps) {
+function ConductStepForm({ error, pending, onSubmit }: StepFormProps) {
   return (
     <form onSubmit={onSubmit}>
       <input name="intent" type="hidden" value="accept-conduct" />
       <h1 id="setup-title">Review the Code of Conduct</h1>
-      <p>
-        The Shared Public Office is public. Keep it welcoming and remember that
-        a punchline is never more important than a person.
-      </p>
+      <p>The Shared Public Office is public. Help keep it welcoming.</p>
       <ul className="conduct-list">
-        <li>Be respectful; harassment and hate are not office supplies.</li>
-        <li>Share no secrets, credentials, or private information.</li>
-        <li>Use HR Reports for content that needs Operator review.</li>
+        <li>Be respectful.</li>
+        <li>Do not share secrets or private information.</li>
+        <li>Report anything that needs Operator review.</li>
       </ul>
       <label className="conduct-acceptance">
         <input name="accepted" required type="checkbox" value="yes" />I have
         read and agree to follow the Code of Conduct.
       </label>
-      <Assignment jobTitle={onboarding.jobTitle} />
       <WizardError message={error} />
       <Button disabled={pending} type="submit">
-        {pending ? "Recording..." : "Accept and Continue"}
+        {pending ? "Saving..." : "Accept and continue"}
       </Button>
     </form>
   );
@@ -164,10 +148,7 @@ function ClockInStepForm({
     <form onSubmit={onSubmit}>
       <input name="intent" type="hidden" value="clock-in" />
       <h1 id="setup-title">Your desk is almost ready</h1>
-      <p>
-        Employee Record confirmed. Conduct accepted. One final, legally
-        meaningless workplace ritual remains.
-      </p>
+      <p>You are ready to join the Shared Public Office.</p>
       <Assignment jobTitle={onboarding.jobTitle} />
       <WizardError message={error} />
       <Button
@@ -186,7 +167,7 @@ function ClockInStepForm({
 function Assignment({ jobTitle }: { jobTitle: string }) {
   return (
     <div className="assignment-card">
-      <span className="assignment-label">Your permanent assignment</span>
+      <span className="assignment-label">Your office title</span>
       <strong>{jobTitle}</strong>
     </div>
   );

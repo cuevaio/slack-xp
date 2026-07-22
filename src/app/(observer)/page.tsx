@@ -4,7 +4,7 @@ import { ObserverTeaser } from "@/components/observer-teaser";
 export const metadata: Metadata = {
   title: "Portal Messenger: Corporate Edition",
   description:
-    "Preview the Shared Public Office from a delightfully outdated Portal Systems desktop.",
+    "Meet your coworkers in a delightfully outdated shared online office.",
 };
 
 export default function ObserverPage() {

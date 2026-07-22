@@ -1,6 +1,7 @@
 import { officeChannelId } from "@/lib/portal/channels";
 
 export const CHAT_TEXT_LIMIT = 1_000;
+export const SETUP_VERIFIER_USER_ID = "portal-messenger-setup-verifier";
 
 export type PortalChatContent = {
   text: string;
@@ -21,6 +22,14 @@ export type SafePortalChatMessage = {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+export function isSetupVerificationMessage(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    isObject(value.sender) &&
+    value.sender.id === SETUP_VERIFIER_USER_ID
+  );
 }
 
 export function generalChannelId(now: Date = new Date()): string {
@@ -57,6 +66,7 @@ export function parsePortalChatMessage(
 ): SafePortalChatMessage | null {
   if (
     !isObject(value) ||
+    isSetupVerificationMessage(value) ||
     typeof value.id !== "string" ||
     value.id.length === 0 ||
     typeof value.channelId !== "string" ||

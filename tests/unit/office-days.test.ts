@@ -4,6 +4,7 @@ import {
   parseScriptedSystemEventMessage,
   planOfficeDay,
 } from "@/lib/office-days/contract";
+import { SETUP_VERIFIER_USER_ID } from "@/lib/portal/chat";
 import { parseOfficeChannelMessages } from "@/lib/portal/visible-messages";
 
 describe("scripted Office Days", () => {
@@ -100,5 +101,27 @@ describe("scripted Office Days", () => {
 
     expect(result.messages).toHaveLength(1);
     expect(result.invalidCount).toBe(0);
+  });
+
+  test("silently omits setup verification messages from Office Channel history", () => {
+    const result = parseOfficeChannelMessages(
+      [
+        {
+          id: "setup-message-1",
+          channelId: "general:2026-07-22",
+          sender: { id: SETUP_VERIFIER_USER_ID, anon: false },
+          timestamp: 1_753_184_800_000,
+          retracted: false,
+          ephemeral: false,
+          kind: "text",
+          type: "message",
+          status: "sent",
+          content: { text: "setup-verification:test-marker" },
+        },
+      ],
+      "general:2026-07-22",
+    );
+
+    expect(result).toEqual({ messages: [], invalidCount: 0 });
   });
 });

@@ -136,11 +136,10 @@ export function MessageRemovalControls({
           <form className="hr-report-dialog" onSubmit={submit}>
             <h2 id={titleId}>Remove this message?</h2>
             <p id={descriptionId}>
-              This creates a Removed Message tombstone in Portal Messenger. It
-              does not retract or erase the payload from Portal storage, and an
-              authorized direct Portal client may still retrieve it.
+              This hides the message in Portal Messenger, but does not
+              permanently erase it from the underlying message service.
             </p>
-            <label htmlFor={reasonId}>Private Operator reason</label>
+            <label htmlFor={reasonId}>Reason (private)</label>
             <Textarea
               id={reasonId}
               maxLength={MESSAGE_REMOVAL_PRIVATE_REASON_MAX_LENGTH}
@@ -150,13 +149,10 @@ export function MessageRemovalControls({
               rows={4}
               value={privateReason}
             />
-            <small>
-              Stored only in the private Operator audit; never published with
-              the Office Event.
-            </small>
+            <small>Only Operators can see this reason.</small>
             {error ? (
               <p className="chat-error" role="alert">
-                The message could not be removed. Operator access was rechecked.
+                The message could not be removed. Please try again.
               </p>
             ) : null}
             <div className="hr-report-dialog-actions">

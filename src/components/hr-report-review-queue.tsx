@@ -28,15 +28,27 @@ function reportPresentation(report: HRReportReviewItem) {
     return {
       categoryLabel: HR_REPORT_CATEGORY_LABELS[report.category],
       contextLabel: "Review message context",
-      title: "Message HR Report",
+      title: "Message report",
     };
   }
 
   return {
     categoryLabel: PROFILE_HR_REPORT_CATEGORY_LABELS[report.category],
-    contextLabel: "Review current New Hire Profile",
-    title: "New Hire Profile HR Report",
+    contextLabel: "Review profile",
+    title: "Profile report",
   };
+}
+
+const REPORT_STATE_LABELS: Record<HRReportReviewItem["state"], string> = {
+  open: "Open",
+  dismissed: "Dismissed",
+  removed: "Message removed",
+  actioned: "Action taken",
+};
+
+function inAppReportHref(href: string): string {
+  const url = new URL(href, "http://localhost");
+  return `${url.pathname}${url.search}${url.hash}`;
 }
 
 function HRReportResolution({ report }: { report: HRReportReviewItem }) {
@@ -44,9 +56,7 @@ function HRReportResolution({ report }: { report: HRReportReviewItem }) {
     case "dismissed":
       return (
         <div className="hr-review-resolution">
-          <small>
-            Dismissed by {report.resolution?.operatorId ?? "an Operator"}
-          </small>
+          <small>Dismissed by an Operator</small>
           {report.resolution?.privateNote ? (
             <p>
               <strong>Private note:</strong> {report.resolution.privateNote}
@@ -58,16 +68,13 @@ function HRReportResolution({ report }: { report: HRReportReviewItem }) {
       return (
         <div className="hr-review-resolution">
           <strong>Related message removed</strong>
-          <p>
-            This HR Report was resolved when an Operator created the Removed
-            Message projection.
-          </p>
+          <p>Resolved when the related message was removed.</p>
         </div>
       );
     case "actioned":
       return (
         <div className="hr-review-resolution">
-          <small>Employment action recorded by an Operator</small>
+          <small>Resolved by an Operator</small>
         </div>
       );
     default:
@@ -108,7 +115,7 @@ function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
           data-state={report.state}
           variant={report.state === "open" ? "warning" : "secondary"}
         >
-          {report.state}
+          {REPORT_STATE_LABELS[report.state]}
         </Badge>
       </div>
       <p>{presentation.categoryLabel}</p>
@@ -118,13 +125,11 @@ function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
           {formatOfficeTimestamp(Date.parse(report.createdAt))}
         </time>
       </small>
-      <a href={report.href}>{presentation.contextLabel}</a>
+      <a href={inAppReportHref(report.href)}>{presentation.contextLabel}</a>
       {report.state === "open" ? (
         <>
           <form onSubmit={submit}>
-            <label htmlFor={privateNoteId}>
-              Private Operator note (optional)
-            </label>
+            <label htmlFor={privateNoteId}>Private note (optional)</label>
             <Textarea
               id={privateNoteId}
               maxLength={HR_REPORT_PRIVATE_NOTE_MAX_LENGTH}
@@ -133,11 +138,11 @@ function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
               value={privateNote}
             />
             <Button disabled={dismissal.isPending} type="submit">
-              {dismissal.isPending ? "Dismissing…" : "Dismiss HR Report"}
+              {dismissal.isPending ? "Dismissing…" : "Dismiss report"}
             </Button>
             {dismissal.isError ? (
               <p role="alert">
-                Dismissal failed. Operator access was rechecked.
+                The report could not be dismissed. Please try again.
               </p>
             ) : null}
           </form>
@@ -169,11 +174,9 @@ export function HRReportReviewQueue({ enabled }: { enabled: boolean }) {
 
   return (
     <section aria-label="HR Report review queue" className="hr-review-queue">
-      <h2>HR Review Queue</h2>
-      {query.isPending ? <p>Loading private HR Reports…</p> : null}
-      {query.isError ? (
-        <p role="alert">The private HR Report queue is unavailable.</p>
-      ) : null}
+      <h2>HR Reports</h2>
+      {query.isPending ? <p>Loading reports…</p> : null}
+      {query.isError ? <p role="alert">HR Reports are unavailable.</p> : null}
       {query.data?.length === 0 ? <p>No HR Reports to review.</p> : null}
       {query.data && query.data.length > 0 ? (
         <ul>

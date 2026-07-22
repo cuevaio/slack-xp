@@ -1,5 +1,7 @@
 import {
   HR_REPORT_CATEGORIES,
+  HR_REPORT_PRIVATE_NOTE_MAX_LENGTH,
+  type HRReportDismissalRequest,
   type HRReportNotification,
   type HRReportNotificationContent,
   type HRReportStableContext,
@@ -51,12 +53,12 @@ export function isHRReportIdentifier(value: unknown): value is string {
 
 export function parseHRReportDismissalRequest(
   value: unknown,
-): { reportId: string; privateNote: string | null } | null {
+): HRReportDismissalRequest | null {
   if (!isObject(value) || !isHRReportIdentifier(value.reportId)) return null;
-  const keys = Object.keys(value);
   if (
-    keys.length > 2 ||
-    keys.some((key) => key !== "reportId" && key !== "privateNote")
+    Object.keys(value).some(
+      (key) => key !== "reportId" && key !== "privateNote",
+    )
   ) {
     return null;
   }
@@ -68,7 +70,7 @@ export function parseHRReportDismissalRequest(
   if (privateNote.length === 0) {
     return { reportId: value.reportId, privateNote: null };
   }
-  if (privateNote.length > 1_000) return null;
+  if (privateNote.length > HR_REPORT_PRIVATE_NOTE_MAX_LENGTH) return null;
   return { reportId: value.reportId, privateNote };
 }
 

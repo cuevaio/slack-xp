@@ -15,6 +15,7 @@ export const PROFILE_HR_REPORT_CATEGORIES = [
 
 export const HR_REPORT_NOTIFICATION_CHANNEL_ID = "hr-reports";
 export const HR_REPORT_NOTIFICATION_TYPE = "hr-report.ready";
+export const HR_REPORT_PRIVATE_NOTE_MAX_LENGTH = 1_000;
 export const MESSAGE_HR_REPORT_NOTIFICATION_TITLE =
   "Message HR Report ready for review";
 export const PROFILE_HR_REPORT_NOTIFICATION_TITLE =
@@ -33,6 +34,7 @@ export type HRReportCategory =
 export type HRReportState = "open" | "dismissed";
 export type HRReportSubjectType = "message" | "profile";
 export type HRReportOperatorAction = "dismissed";
+export type HRReportDismissalStatus = "dismissed" | "already-dismissed";
 export type HRReportInvalidationEvent = Extract<
   OfficeInvalidationEvent,
   { type: "report.invalidated" }
@@ -120,6 +122,37 @@ export type HRReportReviewRecord =
   | (ProfileHRReportStableContext &
       HRReportReviewRecordBase & { category: ProfileHRReportCategory });
 
+type SerializedHRReportResolution = Omit<
+  HRReportResolution,
+  "actedAt" | "createdAt"
+> & {
+  actedAt: string;
+  createdAt: string;
+};
+
+type SerializedHRReportReviewRecord<TRecord extends HRReportReviewRecord> =
+  TRecord extends HRReportReviewRecord
+    ? Omit<TRecord, "createdAt" | "updatedAt" | "resolution"> & {
+        href: string;
+        createdAt: string;
+        updatedAt: string;
+        resolution: SerializedHRReportResolution | null;
+      }
+    : never;
+
+export type HRReportReviewItem =
+  SerializedHRReportReviewRecord<HRReportReviewRecord>;
+
+export type HRReportDismissalRequest = {
+  reportId: string;
+  privateNote: string | null;
+};
+
+export type HRReportDismissalResponse = {
+  reportId: string;
+  status: HRReportDismissalStatus;
+};
+
 export type DismissHRReportInput = {
   actionId: string;
   reportId: string;
@@ -129,7 +162,7 @@ export type DismissHRReportInput = {
 };
 
 export type DismissHRReportResult = {
-  status: "dismissed" | "already-dismissed";
+  status: HRReportDismissalStatus;
   report: HRReportReviewRecord;
 };
 

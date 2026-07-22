@@ -8,28 +8,37 @@ import {
   useHRReportQueue,
 } from "@/lib/hr-reports/client";
 import {
+  HR_REPORT_PRIVATE_NOTE_MAX_LENGTH,
+  type HRReportReviewItem,
+} from "@/lib/hr-reports/contract";
+import {
   HR_REPORT_CATEGORY_LABELS,
   PROFILE_HR_REPORT_CATEGORY_LABELS,
 } from "@/lib/hr-reports/domain";
-import type { HRReportReviewItem } from "@/lib/hr-reports/service";
 import { invalidateOperatorState } from "@/lib/operators/client";
 import { formatOfficeTimestamp } from "@/lib/portal/office-day";
 
-function reportCategoryLabel(report: HRReportReviewItem): string {
-  return report.subjectType === "message"
-    ? HR_REPORT_CATEGORY_LABELS[report.category]
-    : PROFILE_HR_REPORT_CATEGORY_LABELS[report.category];
-}
+function reportPresentation(report: HRReportReviewItem) {
+  if (report.subjectType === "message") {
+    return {
+      categoryLabel: HR_REPORT_CATEGORY_LABELS[report.category],
+      contextLabel: "Review message context",
+      title: "Message HR Report",
+    };
+  }
 
-function reportContextLabel(report: HRReportReviewItem): string {
-  return report.subjectType === "message"
-    ? "Review message context"
-    : "Review current New Hire Profile";
+  return {
+    categoryLabel: PROFILE_HR_REPORT_CATEGORY_LABELS[report.category],
+    contextLabel: "Review current New Hire Profile",
+    title: "New Hire Profile HR Report",
+  };
 }
 
 function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
   const queryClient = useQueryClient();
   const [privateNote, setPrivateNote] = useState("");
+  const presentation = reportPresentation(report);
+  const privateNoteId = `hr-private-note-${report.reportId}`;
   const dismissal = useMutation({
     mutationFn: requestHRReportDismissal,
     onSuccess: () => {
@@ -52,31 +61,27 @@ function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
   return (
     <li className="hr-review-item">
       <div className="hr-review-heading">
-        <strong>
-          {report.subjectType === "message"
-            ? "Message HR Report"
-            : "New Hire Profile HR Report"}
-        </strong>
+        <strong>{presentation.title}</strong>
         <span className="hr-review-state" data-state={report.state}>
           {report.state}
         </span>
       </div>
-      <p>{reportCategoryLabel(report)}</p>
+      <p>{presentation.categoryLabel}</p>
       <small>
         Submitted{" "}
         <time dateTime={report.createdAt} title={report.createdAt}>
           {formatOfficeTimestamp(Date.parse(report.createdAt))}
         </time>
       </small>
-      <a href={report.href}>{reportContextLabel(report)}</a>
+      <a href={report.href}>{presentation.contextLabel}</a>
       {report.state === "open" ? (
         <form onSubmit={submit}>
-          <label htmlFor={`hr-private-note-${report.reportId}`}>
+          <label htmlFor={privateNoteId}>
             Private Operator note (optional)
           </label>
           <textarea
-            id={`hr-private-note-${report.reportId}`}
-            maxLength={1_000}
+            id={privateNoteId}
+            maxLength={HR_REPORT_PRIVATE_NOTE_MAX_LENGTH}
             onChange={(event) => setPrivateNote(event.currentTarget.value)}
             rows={3}
             value={privateNote}

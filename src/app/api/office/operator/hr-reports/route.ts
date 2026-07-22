@@ -17,8 +17,8 @@ export const runtime = "nodejs";
 
 type OperatorHRReportDependencies = {
   repository: HRReportRepository;
-  clerkUserId: string;
-  configuredUserIds?: string;
+  requesterId: string;
+  operatorUserIds?: string;
   appOrigin: string;
   now?: Date;
   publisher?: HRReportInvalidationPublisher;
@@ -28,31 +28,10 @@ const PRIVATE_NO_STORE_HEADERS = {
   "Cache-Control": "no-store, private",
 } as const;
 
-export async function handleOperatorHRReportRequest(
+async function handleHRReportDismissal(
   request: Request,
   dependencies: OperatorHRReportDependencies,
 ): Promise<Response> {
-  if (
-    !isOperatorUserId(dependencies.clerkUserId, dependencies.configuredUserIds)
-  ) {
-    return Response.json(
-      { error: "operator_required" },
-      { status: 403, headers: PRIVATE_NO_STORE_HEADERS },
-    );
-  }
-
-  if (request.method === "GET") {
-    const reports = await listHRReportsForReview(dependencies);
-    return Response.json({ reports }, { headers: PRIVATE_NO_STORE_HEADERS });
-  }
-
-  if (request.method !== "PATCH") {
-    return Response.json(
-      { error: "method_not_allowed" },
-      { status: 405, headers: PRIVATE_NO_STORE_HEADERS },
-    );
-  }
-
   const payload: unknown = await request.json().catch(() => null);
   const input = parseHRReportDismissalRequest(payload);
   if (!input) {
@@ -65,10 +44,10 @@ export async function handleOperatorHRReportRequest(
   try {
     const result = await dismissHRReport({
       repository: dependencies.repository,
-      operatorId: dependencies.clerkUserId,
+      operatorId: dependencies.requesterId,
       publisher: dependencies.publisher,
+      now: dependencies.now,
       ...input,
-      ...(dependencies.now ? { now: dependencies.now } : {}),
     });
     return Response.json(
       { reportId: result.report.reportId, status: result.status },
@@ -83,6 +62,34 @@ export async function handleOperatorHRReportRequest(
     }
     throw error;
   }
+}
+
+export async function handleOperatorHRReportRequest(
+  request: Request,
+  dependencies: OperatorHRReportDependencies,
+): Promise<Response> {
+  if (
+    !isOperatorUserId(dependencies.requesterId, dependencies.operatorUserIds)
+  ) {
+    return Response.json(
+      { error: "operator_required" },
+      { status: 403, headers: PRIVATE_NO_STORE_HEADERS },
+    );
+  }
+
+  if (request.method === "GET") {
+    const reports = await listHRReportsForReview(dependencies);
+    return Response.json({ reports }, { headers: PRIVATE_NO_STORE_HEADERS });
+  }
+
+  if (request.method === "PATCH") {
+    return handleHRReportDismissal(request, dependencies);
+  }
+
+  return Response.json(
+    { error: "method_not_allowed" },
+    { status: 405, headers: PRIVATE_NO_STORE_HEADERS },
+  );
 }
 
 async function handleAuthenticatedRequest(request: Request): Promise<Response> {
@@ -109,8 +116,8 @@ async function handleAuthenticatedRequest(request: Request): Promise<Response> {
 
   return handleOperatorHRReportRequest(request, {
     repository: adapters.neon,
-    clerkUserId: identity.id,
-    configuredUserIds: process.env.OPERATOR_CLERK_USER_IDS,
+    requesterId: identity.id,
+    operatorUserIds: process.env.OPERATOR_CLERK_USER_IDS,
     appOrigin: configuration.values.APP_ORIGIN ?? new URL(request.url).origin,
     publisher: adapters.portal,
   });

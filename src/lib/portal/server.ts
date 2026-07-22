@@ -133,8 +133,11 @@ export function createPortalControlPlane({
   };
 }
 
-type PortalProfilePublisherOptions = PortalControlPlaneOptions & {
+type PortalPublisherOptions = PortalControlPlaneOptions & {
   apiKey: string;
+};
+
+type PortalProfilePublisherOptions = PortalPublisherOptions & {
   now?: () => Date;
 };
 
@@ -265,7 +268,7 @@ export function createPortalHRReportInvalidationPublisher({
   apiKey,
   apiUrl = DEFAULT_PORTAL_API_URL,
   fetcher = fetch,
-}: Omit<PortalProfilePublisherOptions, "now">): HRReportInvalidationPublisher {
+}: PortalPublisherOptions): HRReportInvalidationPublisher {
   const controlPlane = createPortalControlPlane({ secret, apiUrl, fetcher });
   const publishPortalMessage = createPortalMessagePublisher({
     apiKey,
@@ -301,7 +304,7 @@ export function createPortalScriptedSystemEventPublisher({
   apiKey,
   apiUrl = DEFAULT_PORTAL_API_URL,
   fetcher = fetch,
-}: Omit<PortalProfilePublisherOptions, "now">): ScriptedSystemEventPublisher {
+}: PortalPublisherOptions): ScriptedSystemEventPublisher {
   const controlPlane = createPortalControlPlane({ secret, apiUrl, fetcher });
   const publishPortalMessage = createPortalMessagePublisher({
     apiKey,
@@ -348,7 +351,7 @@ export function createPortalHRReportNotificationPublisher({
   apiKey,
   apiUrl = DEFAULT_PORTAL_API_URL,
   fetcher = fetch,
-}: PortalProfilePublisherOptions): HRReportNotificationPublisher {
+}: PortalPublisherOptions): HRReportNotificationPublisher {
   const controlPlane = createPortalControlPlane({ secret, apiUrl, fetcher });
   const baseUrl = apiUrl.replace(/\/$/u, "");
 

@@ -105,6 +105,17 @@ type StoredHRReportNotification = {
   publishedAt: Date | null;
 };
 
+function compareHRReportsForReview(
+  left: StoredHRReport,
+  right: StoredHRReport,
+): number {
+  if (left.state !== right.state) {
+    return left.state === "open" ? -1 : 1;
+  }
+
+  return right.createdAt.getTime() - left.createdAt.getTime();
+}
+
 export type InMemoryNeonRepository = OnboardingRepository &
   ProfileRepository &
   OfficeDayRepository &
@@ -135,7 +146,7 @@ export function createInMemoryNeonRepository(
   >();
   const hrReports = new Map<string, StoredHRReport>();
   const hrReportNotifications = new Map<string, StoredHRReportNotification>();
-  const operatorActions = new Map<string, OperatorActionRecord>();
+  const operatorActionsByReportId = new Map<string, OperatorActionRecord>();
   let projectionWrites = 0;
   let profileBatchReads = 0;
 
@@ -333,20 +344,13 @@ export function createInMemoryNeonRepository(
 
     async listHRReports(limit) {
       return [...hrReports.values()]
-        .sort(
-          (left, right) =>
-            (left.state === right.state ? 0 : left.state === "open" ? -1 : 1) ||
-            right.createdAt.getTime() - left.createdAt.getTime(),
-        )
+        .sort(compareHRReportsForReview)
         .slice(0, limit)
         .flatMap((report): HRReportReviewRecord[] => {
-          const resolution = [...operatorActions.values()].find(
-            (action) => action.targetId === report.reportId,
-          );
+          const resolution = operatorActionsByReportId.get(report.reportId);
           const shared = {
             reportId: report.reportId,
             reporterId: report.reporterId,
-            category: report.category,
             state: report.state,
             createdAt: new Date(report.createdAt),
             updatedAt: new Date(report.updatedAt),
@@ -405,7 +409,7 @@ export function createInMemoryNeonRepository(
       }
       report.state = "dismissed";
       report.updatedAt = new Date(input.actedAt);
-      operatorActions.set(report.reportId, {
+      operatorActionsByReportId.set(report.reportId, {
         actionId: input.actionId,
         operatorId: input.operatorId,
         targetType: "hr_report",
@@ -497,7 +501,7 @@ export function createInMemoryNeonRepository(
     },
 
     operatorActionRecords() {
-      return [...operatorActions.values()];
+      return [...operatorActionsByReportId.values()];
     },
 
     reset() {
@@ -508,7 +512,7 @@ export function createInMemoryNeonRepository(
       systemEventOutbox.clear();
       hrReports.clear();
       hrReportNotifications.clear();
-      operatorActions.clear();
+      operatorActionsByReportId.clear();
       projectionWrites = 0;
       profileBatchReads = 0;
     },

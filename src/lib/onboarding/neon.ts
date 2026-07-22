@@ -24,6 +24,7 @@ import {
 import type {
   CreateHRReportInput,
   DismissHRReportInput,
+  HRReportResolution,
   HRReportReviewRecord,
   MessageHRReportCategory,
   PendingHRReportNotification,
@@ -348,100 +349,138 @@ export function buildOperatorActionInsertQuery(
     });
 }
 
+async function selectHRReportReviewRows(
+  database: Database,
+  limit: number,
+  reportId?: string,
+) {
+  return database
+    .select({
+      reportId: hrReports.reportId,
+      reporterId: hrReports.reporterId,
+      subjectType: hrReports.subjectType,
+      officeDay: hrReports.officeDay,
+      officeChannelId: hrReports.officeChannelId,
+      messageId: hrReports.messageId,
+      profileId: hrReports.profileId,
+      category: hrReports.category,
+      state: hrReports.state,
+      createdAt: hrReports.createdAt,
+      updatedAt: hrReports.updatedAt,
+      actionId: operatorActions.actionId,
+      operatorId: operatorActions.operatorId,
+      action: operatorActions.action,
+      privateNote: operatorActions.privateNote,
+      actedAt: operatorActions.actedAt,
+      actionCreatedAt: operatorActions.createdAt,
+    })
+    .from(hrReports)
+    .leftJoin(
+      operatorActions,
+      and(
+        eq(operatorActions.targetType, "hr_report"),
+        eq(operatorActions.targetId, hrReports.reportId),
+        eq(operatorActions.action, "dismissed"),
+      ),
+    )
+    .where(reportId ? eq(hrReports.reportId, reportId) : undefined)
+    .orderBy(
+      sql`case when ${hrReports.state} = 'open' then 0 else 1 end`,
+      desc(hrReports.createdAt),
+    )
+    .limit(limit);
+}
+
+type HRReportReviewRow = Awaited<
+  ReturnType<typeof selectHRReportReviewRows>
+>[number];
+
+function isHRReportReviewState(
+  state: string,
+): state is HRReportReviewRecord["state"] {
+  return state === "open" || state === "dismissed";
+}
+
+function toHRReportResolution(
+  row: HRReportReviewRow,
+): HRReportResolution | null {
+  if (
+    !row.actionId ||
+    !row.operatorId ||
+    row.action !== "dismissed" ||
+    !row.actedAt ||
+    !row.actionCreatedAt
+  ) {
+    return null;
+  }
+
+  return {
+    actionId: row.actionId,
+    operatorId: row.operatorId,
+    action: row.action,
+    privateNote: row.privateNote,
+    actedAt: row.actedAt,
+    createdAt: row.actionCreatedAt,
+  };
+}
+
+function toHRReportReviewRecord(
+  row: HRReportReviewRow,
+): HRReportReviewRecord | null {
+  if (
+    !isHRReportReviewState(row.state) ||
+    (row.action !== null && row.action !== "dismissed")
+  ) {
+    return null;
+  }
+
+  const shared = {
+    reportId: row.reportId,
+    reporterId: row.reporterId,
+    state: row.state,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    resolution: toHRReportResolution(row),
+  };
+
+  if (
+    row.subjectType === "message" &&
+    row.officeDay &&
+    row.officeChannelId &&
+    row.messageId
+  ) {
+    return {
+      ...shared,
+      subjectType: "message",
+      officeDay: row.officeDay,
+      officeChannelId: row.officeChannelId,
+      messageId: row.messageId,
+      category: row.category as MessageHRReportCategory,
+    };
+  }
+
+  if (row.subjectType === "profile" && row.profileId) {
+    return {
+      ...shared,
+      subjectType: "profile",
+      profileId: row.profileId,
+      category: row.category as ProfileHRReportCategory,
+    };
+  }
+
+  return null;
+}
 export function createNeonRepository(database: Database): NeonAdapter {
   async function listHRReportRows(
     limit: number,
     reportId?: string,
   ): Promise<HRReportReviewRecord[]> {
-    const rows = await database
-      .select({
-        reportId: hrReports.reportId,
-        reporterId: hrReports.reporterId,
-        subjectType: hrReports.subjectType,
-        officeDay: hrReports.officeDay,
-        officeChannelId: hrReports.officeChannelId,
-        messageId: hrReports.messageId,
-        profileId: hrReports.profileId,
-        category: hrReports.category,
-        state: hrReports.state,
-        createdAt: hrReports.createdAt,
-        updatedAt: hrReports.updatedAt,
-        actionId: operatorActions.actionId,
-        operatorId: operatorActions.operatorId,
-        action: operatorActions.action,
-        privateNote: operatorActions.privateNote,
-        actedAt: operatorActions.actedAt,
-        actionCreatedAt: operatorActions.createdAt,
-      })
-      .from(hrReports)
-      .leftJoin(
-        operatorActions,
-        and(
-          eq(operatorActions.targetType, "hr_report"),
-          eq(operatorActions.targetId, hrReports.reportId),
-          eq(operatorActions.action, "dismissed"),
-        ),
-      )
-      .where(reportId ? eq(hrReports.reportId, reportId) : undefined)
-      .orderBy(
-        sql`case when ${hrReports.state} = 'open' then 0 else 1 end`,
-        desc(hrReports.createdAt),
-      )
-      .limit(limit);
-
+    const rows = await selectHRReportReviewRows(database, limit, reportId);
     const reports: HRReportReviewRecord[] = [];
     for (const row of rows) {
-      if (
-        (row.state !== "open" && row.state !== "dismissed") ||
-        (row.action !== null && row.action !== "dismissed")
-      ) {
-        continue;
-      }
-      const resolution =
-        row.actionId &&
-        row.operatorId &&
-        row.action === "dismissed" &&
-        row.actedAt &&
-        row.actionCreatedAt
-          ? {
-              actionId: row.actionId,
-              operatorId: row.operatorId,
-              action: "dismissed" as const,
-              privateNote: row.privateNote,
-              actedAt: row.actedAt,
-              createdAt: row.actionCreatedAt,
-            }
-          : null;
-      const shared = {
-        reportId: row.reportId,
-        reporterId: row.reporterId,
-        category: row.category as HRReportReviewRecord["category"],
-        state: row.state as HRReportReviewRecord["state"],
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt,
-        resolution,
-      };
-      if (
-        row.subjectType === "message" &&
-        row.officeDay &&
-        row.officeChannelId &&
-        row.messageId
-      ) {
-        reports.push({
-          ...shared,
-          subjectType: "message",
-          officeDay: row.officeDay,
-          officeChannelId: row.officeChannelId,
-          messageId: row.messageId,
-          category: row.category as MessageHRReportCategory,
-        });
-      } else if (row.subjectType === "profile" && row.profileId) {
-        reports.push({
-          ...shared,
-          subjectType: "profile",
-          profileId: row.profileId,
-          category: row.category as ProfileHRReportCategory,
-        });
+      const report = toHRReportReviewRecord(row);
+      if (report) {
+        reports.push(report);
       }
     }
     return reports;

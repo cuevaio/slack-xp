@@ -42,8 +42,8 @@ describe("Operator HR Report server boundary", () => {
     const { repository, report } = await fixture();
     const dependencies = {
       repository,
-      clerkUserId: "user_attacker",
-      configuredUserIds: "user_operator",
+      requesterId: "user_attacker",
+      operatorUserIds: "user_operator",
       appOrigin: "https://office.example.com",
       now,
     };
@@ -71,14 +71,14 @@ describe("Operator HR Report server boundary", () => {
     const { repository, report } = await fixture();
     const base = {
       repository,
-      clerkUserId: "user_operator",
+      requesterId: "user_operator",
       appOrigin: "https://office.example.com",
       now,
     };
 
     const allowed = await handleOperatorHRReportRequest(request("GET"), {
       ...base,
-      configuredUserIds: "user_operator",
+      operatorUserIds: "user_operator",
     });
     expect(allowed.status).toBe(200);
     expect(await allowed.json()).toMatchObject({
@@ -87,7 +87,7 @@ describe("Operator HR Report server boundary", () => {
 
     const revoked = await handleOperatorHRReportRequest(
       request("PATCH", { reportId: report.reportId, privateNote: null }),
-      { ...base, configuredUserIds: "user_replacement" },
+      { ...base, operatorUserIds: "user_replacement" },
     );
     expect(revoked.status).toBe(403);
     expect(repository.hrReportRecords()[0]?.state).toBe("open");
@@ -97,8 +97,8 @@ describe("Operator HR Report server boundary", () => {
     const { repository, report } = await fixture();
     const dependencies = {
       repository,
-      clerkUserId: "user_operator",
-      configuredUserIds: "user_operator",
+      requesterId: "user_operator",
+      operatorUserIds: "user_operator",
       appOrigin: "https://office.example.com",
       now,
     };

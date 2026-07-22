@@ -7,6 +7,8 @@ import {
   type HRReportNotification,
   type HRReportNotificationPublisher,
   type HRReportRepository,
+  type HRReportReviewItem,
+  type HRReportReviewRecord,
   MESSAGE_HR_REPORT_NOTIFICATION_TITLE,
   type MessageHRReportCategory,
   type PendingHRReportNotification,
@@ -22,30 +24,6 @@ import {
 const HR_REPORT_OUTBOX_BATCH_SIZE = 50;
 const HR_REPORT_REVIEW_BATCH_SIZE = 50;
 
-type SerializedHRReportReview<
-  TReport extends Awaited<
-    ReturnType<HRReportRepository["listHRReports"]>
-  >[number],
-> = TReport extends TReport
-  ? Omit<TReport, "createdAt" | "updatedAt" | "resolution"> & {
-      href: string;
-      createdAt: string;
-      updatedAt: string;
-      resolution: {
-        actionId: string;
-        operatorId: string;
-        action: "dismissed";
-        privateNote: string | null;
-        actedAt: string;
-        createdAt: string;
-      } | null;
-    }
-  : never;
-
-export type HRReportReviewItem = SerializedHRReportReview<
-  Awaited<ReturnType<HRReportRepository["listHRReports"]>>[number]
->;
-
 export class HRReportReviewError extends Error {
   constructor(
     readonly code: "report_not_found",
@@ -58,7 +36,7 @@ export class HRReportReviewError extends Error {
 
 function toReviewItem(
   appOrigin: string,
-  report: Awaited<ReturnType<HRReportRepository["listHRReports"]>>[number],
+  report: HRReportReviewRecord,
 ): HRReportReviewItem {
   return {
     ...report,

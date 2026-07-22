@@ -7,9 +7,11 @@ import {
 } from "@tanstack/react-query";
 import {
   HR_REPORT_CATEGORIES,
+  type HRReportDismissalRequest,
+  type HRReportDismissalResponse,
+  type HRReportReviewItem,
   PROFILE_HR_REPORT_CATEGORIES,
 } from "@/lib/hr-reports/contract";
-import type { HRReportReviewItem } from "@/lib/hr-reports/service";
 
 export const hrReportQueueQueryKey = ["hr-report-review-queue"] as const;
 const HR_REPORT_REPAIR_INTERVAL_MS = 30_000;
@@ -106,10 +108,9 @@ export function useHRReportQueue(enabled: boolean) {
   return useQuery(hrReportQueueQueryOptions(enabled));
 }
 
-export async function requestHRReportDismissal(input: {
-  reportId: string;
-  privateNote: string | null;
-}): Promise<{ reportId: string; status: "dismissed" | "already-dismissed" }> {
+export async function requestHRReportDismissal(
+  input: HRReportDismissalRequest,
+): Promise<HRReportDismissalResponse> {
   const response = await fetch("/api/office/operator/hr-reports", {
     method: "PATCH",
     credentials: "include",

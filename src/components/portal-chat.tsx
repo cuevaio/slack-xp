@@ -1363,11 +1363,12 @@ function OfficeWorkspace({
   const inboxRowsByChannelId = new Map(
     inboxRows.map((row) => [row.channelId, row]),
   );
+  const unreadHRReportNotifications = hasOperatorAccess
+    ? reportNotifications.filter(({ read }) => !read).length
+    : 0;
   const totalUnread =
     inboxRows.reduce((total, row) => total + row.unread, 0) +
-    (hasOperatorAccess
-      ? reportNotifications.filter(({ read }) => !read).length
-      : 0);
+    unreadHRReportNotifications;
 
   useEffect(() => {
     if (isMobile !== true) return;
@@ -1647,15 +1648,18 @@ function LivePortalWorkspace({
   );
   const handleInvalidation = useCallback(
     (event: OfficeInvalidationEvent) => {
-      if (event.type === "profile.invalidated") {
-        void invalidateProfileBatches(queryClient, event.profileId);
-      } else if (event.type === "report.invalidated") {
-        void invalidateHRReportQueue(queryClient);
-      } else if (
-        event.type === "operator.invalidated" &&
-        event.operatorId === identityId
-      ) {
-        void invalidateOperatorState(queryClient);
+      switch (event.type) {
+        case "profile.invalidated":
+          void invalidateProfileBatches(queryClient, event.profileId);
+          break;
+        case "report.invalidated":
+          void invalidateHRReportQueue(queryClient);
+          break;
+        case "operator.invalidated":
+          if (event.operatorId === identityId) {
+            void invalidateOperatorState(queryClient);
+          }
+          break;
       }
     },
     [identityId, queryClient],

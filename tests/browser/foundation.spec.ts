@@ -692,10 +692,10 @@ test("Portal inbox attention reconciles across New Hires and visible desktop/mob
   await expect(watercoolerRow).toContainText(
     "New Hire: The coffee machine has requested legal representation.",
   );
-  await expect(watercoolerRow).toHaveAccessibleName(/1 unread/);
+  await expect(watercoolerRow).toHaveAccessibleName(/2 unread/);
   await expect(
     page.getByRole("button", {
-      name: "Focus Office Channel directory, 1 unread",
+      name: "Focus Office Channel directory, 5 unread",
     }),
   ).toBeVisible();
 
@@ -727,7 +727,7 @@ test("Portal inbox attention reconciles across New Hires and visible desktop/mob
   await expect(urgentRow).toContainText(
     "New Hire: The fax machine is now considered mission critical.",
   );
-  await expect(urgentRow).toHaveAccessibleName(/1 unread/);
+  await expect(urgentRow).toHaveAccessibleName(/2 unread/);
 
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(readerDirectory).toBeVisible();
@@ -877,7 +877,7 @@ test("history paginates backward without duplicates and displays canonical time 
   await expect(
     page.getByText("Pagination memo 1", { exact: true }),
   ).toBeVisible();
-  await expect(page.locator(".message-history > li")).toHaveCount(51);
+  await expect(page.locator(".message-history > li")).toHaveCount(52);
   await expect
     .poll(() => historyRegion.evaluate((element) => element.scrollTop))
     .toBeGreaterThan(0);

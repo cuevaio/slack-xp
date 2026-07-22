@@ -10,6 +10,7 @@ import {
 import { PortalProvider, useChannel, useInbox } from "@portalsdk/react";
 import {
   type FormEvent,
+  type KeyboardEvent,
   type ReactNode,
   useCallback,
   useEffect,
@@ -18,6 +19,15 @@ import {
   useState,
 } from "react";
 import { useOfficeEventSubscription } from "@/lib/office-events/client";
+import {
+  createReactionOfficeEvent,
+  createReactionProjection,
+  OFFICE_REACTIONS,
+  type OfficeReaction,
+  type ProjectedOfficeReaction,
+  parseOfficeEventMessage,
+  type ReactionOfficeEvent,
+} from "@/lib/office-events/contract";
 import type { OfficeChannel } from "@/lib/portal/channels";
 import {
   CHAT_TEXT_LIMIT,
@@ -68,7 +78,18 @@ type LivePortalOfficeProps = PortalOfficeBaseProps & {
 
 type PortalChatProps = MockPortalOfficeProps | LivePortalOfficeProps;
 
-type ChatSurfaceProps = {
+type ReactionMutation = Pick<
+  ReactionOfficeEvent,
+  "officeChannelId" | "messageId" | "reaction" | "operation"
+>;
+
+type ReactionProps = {
+  reactionEvents: readonly ReactionOfficeEvent[];
+  reactionsEnabled: boolean;
+  onReact(input: ReactionMutation): Promise<void>;
+};
+
+type ChatSurfaceProps = ReactionProps & {
   visible: boolean;
   readWhenVisible?: boolean;
   channel: OfficeChannel;
@@ -140,6 +161,15 @@ type ResponsiveOfficeNavigation = {
   conversationVisible: boolean;
   openMobileNavigation(): void;
   showConversation(): void;
+};
+
+const REACTION_NAMES: Record<OfficeReaction, string> = {
+  "👍": "Thumbs up",
+  "❤️": "Heart",
+  "😂": "Laughing",
+  "😮": "Surprised",
+  "😢": "Sad",
+  "🎉": "Celebrate",
 };
 
 function sendButtonCopy(isSending: boolean, hasError: boolean): string {
@@ -239,6 +269,16 @@ function prependUniqueMessages(
 
 function firstMessageId(messages: readonly unknown[]): string | undefined {
   return getMessageId(messages[0]);
+}
+
+function appendReactionEvent(
+  events: ReactionOfficeEvent[],
+  event: ReactionOfficeEvent,
+): ReactionOfficeEvent[] {
+  if (events.some(({ eventKey }) => eventKey === event.eventKey)) {
+    return events;
+  }
+  return [...events, event];
 }
 
 function parseMockHistoryPage(value: unknown): MockHistoryPage | null {
@@ -525,6 +565,23 @@ function useMockOfficeInbox(): MockOfficeInbox {
   };
 }
 
+async function fetchMockOfficeEvents(
+  eventChannelId: string,
+): Promise<ReactionOfficeEvent[]> {
+  const response = await fetch("/api/office/portal/mock-events", {
+    credentials: "include",
+    cache: "no-store",
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok || !Array.isArray(payload)) {
+    throw new Error("Mock Portal Office Event history unavailable");
+  }
+  return payload.flatMap((message) => {
+    const parsed = parseOfficeEventMessage(message, eventChannelId);
+    return parsed?.event.type === "reaction.changed" ? [parsed.event] : [];
+  });
+}
+
 function SafeMessageText({ text }: { text: string }) {
   let characterOffset = 0;
   return linkifyChatText(text).map((part) => {
@@ -540,12 +597,151 @@ function SafeMessageText({ text }: { text: string }) {
   });
 }
 
+function ReactionControls({
+  message,
+  reactions,
+  identityId,
+  enabled,
+  onReact,
+}: {
+  message: SafePortalChatMessage;
+  reactions: readonly ProjectedOfficeReaction[];
+  identityId: string;
+  enabled: boolean;
+  onReact(input: ReactionMutation): Promise<void>;
+}) {
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const firstReactionRef = useRef<HTMLButtonElement>(null);
+  const pickerId = `reaction-picker-${message.id}`;
+
+  useEffect(() => {
+    if (pickerOpen) {
+      firstReactionRef.current?.focus();
+    }
+  }, [pickerOpen]);
+
+  function operationFor(reaction: OfficeReaction): "add" | "remove" {
+    return reactions
+      .find((entry) => entry.reaction === reaction)
+      ?.actorIds.includes(identityId)
+      ? "remove"
+      : "add";
+  }
+
+  async function updateReaction(reaction: OfficeReaction): Promise<void> {
+    setError(null);
+    setIsUpdating(true);
+    let saved = false;
+    try {
+      await onReact({
+        officeChannelId: message.channelId,
+        messageId: message.id,
+        reaction,
+        operation: operationFor(reaction),
+      });
+      setPickerOpen(false);
+      saved = true;
+    } catch {
+      setError("Reaction not saved. Choose it again to retry.");
+    } finally {
+      setIsUpdating(false);
+      if (saved) {
+        requestAnimationFrame(() => triggerRef.current?.focus());
+      }
+    }
+  }
+
+  function handlePickerKeyDown(
+    event: KeyboardEvent<HTMLFieldSetElement>,
+  ): void {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setPickerOpen(false);
+      triggerRef.current?.focus();
+    }
+  }
+
+  return (
+    <div className="reaction-controls">
+      <fieldset className="reaction-summary">
+        <legend className="sr-only">Message reactions</legend>
+        {reactions.map(({ reaction, actorIds }) => {
+          const ownReaction = actorIds.includes(identityId);
+          return (
+            <button
+              aria-label={`${REACTION_NAMES[reaction]}: ${actorIds.length} reaction${actorIds.length === 1 ? "" : "s"}. ${ownReaction ? "Remove your reaction" : "Add your reaction"}.`}
+              aria-pressed={ownReaction}
+              className="reaction-count-button"
+              disabled={!enabled || isUpdating}
+              key={reaction}
+              onClick={() => void updateReaction(reaction)}
+              type="button"
+            >
+              <span aria-hidden="true">{reaction}</span>
+              <span>{actorIds.length}</span>
+            </button>
+          );
+        })}
+      </fieldset>
+      <button
+        aria-controls={pickerId}
+        aria-expanded={pickerOpen}
+        className="reaction-picker-trigger"
+        disabled={!enabled || isUpdating}
+        onClick={() => setPickerOpen((current) => !current)}
+        ref={triggerRef}
+        type="button"
+      >
+        <span aria-hidden="true">+</span>
+        <span className="sr-only">Add or remove a reaction</span>
+      </button>
+      {pickerOpen ? (
+        <fieldset
+          className="reaction-picker"
+          id={pickerId}
+          onKeyDown={handlePickerKeyDown}
+        >
+          <legend className="sr-only">Choose a reaction</legend>
+          {OFFICE_REACTIONS.map((reaction, index) => {
+            const operation = operationFor(reaction);
+            return (
+              <button
+                aria-label={`${REACTION_NAMES[reaction]} (${reaction}), ${operation} reaction`}
+                aria-pressed={operation === "remove"}
+                disabled={isUpdating}
+                key={reaction}
+                onClick={() => void updateReaction(reaction)}
+                ref={index === 0 ? firstReactionRef : undefined}
+                type="button"
+              >
+                <span aria-hidden="true">{reaction}</span>
+              </button>
+            );
+          })}
+        </fieldset>
+      ) : null}
+      {isUpdating ? <span className="sr-only">Saving reaction</span> : null}
+      {error ? (
+        <small className="reaction-error" role="alert">
+          {error}
+        </small>
+      ) : null}
+    </div>
+  );
+}
+
 function MessageHistory({
   channel,
   messages,
   identityId,
   displayName,
-}: {
+  reactionEvents,
+  reactionsEnabled,
+  onReact,
+}: ReactionProps & {
   channel: OfficeChannel;
   messages: readonly SafePortalChatMessage[];
   identityId: string;
@@ -560,6 +756,17 @@ function MessageHistory({
         </p>
       </div>
     );
+  }
+
+  const visibleMessageIds = new Set(
+    messages.filter(({ status }) => status === "sent").map(({ id }) => id),
+  );
+  const projection = createReactionProjection({
+    isValidTarget: (officeChannelId, messageId) =>
+      officeChannelId === channel.id && visibleMessageIds.has(messageId),
+  });
+  for (const event of reactionEvents) {
+    projection.apply(event);
   }
 
   return (
@@ -590,6 +797,15 @@ function MessageHistory({
           {message.status === "pending" ? <small>Sending…</small> : null}
           {message.status === "failed" ? (
             <small role="alert">Not delivered. Retry from the composer.</small>
+          ) : null}
+          {message.status === "sent" ? (
+            <ReactionControls
+              enabled={reactionsEnabled}
+              identityId={identityId}
+              message={message}
+              onReact={onReact}
+              reactions={projection.read(channel.id, message.id)}
+            />
           ) : null}
         </li>
       ))}
@@ -642,6 +858,9 @@ function ChatSurface({
   presence,
   typingUserIds,
   onTyping,
+  reactionEvents,
+  reactionsEnabled,
+  onReact,
   onSend,
   onRetryConnection,
   loadPrevious,
@@ -737,11 +956,18 @@ function ChatSurface({
     const previousHeight = region?.scrollHeight ?? 0;
     const previousTop = region?.scrollTop ?? 0;
     await loadPrevious();
-    requestAnimationFrame(() => {
-      if (region) {
-        region.scrollTop = previousTop + region.scrollHeight - previousHeight;
+    if (!region) return;
+    let remainingFrames = 10;
+    const restoreScrollPosition = () => {
+      const nextHeight = region.scrollHeight;
+      if (nextHeight === previousHeight && remainingFrames > 0) {
+        remainingFrames -= 1;
+        requestAnimationFrame(restoreScrollPosition);
+        return;
       }
-    });
+      region.scrollTop = previousTop + nextHeight - previousHeight;
+    };
+    requestAnimationFrame(restoreScrollPosition);
   }
 
   const canPublish = isChatContentReady(status);
@@ -825,6 +1051,9 @@ function ChatSurface({
           displayName={displayName}
           identityId={identityId}
           messages={messages}
+          onReact={onReact}
+          reactionEvents={reactionEvents}
+          reactionsEnabled={reactionsEnabled}
         />
       </div>
 
@@ -1015,7 +1244,10 @@ function LiveOfficeChannel({
   identityId,
   displayName,
   onInboxRead,
-}: {
+  onReact,
+  reactionEvents,
+  reactionsEnabled,
+}: ReactionProps & {
   visible: boolean;
   channel: OfficeChannel;
   identityId: string;
@@ -1042,11 +1274,14 @@ function LiveOfficeChannel({
       loadPrevious={channel.loadPrevious}
       messages={channel.messages}
       onTyping={channel.sendTyping}
+      onReact={onReact}
       onRetryConnection={() => window.location.reload()}
       onContentVisible={markVisibleContentRead}
       onSend={async (text) => {
         await channel.send({ content: validateChatDraft(text) });
       }}
+      reactionEvents={reactionEvents}
+      reactionsEnabled={reactionsEnabled}
       status={channel.status}
       presence={channel.presence}
       typingUserIds={channel.typing}
@@ -1055,27 +1290,70 @@ function LiveOfficeChannel({
   );
 }
 
-function ignoreOfficeEvent(): void {}
+function ignoreOfficeInvalidation(): void {}
 
-function OfficeEventAttentionGuard({ channelId }: { channelId: string }) {
-  useOfficeEventSubscription({
-    channelId,
-    onReaction: ignoreOfficeEvent,
-    onInvalidation: ignoreOfficeEvent,
-  });
-  return null;
+function useReactionPublisher({
+  identityId,
+  eventChannelId,
+  publish,
+}: {
+  identityId: string;
+  eventChannelId: string;
+  publish(event: ReactionOfficeEvent): Promise<void>;
+}): (input: ReactionMutation) => Promise<void> {
+  const lastTimestamp = useRef(0);
+  const retryEvents = useRef(new Map<string, ReactionOfficeEvent>());
+
+  return useCallback(
+    async (input: ReactionMutation) => {
+      const retryPrefix = [
+        input.officeChannelId,
+        input.messageId,
+        input.reaction,
+      ].join("\u0000");
+      const retryKey = `${retryPrefix}\u0000${input.operation}`;
+      const oppositeOperation = input.operation === "add" ? "remove" : "add";
+      retryEvents.current.delete(`${retryPrefix}\u0000${oppositeOperation}`);
+      let event = retryEvents.current.get(retryKey);
+      if (!event) {
+        const timestamp = Math.max(Date.now(), lastTimestamp.current + 1);
+        lastTimestamp.current = timestamp;
+        event = createReactionOfficeEvent({
+          ...input,
+          mutationId: crypto.randomUUID(),
+          occurredAt: new Date(timestamp).toISOString(),
+          officeDay: eventChannelId.slice(0, 10),
+          actorId: identityId,
+        });
+        retryEvents.current.set(retryKey, event);
+      }
+      await publish(event);
+      retryEvents.current.delete(retryKey);
+    },
+    [eventChannelId, identityId, publish],
+  );
 }
 
-function LivePortalWorkspace(props: Omit<LivePortalOfficeProps, "mode">) {
-  const {
-    channels,
-    identityId,
-    displayName,
-    employeeRecord,
-    jobTitle,
-    isOperator,
-    canSignOut,
-  } = props;
+function LivePortalWorkspace({
+  channels,
+  identityId,
+  displayName,
+  employeeRecord,
+  eventChannelId,
+  jobTitle,
+  isOperator,
+  canSignOut,
+}: Omit<LivePortalOfficeProps, "mode" | "publishableKey">) {
+  const [reactionEvents, setReactionEvents] = useState<ReactionOfficeEvent[]>(
+    [],
+  );
+  const { status: eventStatus, publishReaction } = useOfficeEventSubscription({
+    channelId: eventChannelId,
+    onReaction: (event) => {
+      setReactionEvents((current) => appendReactionEvent(current, event));
+    },
+    onInvalidation: ignoreOfficeInvalidation,
+  });
   const [activeChannelId, setActiveChannelId] = useState(channels[0]?.id ?? "");
   const navigation = useResponsiveOfficeNavigation();
   const inbox = useInbox();
@@ -1105,6 +1383,15 @@ function LivePortalWorkspace(props: Omit<LivePortalOfficeProps, "mode">) {
     },
     [navigation.showConversation],
   );
+  const updateReaction = useReactionPublisher({
+    identityId,
+    eventChannelId,
+    publish: publishReaction,
+  });
+  const reactionsEnabled =
+    eventStatus === "ready" ||
+    eventStatus === "degraded" ||
+    eventStatus === "degraded-http";
 
   return (
     <OfficeWorkspace
@@ -1129,6 +1416,9 @@ function LivePortalWorkspace(props: Omit<LivePortalOfficeProps, "mode">) {
           identityId={identityId}
           key={channel.id}
           onInboxRead={markInboxRead}
+          onReact={updateReaction}
+          reactionEvents={reactionEvents}
+          reactionsEnabled={reactionsEnabled}
           visible={
             navigation.conversationVisible && channel.id === activeChannelId
           }
@@ -1149,7 +1439,6 @@ function LivePortalOffice(props: Omit<LivePortalOfficeProps, "mode">) {
 
   return (
     <PortalProvider client={portal}>
-      <OfficeEventAttentionGuard channelId={props.eventChannelId} />
       <LivePortalWorkspace {...props} />
     </PortalProvider>
   );
@@ -1162,7 +1451,10 @@ function MockOfficeChannel({
   displayName,
   latestActivityAt,
   onContentVisible,
-}: {
+  onReact,
+  reactionEvents,
+  reactionsEnabled,
+}: ReactionProps & {
   visible: boolean;
   channel: OfficeChannel;
   identityId: string;
@@ -1280,12 +1572,15 @@ function MockOfficeChannel({
       messages={messages}
       onTyping={() => {}}
       onContentVisible={() => onContentVisible(channel.id)}
+      onReact={onReact}
       onRetryConnection={() => {
         setReadWhenVisible(false);
         void loadMockHistory().then(setReadWhenVisible);
       }}
       onSend={sendMessage}
       readWhenVisible={readWhenVisible}
+      reactionEvents={reactionEvents}
+      reactionsEnabled={reactionsEnabled}
       status={status}
       presence={
         channel.mode === "broadcast"
@@ -1308,6 +1603,7 @@ function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
     identityId,
     displayName,
     employeeRecord,
+    eventChannelId,
     jobTitle,
     isOperator,
     canSignOut,
@@ -1339,6 +1635,59 @@ function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
     (channelId: string) => void inbox.markAsRead(channelId),
     [inbox.markAsRead],
   );
+  const [reactionEvents, setReactionEvents] = useState<ReactionOfficeEvent[]>(
+    [],
+  );
+  const [reactionStatus, setReactionStatus] =
+    useState<ChannelStatus>("connecting");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadReactionHistory(): Promise<void> {
+      try {
+        const events = await fetchMockOfficeEvents(eventChannelId);
+        if (!cancelled) {
+          setReactionEvents(events);
+          setReactionStatus("ready");
+        }
+      } catch {
+        if (!cancelled) {
+          setReactionEvents([]);
+          setReactionStatus("reconnecting");
+        }
+      }
+    }
+    void loadReactionHistory();
+    return () => {
+      cancelled = true;
+    };
+  }, [eventChannelId]);
+
+  const publishMockReaction = useCallback(
+    async (event: ReactionOfficeEvent): Promise<void> => {
+      const response = await fetch("/api/office/portal/mock-events", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(event),
+      });
+      const message: unknown = await response.json().catch(() => null);
+      const parsed = parseOfficeEventMessage(message, eventChannelId);
+      if (!response.ok || parsed?.event.type !== "reaction.changed") {
+        throw new Error("Mock Portal reaction publish unavailable");
+      }
+      const reactionEvent = parsed.event;
+      setReactionEvents((current) =>
+        appendReactionEvent(current, reactionEvent),
+      );
+    },
+    [eventChannelId],
+  );
+  const updateReaction = useReactionPublisher({
+    identityId,
+    eventChannelId,
+    publish: publishMockReaction,
+  });
 
   return (
     <OfficeWorkspace
@@ -1366,6 +1715,9 @@ function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
             inboxRowsByChannelId.get(channel.id)?.preview?.at ?? 0
           }
           onContentVisible={markInboxRead}
+          onReact={updateReaction}
+          reactionEvents={reactionEvents}
+          reactionsEnabled={reactionStatus === "ready"}
           visible={
             navigation.conversationVisible && channel.id === activeChannelId
           }

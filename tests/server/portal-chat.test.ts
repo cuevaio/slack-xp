@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { officeEventChannelId } from "@/lib/office-events/contract";
+import {
+  createReactionOfficeEvent,
+  createReactionProjection,
+  officeEventChannelId,
+  type ReactionOfficeEvent,
+} from "@/lib/office-events/contract";
 import { createMockPortalAdapter } from "@/lib/portal/mock";
 import { createPortalControlPlane } from "@/lib/portal/server";
 import {
@@ -334,5 +339,145 @@ describe("controlled Portal adapter", () => {
     expect(combined.map(({ content }) => content.text)).toEqual(
       Array.from({ length: 55 }, (_, index) => `Memo ${index + 1}`),
     );
+  });
+
+  test("persists authoritative reactions for connected clients and replay without visible unread activity", async () => {
+    let tick = 0;
+    const portal = createMockPortalAdapter({
+      now: () => new Date(1_753_184_800_000 + tick++),
+    });
+    const officeChannelId = "general:2026-07-22";
+    const eventChannelId = "2026-07-22:office-events";
+    for (const userId of ["user_reactor", "user_observer"]) {
+      for (const channelId of [officeChannelId, eventChannelId]) {
+        await portal.ensureMembership({
+          channelId,
+          userId,
+          claims: { username: userId, avatar: null },
+        });
+      }
+    }
+    const target = await portal.sendMessage({
+      channelId: officeChannelId,
+      senderId: "user_reactor",
+      content: { text: "React to this persistent memo" },
+    });
+    const event = createReactionOfficeEvent({
+      mutationId: "reaction-mutation-1",
+      occurredAt: "2026-07-22T12:00:01.000Z",
+      officeDay: "2026-07-22",
+      officeChannelId,
+      messageId: target.id,
+      actorId: "user_reactor",
+      reaction: "🎉",
+      operation: "add",
+    });
+    const firstClient = createReactionProjection();
+    const secondClient = createReactionProjection();
+    const deliveries: ReactionOfficeEvent[] = [];
+    portal.subscribeOfficeEvents(eventChannelId, "user_reactor", (message) => {
+      deliveries.push(message.content);
+      firstClient.apply(message.content);
+    });
+    const disconnectSecondClient = portal.subscribeOfficeEvents(
+      eventChannelId,
+      "user_observer",
+      (message) => secondClient.apply(message.content),
+    );
+
+    await portal.sendOfficeEvent({
+      channelId: eventChannelId,
+      senderId: "user_reactor",
+      content: event,
+    });
+    expect(firstClient.read(officeChannelId, target.id)).toEqual([
+      { reaction: "🎉", actorIds: ["user_reactor"] },
+    ]);
+    expect(secondClient.read(officeChannelId, target.id)).toEqual([
+      { reaction: "🎉", actorIds: ["user_reactor"] },
+    ]);
+    expect(deliveries).toEqual([event]);
+    expect(portal.unreadCount(officeChannelId, "user_observer")).toBe(1);
+    expect(portal.unreadCount(eventChannelId, "user_observer")).toBe(1);
+
+    disconnectSecondClient();
+    await portal.sendOfficeEvent({
+      channelId: eventChannelId,
+      senderId: "user_reactor",
+      content: event,
+    });
+    expect(firstClient.read(officeChannelId, target.id)).toEqual([
+      { reaction: "🎉", actorIds: ["user_reactor"] },
+    ]);
+    expect(portal.unreadCount(officeChannelId, "user_observer")).toBe(1);
+
+    const reconnectedClient = createReactionProjection();
+    for (const message of await portal.officeEventHistory(eventChannelId)) {
+      reconnectedClient.apply(message.content);
+    }
+    expect(reconnectedClient.read(officeChannelId, target.id)).toEqual([
+      { reaction: "🎉", actorIds: ["user_reactor"] },
+    ]);
+  });
+
+  test("rejects reaction impersonation and invalid or cross-channel targets", async () => {
+    const portal = createMockPortalAdapter({
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+    const officeChannelId = "general:2026-07-22";
+    const eventChannelId = "2026-07-22:office-events";
+    for (const channelId of [officeChannelId, eventChannelId]) {
+      await portal.ensureMembership({
+        channelId,
+        userId: "user_reactor",
+        claims: { username: "Reactor", avatar: null },
+      });
+    }
+    const target = await portal.sendMessage({
+      channelId: officeChannelId,
+      senderId: "user_reactor",
+      content: { text: "Valid target" },
+    });
+    const event = createReactionOfficeEvent({
+      mutationId: "reaction-mutation-valid",
+      occurredAt: "2026-07-22T12:00:01.000Z",
+      officeDay: "2026-07-22",
+      officeChannelId,
+      messageId: target.id,
+      actorId: "user_reactor",
+      reaction: "👍",
+      operation: "remove",
+    });
+
+    await expect(
+      portal.sendOfficeEvent({
+        channelId: eventChannelId,
+        senderId: "user_impersonator",
+        content: event,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      portal.sendOfficeEvent({
+        channelId: eventChannelId,
+        senderId: "user_reactor",
+        content: {
+          ...event,
+          eventKey: "office-event:v1:reaction.changed:missing-target",
+          messageId: "message-missing",
+        },
+      }),
+    ).rejects.toThrow("target");
+    await expect(
+      portal.sendOfficeEvent({
+        channelId: eventChannelId,
+        senderId: "user_reactor",
+        content: {
+          ...event,
+          eventKey: "office-event:v1:reaction.changed:cross-channel",
+          officeChannelId: "watercooler:2026-07-22",
+        },
+      }),
+    ).rejects.toThrow("target");
+    expect(await portal.officeEventHistory(eventChannelId)).toEqual([]);
   });
 });

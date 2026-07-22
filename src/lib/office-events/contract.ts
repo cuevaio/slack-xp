@@ -28,6 +28,7 @@ type OfficeEventBase<TType extends OfficeEventType> = {
 };
 
 export type ReactionOfficeEvent = OfficeEventBase<"reaction.changed"> & {
+  officeDay: string;
   officeChannelId: string;
   messageId: string;
   actorId: string;
@@ -143,6 +144,7 @@ function isReactionOfficeEvent(value: unknown): value is ReactionOfficeEvent {
   return (
     hasExactKeys(value, [
       ...BASE_KEYS,
+      "officeDay",
       "officeChannelId",
       "messageId",
       "actorId",
@@ -150,8 +152,11 @@ function isReactionOfficeEvent(value: unknown): value is ReactionOfficeEvent {
       "operation",
     ]) &&
     hasValidBase(value, "reaction.changed") &&
+    typeof value.officeDay === "string" &&
+    isValidOfficeDay(value.officeDay) &&
     isIdentifier(value.officeChannelId) &&
     !value.officeChannelId.endsWith(":office-events") &&
+    value.officeChannelId.endsWith(`:${value.officeDay}`) &&
     isIdentifier(value.messageId) &&
     isIdentifier(value.actorId) &&
     OFFICE_REACTIONS.some((reaction) => reaction === value.reaction) &&
@@ -238,6 +243,38 @@ export function createOfficeEventKey(
   return `${officeEventKeyPrefix(type)}${sourceId}`;
 }
 
+export function createReactionOfficeEvent({
+  mutationId,
+  occurredAt,
+  officeDay,
+  officeChannelId,
+  messageId,
+  actorId,
+  reaction,
+  operation,
+}: Omit<ReactionOfficeEvent, "version" | "type" | "eventKey"> & {
+  mutationId: string;
+}): ReactionOfficeEvent {
+  const event: ReactionOfficeEvent = {
+    version: OFFICE_EVENT_VERSION,
+    type: "reaction.changed",
+    eventKey: createOfficeEventKey("reaction.changed", mutationId),
+    occurredAt,
+    officeDay,
+    officeChannelId,
+    messageId,
+    actorId,
+    reaction,
+    operation,
+  };
+  if (!isReactionOfficeEvent(event)) {
+    throw new TypeError(
+      "A valid reaction mutation in the same Office Day and Office Channel is required.",
+    );
+  }
+  return event;
+}
+
 export function parseOfficeEvent(value: unknown): OfficeEvent | null {
   const size = serializedSize(value);
   if (!isObject(value) || size === null || size > OFFICE_EVENT_PAYLOAD_LIMIT) {
@@ -301,7 +338,8 @@ export function parseOfficeEventMessage(
   if (!event || !isTrustedSender(event, value.sender.id)) return null;
   if (
     event.type === "reaction.changed" &&
-    !event.officeChannelId.endsWith(`:${expectedChannelId.slice(0, 10)}`)
+    (event.officeDay !== expectedChannelId.slice(0, 10) ||
+      !event.officeChannelId.endsWith(`:${event.officeDay}`))
   ) {
     return null;
   }
@@ -369,38 +407,43 @@ export type OfficeReactionProjection = {
   ): readonly ProjectedOfficeReaction[];
 };
 
-export function createReactionProjection(): OfficeReactionProjection {
+export function createReactionProjection({
+  isValidTarget = () => true,
+}: {
+  isValidTarget?: (officeChannelId: string, messageId: string) => boolean;
+} = {}): OfficeReactionProjection {
   const seenEventKeys = new Set<string>();
-  const reactions = new Map<string, Map<OfficeReaction, Set<string>>>();
+  const latestEvents = new Map<string, ReactionOfficeEvent>();
 
-  function messageKey(officeChannelId: string, messageId: string): string {
-    return `${officeChannelId}\u0000${messageId}`;
+  function reactionStateKey(event: ReactionOfficeEvent): string {
+    return [
+      event.officeChannelId,
+      event.messageId,
+      event.reaction,
+      event.actorId,
+    ].join("\u0000");
+  }
+
+  function isLaterEvent(
+    event: ReactionOfficeEvent,
+    previous: ReactionOfficeEvent,
+  ): boolean {
+    if (event.occurredAt !== previous.occurredAt) {
+      return event.occurredAt > previous.occurredAt;
+    }
+    return event.eventKey > previous.eventKey;
   }
 
   return {
     apply(event: ReactionOfficeEvent): boolean {
       if (seenEventKeys.has(event.eventKey)) return false;
+      if (!isValidTarget(event.officeChannelId, event.messageId)) return false;
       seenEventKeys.add(event.eventKey);
 
-      const key = messageKey(event.officeChannelId, event.messageId);
-      const messageReactions = reactions.get(key) ?? new Map();
-      const actors = messageReactions.get(event.reaction) ?? new Set();
-      if (event.operation === "add") {
-        actors.add(event.actorId);
-      } else {
-        actors.delete(event.actorId);
-      }
-
-      if (actors.size > 0) {
-        messageReactions.set(event.reaction, actors);
-      } else {
-        messageReactions.delete(event.reaction);
-      }
-      if (messageReactions.size > 0) {
-        reactions.set(key, messageReactions);
-      } else {
-        reactions.delete(key);
-      }
+      const key = reactionStateKey(event);
+      const previous = latestEvents.get(key);
+      if (previous && !isLaterEvent(event, previous)) return false;
+      latestEvents.set(key, event);
       return true;
     },
 
@@ -408,17 +451,26 @@ export function createReactionProjection(): OfficeReactionProjection {
       officeChannelId: string,
       messageId: string,
     ): readonly ProjectedOfficeReaction[] {
-      const messageReactions = reactions.get(
-        messageKey(officeChannelId, messageId),
-      );
-      if (!messageReactions) return [];
+      const actorsByReaction = new Map<OfficeReaction, string[]>();
+      for (const event of latestEvents.values()) {
+        if (
+          event.officeChannelId !== officeChannelId ||
+          event.messageId !== messageId ||
+          event.operation !== "add"
+        ) {
+          continue;
+        }
+        const actors = actorsByReaction.get(event.reaction) ?? [];
+        actors.push(event.actorId);
+        actorsByReaction.set(event.reaction, actors);
+      }
       const projectedReactions: ProjectedOfficeReaction[] = [];
       for (const reaction of OFFICE_REACTIONS) {
-        const actors = messageReactions.get(reaction);
-        if (actors) {
+        const actors = actorsByReaction.get(reaction);
+        if (actors && actors.length > 0) {
           projectedReactions.push({
             reaction,
-            actorIds: [...actors].sort(),
+            actorIds: actors.sort(),
           });
         }
       }

@@ -3,12 +3,18 @@ import type {
   ChannelStatus,
   DetailedPresence,
 } from "@portalsdk/core";
+import {
+  isOfficeEventChannelId,
+  parseOfficeEventMessage,
+  type ReactionOfficeEvent,
+} from "@/lib/office-events/contract";
 import { parseChatContent } from "@/lib/portal/chat";
 import { isReservedPortalIdentity } from "@/lib/portal/presence";
 import type {
   PortalAuthority,
   PortalChatMessage,
   PortalMembershipInput,
+  PortalOfficeEventMessage,
   PortalTokenInput,
 } from "@/lib/portal/types";
 
@@ -71,6 +77,20 @@ export type MockPortalAdapter = PortalAuthority & {
     channelIds: readonly string[],
   ): readonly MockPortalInboxEntry[];
   markInboxRead(userId: string, channelId: string): void;
+  officeEventHistory(
+    channelId: string,
+  ): Promise<readonly PortalOfficeEventMessage[]>;
+  sendOfficeEvent(input: {
+    channelId: string;
+    senderId: string;
+    content: ReactionOfficeEvent;
+  }): Promise<PortalOfficeEventMessage>;
+  subscribeOfficeEvents(
+    channelId: string,
+    userId: string,
+    listener: (message: PortalOfficeEventMessage) => void,
+  ): () => void;
+  unreadCount(channelId: string, userId: string): number;
   membershipCount(channelId: string): number;
   connect(input: {
     clientId: string;
@@ -107,6 +127,12 @@ export function createMockPortalAdapter({
   const recentPresence = new Map<string, MockPresenceEvent[]>();
   const typing = new Map<string, Map<string, MockTypingActivity>>();
   const inboxWatermarks = new Map<string, Map<string, number>>();
+  const officeEvents = new Map<string, PortalOfficeEventMessage[]>();
+  const officeEventListeners = new Map<
+    string,
+    Set<(message: PortalOfficeEventMessage) => void>
+  >();
+  const unreadCounts = new Map<string, Map<string, number>>();
   let online = true;
   let rejectNextSend = false;
   let tokenSequence = 0;
@@ -202,6 +228,16 @@ export function createMockPortalAdapter({
     inboxWatermarks.set(userId, userWatermarks);
   }
 
+  function incrementUnread(channelId: string, senderId: string): void {
+    const channelUnread = unreadCounts.get(channelId) ?? new Map();
+    for (const userId of members.get(channelId)?.keys() ?? []) {
+      if (userId !== senderId) {
+        channelUnread.set(userId, (channelUnread.get(userId) ?? 0) + 1);
+      }
+    }
+    unreadCounts.set(channelId, channelUnread);
+  }
+
   return {
     async ensureMembership({ channelId, userId, claims }) {
       requireOnline();
@@ -216,6 +252,9 @@ export function createMockPortalAdapter({
           messages.get(channelId)?.length ?? 0,
         );
       }
+      const channelUnread = unreadCounts.get(channelId) ?? new Map();
+      channelUnread.set(userId, channelUnread.get(userId) ?? 0);
+      unreadCounts.set(channelId, channelUnread);
     },
 
     async mintToken({ channelIds, userId }: PortalTokenInput) {
@@ -283,6 +322,7 @@ export function createMockPortalAdapter({
       channelMessages.push(message);
       messages.set(channelId, channelMessages);
       setInboxWatermark(senderId, channelId, channelMessages.length);
+      incrementUnread(channelId, senderId);
       return message;
     },
 
@@ -316,6 +356,69 @@ export function createMockPortalAdapter({
         channelId,
         messages.get(channelId)?.length ?? 0,
       );
+    },
+
+    async officeEventHistory(channelId) {
+      requireOnline();
+      return [...(officeEvents.get(channelId) ?? [])];
+    },
+
+    async sendOfficeEvent({ channelId, senderId, content }) {
+      requireOnline();
+      if (
+        !isOfficeEventChannelId(channelId) ||
+        !members.get(channelId)?.has(senderId)
+      ) {
+        throw new MockPortalUnavailableError();
+      }
+      const message: PortalOfficeEventMessage = {
+        id: `mock_office_event_${++messageSequence}`,
+        channelId,
+        sender: { id: senderId, anon: false },
+        timestamp: now().getTime(),
+        retracted: false,
+        ephemeral: false,
+        kind: "text",
+        type: "office.event",
+        content,
+        unread: false,
+        status: "sent",
+      };
+      const parsed = parseOfficeEventMessage(message, channelId);
+      if (!parsed || parsed.event.type !== "reaction.changed") {
+        throw new TypeError("Invalid reaction Office Event.");
+      }
+      const targetExists = (messages.get(content.officeChannelId) ?? []).some(
+        ({ id }) => id === content.messageId,
+      );
+      if (!targetExists) {
+        throw new TypeError("Invalid reaction target.");
+      }
+      const channelEvents = officeEvents.get(channelId) ?? [];
+      channelEvents.push(message);
+      officeEvents.set(channelId, channelEvents);
+      incrementUnread(channelId, senderId);
+      for (const listener of officeEventListeners.get(channelId) ?? []) {
+        listener(message);
+      }
+      return message;
+    },
+
+    subscribeOfficeEvents(channelId, userId, listener) {
+      requireOnline();
+      if (!members.get(channelId)?.has(userId)) {
+        throw new MockPortalUnavailableError();
+      }
+      const listeners = officeEventListeners.get(channelId) ?? new Set();
+      listeners.add(listener);
+      officeEventListeners.set(channelId, listeners);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+
+    unreadCount(channelId, userId) {
+      return unreadCounts.get(channelId)?.get(userId) ?? 0;
     },
 
     membershipCount(channelId) {
@@ -406,6 +509,9 @@ export function createMockPortalAdapter({
       recentPresence.clear();
       typing.clear();
       inboxWatermarks.clear();
+      officeEvents.clear();
+      officeEventListeners.clear();
+      unreadCounts.clear();
       online = true;
       rejectNextSend = false;
       tokenSequence = 0;

@@ -297,7 +297,6 @@ test("live presence resolves New Hire Profiles and all-hands stays aggregate", a
     await profileRequestGate;
     await route.continue();
   });
-
   await page.goto("/office");
   await page
     .getByRole("button", { name: "Sign in as Returning New Hire" })
@@ -327,6 +326,95 @@ test("live presence resolves New Hire Profiles and all-hands stays aggregate", a
   ).toBeVisible();
   await expect(
     page.getByRole("list", { name: "All Hands current New Hires" }),
+  ).toHaveCount(0);
+});
+
+test("emoji reactions use the fixed accessible palette and survive reconnect", async ({
+  page,
+}) => {
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+  await expect(
+    page
+      .getByText("Connected — live updates available")
+      .filter({ visible: true }),
+  ).toBeVisible();
+
+  await page.getByLabel("Message # General").fill("Please react to this memo");
+  await page.getByRole("button", { name: "Send" }).click();
+  const message = page.getByRole("listitem").filter({
+    hasText: "Please react to this memo",
+  });
+  const trigger = message.getByRole("button", {
+    name: "Add or remove a reaction",
+  });
+  await expect(trigger).toBeEnabled();
+  const triggerBounds = await trigger.boundingBox();
+  expect(triggerBounds?.width).toBeGreaterThanOrEqual(44);
+  expect(triggerBounds?.height).toBeGreaterThanOrEqual(44);
+
+  await trigger.click();
+  const palette = message.getByRole("group", { name: "Choose a reaction" });
+  await expect(palette.getByRole("button")).toHaveCount(6);
+  await expect(
+    palette.getByRole("button", { name: /Thumbs up \(👍\), add/ }),
+  ).toBeFocused();
+  expect(
+    await palette
+      .getByRole("button")
+      .evaluateAll((buttons) =>
+        buttons.map((button) => button.getAttribute("aria-label")),
+      ),
+  ).toEqual([
+    "Thumbs up (👍), add reaction",
+    "Heart (❤️), add reaction",
+    "Laughing (😂), add reaction",
+    "Surprised (😮), add reaction",
+    "Sad (😢), add reaction",
+    "Celebrate (🎉), add reaction",
+  ]);
+  await page.keyboard.press("Escape");
+  await expect(palette).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+
+  await page.keyboard.press("Enter");
+  await palette.getByRole("button", { name: /Celebrate/ }).click();
+  const ownReaction = message.getByRole("button", {
+    name: /Celebrate: 1 reaction\. Remove your reaction/,
+  });
+  await expect(ownReaction).toBeVisible();
+  await expect(ownReaction).toHaveAttribute("aria-pressed", "true");
+  await expect(trigger).toBeFocused();
+
+  await page.reload();
+  await expect(
+    page
+      .getByText("Connected — live updates available")
+      .filter({ visible: true }),
+  ).toBeVisible();
+  const replayedMessage = page.getByRole("listitem").filter({
+    hasText: "Please react to this memo",
+  });
+  const replayedReaction = replayedMessage.getByRole("button", {
+    name: /Celebrate: 1 reaction\. Remove your reaction/,
+  });
+  await expect(replayedReaction).toBeVisible();
+  await replayedReaction.click();
+  await expect(replayedReaction).toHaveCount(0);
+
+  await page.reload();
+  await expect(
+    page
+      .getByText("Connected — live updates available")
+      .filter({ visible: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("listitem").filter({ hasText: "Please react to this memo" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /Celebrate: 1 reaction/ }),
   ).toHaveCount(0);
 });
 

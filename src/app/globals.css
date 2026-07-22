@@ -1456,6 +1456,92 @@ a {
   text-decoration: underline;
 }
 
+.reaction-controls,
+.reaction-summary,
+.reaction-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.reaction-controls {
+  margin-top: 0.45rem;
+}
+
+.reaction-summary {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.reaction-count-button,
+.reaction-picker-trigger,
+.reaction-picker button {
+  min-width: 44px;
+  min-height: 44px;
+  border: 1px solid #7f8793;
+  border-radius: 3px;
+  background: #f4f5f7;
+  color: #17233c;
+  cursor: pointer;
+  font: inherit;
+}
+
+.reaction-count-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.78rem;
+}
+
+.reaction-count-button[aria-pressed="true"],
+.reaction-picker button[aria-pressed="true"] {
+  border-color: #174aad;
+  background: #dce9ff;
+}
+
+.reaction-picker-trigger {
+  font-size: 1.05rem;
+  font-weight: 800;
+}
+
+.reaction-picker {
+  margin: 0;
+  padding: 0.3rem;
+  border: 1px solid #7f8793;
+  background: #dfe2e7;
+  box-shadow: 2px 2px 0 rgb(23 35 60 / 28%);
+}
+
+.reaction-picker button {
+  padding: 0.25rem;
+  font-size: 1.15rem;
+}
+
+.reaction-count-button:focus-visible,
+.reaction-picker-trigger:focus-visible,
+.reaction-picker button:focus-visible {
+  outline: 3px solid #315ac8;
+  outline-offset: 2px;
+}
+
+.reaction-count-button:disabled,
+.reaction-picker-trigger:disabled,
+.reaction-picker button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.reaction-controls .reaction-error {
+  flex-basis: 100%;
+  color: #8b2018;
+  font-family: inherit;
+  font-weight: 700;
+}
+
 .portal-outage {
   display: grid;
   gap: 0.45rem;

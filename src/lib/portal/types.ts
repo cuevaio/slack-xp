@@ -1,3 +1,4 @@
+import type { ReactionOfficeEvent } from "@/lib/office-events/contract";
 import type { PortalChatContent } from "@/lib/portal/chat";
 
 export type PortalMembershipInput = {
@@ -38,6 +39,23 @@ export type PortalChatMessage = {
   kind: "text";
   type: "message";
   content: PortalChatContent;
+  unread: boolean;
+  status: "sent";
+};
+
+export type PortalOfficeEventMessage = {
+  id: string;
+  channelId: string;
+  sender: {
+    id: string;
+    anon: false;
+  };
+  timestamp: number;
+  retracted: false;
+  ephemeral: false;
+  kind: "text";
+  type: "office.event";
+  content: ReactionOfficeEvent;
   unread: boolean;
   status: "sent";
 };

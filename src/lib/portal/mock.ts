@@ -70,6 +70,16 @@ export function createMockPortalAdapter({
     }
   }
 
+  function setInboxWatermark(
+    userId: string,
+    channelId: string,
+    messageCount: number,
+  ): void {
+    const userWatermarks = inboxWatermarks.get(userId) ?? new Map();
+    userWatermarks.set(channelId, messageCount);
+    inboxWatermarks.set(userId, userWatermarks);
+  }
+
   return {
     async ensureMembership({ channelId, userId, claims }) {
       requireOnline();
@@ -78,9 +88,11 @@ export function createMockPortalAdapter({
       channelMembers.set(userId, claims);
       members.set(channelId, channelMembers);
       if (isNewMember) {
-        const userWatermarks = inboxWatermarks.get(userId) ?? new Map();
-        userWatermarks.set(channelId, messages.get(channelId)?.length ?? 0);
-        inboxWatermarks.set(userId, userWatermarks);
+        setInboxWatermark(
+          userId,
+          channelId,
+          messages.get(channelId)?.length ?? 0,
+        );
       }
     },
 
@@ -148,9 +160,7 @@ export function createMockPortalAdapter({
       const channelMessages = messages.get(channelId) ?? [];
       channelMessages.push(message);
       messages.set(channelId, channelMessages);
-      const senderWatermarks = inboxWatermarks.get(senderId) ?? new Map();
-      senderWatermarks.set(channelId, channelMessages.length);
-      inboxWatermarks.set(senderId, senderWatermarks);
+      setInboxWatermark(senderId, channelId, channelMessages.length);
       return message;
     },
 
@@ -179,9 +189,11 @@ export function createMockPortalAdapter({
 
     markInboxRead(userId, channelId) {
       requireOnline();
-      const userWatermarks = inboxWatermarks.get(userId) ?? new Map();
-      userWatermarks.set(channelId, messages.get(channelId)?.length ?? 0);
-      inboxWatermarks.set(userId, userWatermarks);
+      setInboxWatermark(
+        userId,
+        channelId,
+        messages.get(channelId)?.length ?? 0,
+      );
     },
 
     membershipCount(channelId) {

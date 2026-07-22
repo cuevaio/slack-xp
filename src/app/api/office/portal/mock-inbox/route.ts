@@ -3,7 +3,11 @@ import { getMockPortalAdapter } from "@/lib/adapters/mock";
 import { authenticateOfficeRequest } from "@/lib/auth/server";
 import type { AuthenticatedNewHire } from "@/lib/auth/types";
 import { readAppConfiguration } from "@/lib/config";
-import { MockPortalUnavailableError } from "@/lib/portal/mock";
+import type { OfficeInboxEntry } from "@/lib/portal/inbox";
+import {
+  type MockPortalInboxEntry,
+  MockPortalUnavailableError,
+} from "@/lib/portal/mock";
 import {
   issueOfficePortalSession,
   type OfficePortalSession,
@@ -18,6 +22,44 @@ type MockInboxContext =
 
 function portalUnavailableResponse(): Response {
   return Response.json({ error: "portal_unavailable" }, { status: 503 });
+}
+
+function handleMockPortalError(error: unknown): Response {
+  if (error instanceof MockPortalUnavailableError) {
+    return portalUnavailableResponse();
+  }
+  throw error;
+}
+
+function toOfficeInboxEntry(entry: MockPortalInboxEntry): OfficeInboxEntry {
+  if (!entry.latest) {
+    return { id: entry.channelId, unread: entry.unread };
+  }
+
+  return {
+    id: entry.channelId,
+    unread: entry.unread,
+    latest: {
+      text: entry.latest.text,
+      sender: { id: entry.latest.senderId },
+      at: entry.latest.at,
+    },
+  };
+}
+
+function readRequestedChannelId(
+  body: unknown,
+  allowedChannelIds: readonly string[],
+): string | null {
+  if (typeof body !== "object" || body === null || !("channelId" in body)) {
+    return null;
+  }
+
+  const channelId = body.channelId;
+  if (typeof channelId !== "string" || !allowedChannelIds.includes(channelId)) {
+    return null;
+  }
+  return channelId;
 }
 
 async function getMockInboxContext(): Promise<MockInboxContext> {
@@ -61,10 +103,7 @@ async function getMockInboxContext(): Promise<MockInboxContext> {
         ),
       };
     }
-    if (error instanceof MockPortalUnavailableError) {
-      return { errorResponse: portalUnavailableResponse() };
-    }
-    throw error;
+    return { errorResponse: handleMockPortalError(error) };
   }
 }
 
@@ -77,23 +116,10 @@ export async function GET() {
   try {
     const channels = getMockPortalAdapter()
       .inbox(context.identity.id, context.session.channelIds)
-      .map((entry) => ({
-        id: entry.channelId,
-        unread: entry.unread,
-        latest: entry.latest
-          ? {
-              text: entry.latest.text,
-              sender: { id: entry.latest.senderId },
-              at: entry.latest.at,
-            }
-          : undefined,
-      }));
+      .map(toOfficeInboxEntry);
     return Response.json({ channels });
   } catch (error) {
-    if (error instanceof MockPortalUnavailableError) {
-      return portalUnavailableResponse();
-    }
-    throw error;
+    return handleMockPortalError(error);
   }
 }
 
@@ -104,14 +130,7 @@ export async function POST(request: Request) {
   }
 
   const body: unknown = await request.json().catch(() => null);
-  const channelId =
-    typeof body === "object" &&
-    body !== null &&
-    "channelId" in body &&
-    typeof body.channelId === "string" &&
-    context.session.channelIds.includes(body.channelId)
-      ? body.channelId
-      : null;
+  const channelId = readRequestedChannelId(body, context.session.channelIds);
   if (!channelId) {
     return Response.json({ error: "invalid_channel" }, { status: 422 });
   }
@@ -120,9 +139,6 @@ export async function POST(request: Request) {
     getMockPortalAdapter().markInboxRead(context.identity.id, channelId);
     return new Response(null, { status: 204 });
   } catch (error) {
-    if (error instanceof MockPortalUnavailableError) {
-      return portalUnavailableResponse();
-    }
-    throw error;
+    return handleMockPortalError(error);
   }
 }

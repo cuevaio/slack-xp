@@ -25,6 +25,7 @@ import { createPortalTokenSource } from "@/lib/portal/client";
 import {
   type OfficeInboxEntry,
   type OfficeInboxRow,
+  parseOfficeInboxResponse,
   reconcileOfficeInbox,
 } from "@/lib/portal/inbox";
 
@@ -100,6 +101,12 @@ type MockHistoryPage = {
   hasPrevious: boolean;
 };
 
+type MockOfficeInbox = {
+  entries: readonly OfficeInboxEntry[];
+  status: InboxStatus;
+  markAsRead(channelId: string): Promise<void>;
+};
+
 type ResponsiveOfficeNavigation = {
   isMobile: boolean | null;
   mobileNavigationOpen: boolean;
@@ -151,6 +158,14 @@ function inboxStatusCopy(status: InboxStatus): string {
 function useResponsiveOfficeNavigation(): ResponsiveOfficeNavigation {
   const [isMobile, setIsMobile] = useState<boolean | null>(null);
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(true);
+  const openMobileNavigation = useCallback(
+    () => setMobileNavigationOpen(true),
+    [],
+  );
+  const showConversation = useCallback(
+    () => setMobileNavigationOpen(false),
+    [],
+  );
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 850px)");
@@ -170,8 +185,8 @@ function useResponsiveOfficeNavigation(): ResponsiveOfficeNavigation {
     mobileNavigationOpen,
     conversationVisible:
       isMobile === false || (isMobile === true && !mobileNavigationOpen),
-    openMobileNavigation: () => setMobileNavigationOpen(true),
-    showConversation: () => setMobileNavigationOpen(false),
+    openMobileNavigation,
+    showConversation,
   };
 }
 
@@ -255,74 +270,15 @@ async function fetchMockHistoryPage(
   return historyPage;
 }
 
-function parseMockInbox(value: unknown): OfficeInboxEntry[] | null {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("channels" in value) ||
-    !Array.isArray(value.channels)
-  ) {
-    return null;
-  }
-
-  const entries: OfficeInboxEntry[] = [];
-  for (const candidate of value.channels) {
-    if (
-      typeof candidate !== "object" ||
-      candidate === null ||
-      !("id" in candidate) ||
-      typeof candidate.id !== "string" ||
-      !("unread" in candidate) ||
-      typeof candidate.unread !== "number" ||
-      !Number.isFinite(candidate.unread)
-    ) {
-      return null;
-    }
-    let latest: OfficeInboxEntry["latest"];
-    if ("latest" in candidate && candidate.latest !== undefined) {
-      const value = candidate.latest;
-      if (
-        typeof value !== "object" ||
-        value === null ||
-        !("text" in value) ||
-        typeof value.text !== "string" ||
-        !("sender" in value) ||
-        typeof value.sender !== "object" ||
-        value.sender === null ||
-        !("id" in value.sender) ||
-        typeof value.sender.id !== "string" ||
-        !("at" in value) ||
-        typeof value.at !== "number" ||
-        !Number.isFinite(value.at)
-      ) {
-        return null;
-      }
-      latest = {
-        text: value.text,
-        sender: { id: value.sender.id },
-        at: value.at,
-      };
-    }
-    entries.push({
-      id: candidate.id,
-      unread: candidate.unread,
-      ...(latest ? { latest } : {}),
-    });
-  }
-  return entries;
-}
-
-function useMockOfficeInbox(): {
-  entries: readonly OfficeInboxEntry[];
-  status: InboxStatus;
-  markAsRead(channelId: string): Promise<void>;
-} {
+function useMockOfficeInbox(): MockOfficeInbox {
   const [entries, setEntries] = useState<readonly OfficeInboxEntry[]>([]);
   const [status, setStatus] = useState<InboxStatus>("connecting");
   const requestInFlight = useRef(false);
 
   const refresh = useCallback(async () => {
-    if (requestInFlight.current) return;
+    if (requestInFlight.current) {
+      return;
+    }
     requestInFlight.current = true;
     try {
       const response = await fetch("/api/office/portal/mock-inbox", {
@@ -330,7 +286,7 @@ function useMockOfficeInbox(): {
         cache: "no-store",
       });
       const payload: unknown = await response.json().catch(() => null);
-      const nextEntries = parseMockInbox(payload);
+      const nextEntries = parseOfficeInboxResponse(payload);
       if (!response.ok || !nextEntries) {
         throw new Error("Mock Portal inbox unavailable");
       }
@@ -349,10 +305,8 @@ function useMockOfficeInbox(): {
     return () => window.clearInterval(interval);
   }, [refresh]);
 
-  return {
-    entries,
-    status,
-    async markAsRead(channelId: string) {
+  const markAsRead = useCallback(
+    async (channelId: string) => {
       const response = await fetch("/api/office/portal/mock-inbox", {
         method: "POST",
         credentials: "include",
@@ -365,6 +319,13 @@ function useMockOfficeInbox(): {
       }
       await refresh();
     },
+    [refresh],
+  );
+
+  return {
+    entries,
+    status,
+    markAsRead,
   };
 }
 
@@ -440,6 +401,40 @@ function MessageHistory({
   );
 }
 
+function isChatContentReady(status: ChatConnectionStatus): boolean {
+  return (
+    status === "ready" || status === "degraded" || status === "degraded-http"
+  );
+}
+
+function hasRenderedLatestMessage(
+  surface: HTMLElement,
+  messageCount: number,
+  latestMessageId: string | null,
+): boolean {
+  const renderedLatestMessageId =
+    surface
+      .querySelector(".message-history")
+      ?.lastElementChild?.getAttribute("data-message-id") ?? null;
+
+  return (
+    surface.querySelectorAll(".chat-message").length === messageCount &&
+    renderedLatestMessageId === latestMessageId
+  );
+}
+
+function isElementInViewport(element: HTMLElement): boolean {
+  const bounds = element.getBoundingClientRect();
+  return (
+    bounds.width > 0 &&
+    bounds.height > 0 &&
+    bounds.bottom > 0 &&
+    bounds.right > 0 &&
+    bounds.top < window.innerHeight &&
+    bounds.left < window.innerWidth
+  );
+}
+
 function ChatSurface({
   visible,
   readWhenVisible = true,
@@ -479,13 +474,7 @@ function ChatSurface({
   }, [onContentVisible]);
 
   useEffect(() => {
-    if (
-      !visible ||
-      !readWhenVisible ||
-      (status !== "ready" &&
-        status !== "degraded" &&
-        status !== "degraded-http")
-    ) {
+    if (!visible || !readWhenVisible || !isChatContentReady(status)) {
       return;
     }
 
@@ -495,23 +484,11 @@ function ChatSurface({
     const reportIfVisible = () => {
       cancelAnimationFrame(animationFrame);
       animationFrame = requestAnimationFrame(() => {
-        const bounds = surface.getBoundingClientRect();
-        const renderedLatestMessageId =
-          surface
-            .querySelector(".message-history")
-            ?.lastElementChild?.getAttribute("data-message-id") ?? null;
         if (
           !document.hidden &&
           !surface.hidden &&
-          surface.querySelectorAll(".chat-message").length ===
-            messages.length &&
-          renderedLatestMessageId === latestMessageId &&
-          bounds.width > 0 &&
-          bounds.height > 0 &&
-          bounds.bottom > 0 &&
-          bounds.right > 0 &&
-          bounds.top < window.innerHeight &&
-          bounds.left < window.innerWidth
+          hasRenderedLatestMessage(surface, messages.length, latestMessageId) &&
+          isElementInViewport(surface)
         ) {
           latestOnContentVisible.current?.();
         }
@@ -568,8 +545,7 @@ function ChatSurface({
     });
   }
 
-  const canPublish =
-    status === "ready" || status === "degraded" || status === "degraded-http";
+  const canPublish = isChatContentReady(status);
   const headingId = `office-channel-heading-${channel.slug}`;
 
   return (
@@ -1118,12 +1094,19 @@ function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
       }),
     [channels, displayName, identityId, inbox.entries],
   );
+  const inboxRowsByChannelId = new Map(
+    inboxRows.map((row) => [row.channelId, row]),
+  );
   const selectChannel = useCallback(
     (channelId: string) => {
       setActiveChannelId(channelId);
       navigation.showConversation();
     },
     [navigation.showConversation],
+  );
+  const markInboxRead = useCallback(
+    (channelId: string) => void inbox.markAsRead(channelId),
+    [inbox.markAsRead],
   );
 
   return (
@@ -1149,10 +1132,9 @@ function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
           identityId={identityId}
           key={channel.id}
           latestActivityAt={
-            inboxRows.find(({ channelId }) => channelId === channel.id)?.preview
-              ?.at ?? 0
+            inboxRowsByChannelId.get(channel.id)?.preview?.at ?? 0
           }
-          onContentVisible={(channelId) => void inbox.markAsRead(channelId)}
+          onContentVisible={markInboxRead}
           visible={
             navigation.conversationVisible && channel.id === activeChannelId
           }

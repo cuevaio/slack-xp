@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import type { InboxEntry } from "@portalsdk/core";
 import { listOfficeChannels } from "@/lib/portal/channels";
-import { reconcileOfficeInbox } from "@/lib/portal/inbox";
+import {
+  parseOfficeInboxResponse,
+  reconcileOfficeInbox,
+} from "@/lib/portal/inbox";
 
 function inboxEntry(
   id: string,
@@ -23,6 +26,56 @@ function inboxEntry(
 }
 
 describe("Office Channel inbox projection", () => {
+  test("validates the complete mock inbox response at runtime", () => {
+    expect(
+      parseOfficeInboxResponse({
+        channels: [
+          { id: "general:2026-07-22", unread: 0 },
+          {
+            id: "urgent:2026-07-22",
+            unread: 2,
+            latest: {
+              text: "The printer has entered negotiations.",
+              sender: { id: "user_colleague" },
+              at: 1_753_188_000_000,
+            },
+          },
+        ],
+      }),
+    ).toEqual([
+      { id: "general:2026-07-22", unread: 0 },
+      {
+        id: "urgent:2026-07-22",
+        unread: 2,
+        latest: {
+          text: "The printer has entered negotiations.",
+          sender: { id: "user_colleague" },
+          at: 1_753_188_000_000,
+        },
+      },
+    ]);
+
+    for (const invalidResponse of [
+      null,
+      { channels: null },
+      { channels: [{ id: "general:2026-07-22", unread: Number.NaN }] },
+      {
+        channels: [{ id: "general:2026-07-22", unread: 1, latest: null }],
+      },
+      {
+        channels: [
+          {
+            id: "general:2026-07-22",
+            unread: 1,
+            latest: { text: "Hello", sender: {}, at: 1_753_188_000_000 },
+          },
+        ],
+      },
+    ]) {
+      expect(parseOfficeInboxResponse(invalidResponse)).toBeNull();
+    }
+  });
+
   test("keeps curated order while applying authoritative unread rows and safe previews", () => {
     const channels = listOfficeChannels(new Date("2026-07-22T12:00:00.000Z"));
     const entries = [

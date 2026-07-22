@@ -55,6 +55,10 @@ test("Observer teaser supports accessible first entry and returning entry", asyn
     page.getByRole("region", { name: "Non-live product preview" }),
   ).toBeVisible();
 
+  expect(
+    requests.filter((url) => /useportal|\/api\/office\/portal/i.test(url)),
+  ).toHaveLength(0);
+
   await page
     .getByRole("link", { name: "Enter the Shared Public Office" })
     .click();
@@ -107,7 +111,9 @@ test("Observer teaser supports accessible first entry and returning entry", asyn
   await page.getByRole("button", { name: "Sign in as New Hire" }).click();
   await expect(page.getByText("Welcome, Patricia Pending")).toBeVisible();
   await expect(page.getByText("New Employee Setup Wizard")).toHaveCount(0);
-  expect(requests.filter((url) => /portal|clerk/i.test(url))).toHaveLength(0);
+  expect(
+    requests.filter((url) => /useportal\.co|clerk\.com/i.test(url)),
+  ).toHaveLength(0);
 });
 
 test("Observer mobile teaser keeps sign-in reachable without desktop-only interactions", async ({
@@ -143,6 +149,9 @@ test("server boundaries reject invalid setup and forged identity", async ({
   await page.goto("/office");
   await page.getByRole("button", { name: "Sign in as New Hire" }).click();
 
+  const earlyPortalToken = await page.request.post("/api/office/portal/token");
+  expect(earlyPortalToken.status()).toBe(403);
+
   const invalidProfile = await page.request.post("/api/office/onboarding", {
     form: { intent: "confirm-profile", firstName: "", lastName: "" },
   });
@@ -165,6 +174,101 @@ test("server boundaries reject invalid setup and forged identity", async ({
 
   await page.request.post("/api/auth/sign-out");
   expect((await page.request.get("/api/office/session")).status()).toBe(401);
+  expect((await page.request.post("/api/office/portal/token")).status()).toBe(
+    401,
+  );
+});
+
+test("general chat confirms, reconnects, validates text, and recovers from Portal faults", async ({
+  page,
+}) => {
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+
+  await expect(
+    page.getByText("Online — messages are persistent"),
+  ).toBeVisible();
+  const composer = page.getByLabel("Message # General");
+  await composer.fill(
+    "Read <b>carefully</b> at https://example.com/handbook. javascript:alert(1)",
+  );
+  await page.getByRole("button", { name: "Send" }).click();
+
+  const message = page.getByRole("listitem").filter({
+    hasText: "Read <b>carefully</b>",
+  });
+  await expect(message).toBeVisible();
+  await expect(message).not.toContainText("Sending…");
+  const safeLink = message.getByRole("link", {
+    name: "https://example.com/handbook",
+  });
+  await expect(safeLink).toHaveAttribute("target", "_blank");
+  await expect(safeLink).toHaveAttribute("rel", "noopener noreferrer");
+
+  const firstToken = await page.request.post("/api/office/portal/token");
+  const secondToken = await page.request.post("/api/office/portal/token");
+  expect(firstToken.status()).toBe(200);
+  expect(secondToken.status()).toBe(200);
+  expect((await firstToken.json()).token).not.toBe(
+    (await secondToken.json()).token,
+  );
+
+  expect(
+    (
+      await page.request.post("/api/office/portal/mock-chat", {
+        data: { text: "A".repeat(1_001) },
+      })
+    ).status(),
+  ).toBe(422);
+  expect(
+    (
+      await page.request.post("/api/office/portal/mock-chat", {
+        data: { html: "<b>not text</b>" },
+      })
+    ).status(),
+  ).toBe(422);
+
+  await page.reload();
+  await expect(
+    page.getByText("Online — messages are persistent"),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("listitem").filter({ hasText: "Read <b>carefully</b>" }),
+  ).toBeVisible();
+
+  await page.request.post("/api/auth/mock-portal", {
+    form: { intent: "fail-next-send" },
+  });
+  await composer.fill("Please retry this memo");
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText("Message not delivered")).toBeVisible();
+  await expect(composer).toHaveValue("Please retry this memo");
+  const retryConfirmation = page.waitForResponse(
+    (response) =>
+      response.url().endsWith("/api/office/portal/mock-chat") &&
+      response.request().method() === "POST" &&
+      response.status() === 200,
+  );
+  await page.getByRole("button", { name: "Retry send" }).click();
+  await retryConfirmation;
+  await expect(page.getByText("Message not delivered")).toHaveCount(0);
+
+  await page.request.post("/api/auth/mock-portal", {
+    form: { intent: "offline" },
+  });
+  await page.reload();
+  await expect(page.getByText("Portal is offline.")).toBeVisible();
+  await expect(composer).toBeDisabled();
+  await page.request.post("/api/auth/mock-portal", {
+    form: { intent: "online" },
+  });
+  await page.getByRole("button", { name: "Retry connection" }).click();
+  await expect(
+    page.getByText("Online — messages are persistent"),
+  ).toBeVisible();
+  await expect(page.getByText("Please retry this memo")).toBeVisible();
 });
 
 test("interrupted setup resumes and the returning fixture enters the Office Day", async ({
@@ -198,4 +302,5 @@ test("completed mock office remains usable at a mobile viewport", async ({
 
   await expect(page.getByText("Shared Public Office")).toBeVisible();
   await expect(page.getByRole("navigation")).toBeVisible();
+  await expect(page.getByLabel("Message # General")).toBeVisible();
 });

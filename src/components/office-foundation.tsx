@@ -1,17 +1,31 @@
+import { PortalChat } from "@/components/portal-chat";
 import type { ServiceAdapters } from "@/lib/adapters";
 import type { AuthenticatedNewHire } from "@/lib/auth/types";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
+
+function requirePortalPublishableKey(value: string | undefined): string {
+  if (!value) {
+    throw new Error("Validated live configuration is missing the Portal key.");
+  }
+  return value;
+}
 
 export async function OfficeFoundation({
   adapters,
   identity,
   onboarding,
+  portalPublishableKey,
 }: {
   adapters: ServiceAdapters;
   identity: AuthenticatedNewHire;
   onboarding: OnboardingSnapshot;
+  portalPublishableKey?: string;
 }) {
   const channels = await adapters.portal.listChannels();
+  const generalChannel = channels[0];
+  if (!generalChannel) {
+    throw new Error("The General Office Channel is not configured.");
+  }
 
   return (
     <main className="office-shell">
@@ -53,18 +67,18 @@ export async function OfficeFoundation({
             ) : null}
           </aside>
           <section className="conversation-panel">
-            <div className="conversation-heading">
-              <span className="presence-dot" aria-hidden="true" />
-              Foundation status
-            </div>
-            <div className="system-message">
-              <strong>Portal Systems IT</strong>
-              <p>
-                {adapters.kind === "mock"
-                  ? "Deterministic mock authentication, Portal, and Neon adapters are online. Nothing on this screen came from a cloud service."
-                  : "Live service configuration passed validation. Authentication integration is ready for the next installation step."}
-              </p>
-            </div>
+            <PortalChat
+              channelId={generalChannel.id}
+              displayName={onboarding.displayName}
+              identityId={identity.id}
+              {...(adapters.kind === "mock"
+                ? { mode: "mock" as const }
+                : {
+                    mode: "live" as const,
+                    publishableKey:
+                      requirePortalPublishableKey(portalPublishableKey),
+                  })}
+            />
           </section>
         </div>
       </section>

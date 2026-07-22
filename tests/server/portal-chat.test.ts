@@ -1,0 +1,189 @@
+import { describe, expect, test } from "bun:test";
+import { createMockPortalAdapter } from "@/lib/portal/mock";
+import { createPortalControlPlane } from "@/lib/portal/server";
+import {
+  issueGeneralPortalSession,
+  PortalEligibilityError,
+} from "@/lib/portal/session";
+
+const completedNewHire = {
+  clerkUserId: "user_portal_test",
+  firstName: "Pat",
+  lastName: "Pending",
+  displayName: "Pat Pending",
+  imageUrl: null,
+  jobTitle: "Senior Mousepad Alignment Specialist",
+  profileConfirmedAt: "2026-07-22T00:00:00.000Z",
+  conductAcceptedAt: "2026-07-22T00:01:00.000Z",
+  completedAt: "2026-07-22T00:02:00.000Z",
+  step: "complete" as const,
+};
+
+describe("Portal control-plane boundary", () => {
+  test("adds daily membership before minting a 15-minute channel-scoped token", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const fetcher: typeof fetch = Object.assign(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        requests.push({ url: String(input), init });
+        if (String(input).endsWith("/members")) {
+          return Response.json({ added: 1 });
+        }
+        return Response.json({
+          token: "portal-user-token",
+          expiresAt: "2026-07-22T12:15:00.000Z",
+        });
+      },
+      { preconnect: fetch.preconnect },
+    );
+    const portal = createPortalControlPlane({
+      secret: "sk_portal_test",
+      fetcher,
+      apiUrl: "https://api.useportal.co",
+    });
+
+    const session = await issueGeneralPortalSession({
+      identity: {
+        id: completedNewHire.clerkUserId,
+        fullName: completedNewHire.displayName,
+        imageUrl: null,
+      },
+      onboarding: completedNewHire,
+      portal,
+      now: new Date("2026-07-22T12:00:00.000Z"),
+    });
+
+    expect(session).toEqual({
+      channelId: "2026-07-22:general",
+      token: "portal-user-token",
+      expiresAt: "2026-07-22T12:15:00.000Z",
+    });
+    expect(requests.map(({ url }) => url)).toEqual([
+      "https://api.useportal.co/v1/channels/2026-07-22%3Ageneral/members",
+      "https://api.useportal.co/v1/tokens",
+    ]);
+    expect(requests[0]?.init?.headers).toEqual({
+      Authorization: "Bearer sk_portal_test",
+      "Content-Type": "application/json",
+    });
+    expect(JSON.parse(String(requests[1]?.init?.body))).toEqual({
+      userId: "user_portal_test",
+      claims: { username: "Pat Pending", avatar: null },
+      channels: {
+        "2026-07-22:general": ["connect", "publish"],
+      },
+      ttl: "15m",
+    });
+  });
+
+  test("denies token minting until onboarding is complete", async () => {
+    const portal = createMockPortalAdapter();
+
+    await expect(
+      issueGeneralPortalSession({
+        identity: {
+          id: completedNewHire.clerkUserId,
+          fullName: completedNewHire.displayName,
+          imageUrl: null,
+        },
+        onboarding: {
+          ...completedNewHire,
+          completedAt: null,
+          step: "clock-in",
+        },
+        portal,
+        now: new Date("2026-07-22T12:00:00.000Z"),
+      }),
+    ).rejects.toBeInstanceOf(PortalEligibilityError);
+    expect(portal.membershipCount("2026-07-22:general")).toBe(0);
+  });
+
+  test("reports upstream failures without copying secrets or response details", async () => {
+    const secret = "sk_never_log_this_value";
+    const portal = createPortalControlPlane({
+      secret,
+      fetcher: Object.assign(
+        async () =>
+          Response.json(
+            { code: "unauthorized", reason: `Rejected ${secret}` },
+            { status: 401 },
+          ),
+        { preconnect: fetch.preconnect },
+      ),
+    });
+
+    let failure: unknown;
+    try {
+      await portal.ensureMembership({
+        channelId: "2026-07-22:general",
+        userId: "user_portal_test",
+        claims: { username: "Pat Pending", avatar: null },
+      });
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({ code: "unauthorized", status: 401 });
+    expect(JSON.stringify(failure)).not.toContain(secret);
+    expect(failure instanceof Error ? failure.message : "").not.toContain(
+      "Rejected",
+    );
+  });
+});
+
+describe("controlled Portal adapter", () => {
+  test("keeps membership and confirmed history idempotent across retry and reconnect", async () => {
+    const portal = createMockPortalAdapter({
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+
+    await portal.ensureMembership({
+      channelId: "2026-07-22:general",
+      userId: "user_portal_test",
+      claims: { username: "Pat Pending", avatar: null },
+    });
+    await portal.ensureMembership({
+      channelId: "2026-07-22:general",
+      userId: "user_portal_test",
+      claims: { username: "Pat Pending", avatar: null },
+    });
+    expect(portal.membershipCount("2026-07-22:general")).toBe(1);
+
+    const confirmed = await portal.sendMessage({
+      channelId: "2026-07-22:general",
+      senderId: "user_portal_test",
+      content: { text: "Persistent hello" },
+    });
+    expect(confirmed.status).toBe("sent");
+    expect(await portal.history("2026-07-22:general")).toEqual([confirmed]);
+
+    portal.failNextSend();
+    await expect(
+      portal.sendMessage({
+        channelId: "2026-07-22:general",
+        senderId: "user_portal_test",
+        content: { text: "Retry me" },
+      }),
+    ).rejects.toThrow("temporarily unavailable");
+    expect(await portal.history("2026-07-22:general")).toEqual([confirmed]);
+
+    const retried = await portal.sendMessage({
+      channelId: "2026-07-22:general",
+      senderId: "user_portal_test",
+      content: { text: "Retry me" },
+    });
+    expect(await portal.history("2026-07-22:general")).toEqual([
+      confirmed,
+      retried,
+    ]);
+  });
+
+  test("recovers after a controlled outage without inventing live data", async () => {
+    const portal = createMockPortalAdapter();
+    portal.setOnline(false);
+    await expect(portal.history("2026-07-22:general")).rejects.toThrow(
+      "temporarily unavailable",
+    );
+
+    portal.setOnline(true);
+    expect(await portal.history("2026-07-22:general")).toEqual([]);
+  });
+});

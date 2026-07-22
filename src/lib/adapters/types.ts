@@ -1,5 +1,6 @@
 import type { OnboardingRepository } from "@/lib/onboarding/types";
 import type { ProfileRepository } from "@/lib/profiles/types";
+import type { PortalAuthority } from "@/lib/portal/types";
 
 export type PortalChannel = {
   id: string;
@@ -7,7 +8,7 @@ export type PortalChannel = {
   unreadCount: number;
 };
 
-export type PortalAdapter = {
+export type PortalAdapter = PortalAuthority & {
   listChannels(): Promise<readonly PortalChannel[]>;
 };
 

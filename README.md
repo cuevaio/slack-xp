@@ -18,7 +18,8 @@ Open [http://localhost:3000](http://localhost:3000) for the static Observer
 experience. Entering [http://localhost:3000/office](http://localhost:3000/office)
 first presents the deterministic mock sign-in, then opens the authenticated
 office seam. Mock authentication and mock services each display a permanent
-warning watermark.
+warning watermark. The returning fixture opens the daily General Office Channel,
+where deterministic messages persist across reloads without cloud credentials.
 
 ## Runtime Configuration
 
@@ -104,6 +105,50 @@ New Hires resume from the first missing timestamp.
 Mock mode provides isolated first-time and returning fixtures and exercises the
 same validation and persistence contract without Clerk or Neon credentials.
 
+## Portal General Office Channel
+
+Portal is the sole authority for live conversation messages and history. Neon
+does not store or duplicate message bodies. The first connected Office Channel is
+`{YYYY-MM-DD}:general`, where the date is the current UTC Office Day.
+
+Portal dependencies are exact because its APIs are pre-1.0:
+
+- `@portalsdk/core` `0.1.4`
+- `@portalsdk/react` `0.1.2`
+- `@portalsdk/config` `0.1.4`
+- `@portalsdk/cli` `0.4.1`
+
+`bun.lock` is the only lockfile. Update Portal packages deliberately with Bun and
+keep each direct version exact.
+
+The root `portal.config.ts` applies `anonymous: false` to every visible and
+hidden Office Channel. It deliberately defines no publish middleware or
+automated content moderation. Deploy that customer configuration with the
+server-only `PORTAL_SECRET` after selecting the correct Portal environment:
+
+```bash
+bun run portal:deploy
+```
+
+Authenticated entry calls Portal's hosted control plane to upsert the New Hire's
+daily General membership, then mints a channel-scoped token with a 15-minute
+lifetime. `/api/office/portal/token` performs both operations only after
+server-side authentication and completed onboarding. The browser receives the
+short-lived user token but never `PORTAL_SECRET`; the published Portal SDK calls
+the route again on connection, reconnect, and expiry.
+
+The SDK loads persistent history and owns optimistic `pending`, confirmed
+`sent`, and recoverable `failed` delivery states. The app accepts only a runtime-
+validated `{ text: string }` payload of 1–1,000 characters. Rendering uses React
+text escaping and linkifies only HTTP(S) URLs with a new browsing context and
+`noopener noreferrer`. HTML, rich Markdown, uploads, embeds, media, and URL
+unfurling are not supported.
+
+Portal connection and publish failures remain visible as offline/retry states.
+Live mode never substitutes mock or browser-local messages. Mock chat uses a
+separate authenticated test-only route and in-memory Portal adapter; that route
+returns 404 outside guarded non-production mock mode.
+
 ## Clerk Authentication
 
 In live mode, Clerk's hosted Account Portal owns sign-in. Configure the desired
@@ -175,10 +220,11 @@ bunx playwright install chromium
 - `/api/office/onboarding` authenticates every mutation, updates Clerk before a
   profile projection, and rejects Clock In until required onboarding state is
   durable.
+- `/api/office/portal/token` authenticates the New Hire, checks completed
+  onboarding, idempotently grants daily General membership, and mints a
+  15-minute Portal user token. It never returns the Portal secret.
+- `/api/office/portal/mock-chat` is a guarded non-production adapter route used
+  only by the credential-free UI and browser tests. Live chat goes directly
+  through the published Portal SDK and hosted APIs.
 - Browser-facing configuration uses only publishable `NEXT_PUBLIC_*` keys.
   Secret values remain server-only.
-
-Realtime messaging and persistence behavior will be attached behind these
-adapters in subsequent delivery slices. Portal channel policy must still enforce
-`anonymous: false`; Clerk protection does not replace ADR 0004's Portal-side
-authorization boundary.

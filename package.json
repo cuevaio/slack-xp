@@ -9,6 +9,7 @@
     "lint": "biome check",
     "typecheck": "tsc --noEmit",
     "db:migrate": "drizzle-kit migrate",
+    "portal:deploy": "portal deploy",
     "format": "biome format --write",
     "test": "bun run test:unit && bun run test:server && bun run test:browser",
     "test:unit": "bun test tests/unit",
@@ -28,6 +29,8 @@
   "devDependencies": {
     "@biomejs/biome": "2.2.0",
     "@playwright/test": "^1.61.1",
+    "@portalsdk/cli": "0.4.1",
+    "@portalsdk/config": "0.1.4",
     "@tailwindcss/postcss": "^4",
     "@types/bun": "^1.3.14",
     "@types/node": "^20",

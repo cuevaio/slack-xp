@@ -3,6 +3,7 @@ import { silenceOfficeEventAttention } from "@/lib/office-events/attention";
 import {
   createOfficeEventDispatcher,
   createOfficeEventKey,
+  createReactionOfficeEvent,
   createReactionProjection,
   OFFICE_EVENT_MESSAGE_TYPE,
   OFFICE_EVENT_SENDERS,
@@ -45,6 +46,7 @@ const supportedEvents: readonly OfficeEvent[] = [
     type: "reaction.changed",
     eventKey: eventKey("reaction.changed", "reaction-operation-1"),
     occurredAt,
+    officeDay: "2026-07-22",
     officeChannelId: "general:2026-07-22",
     messageId: "message-1",
     actorId: "user_reactor",
@@ -114,6 +116,41 @@ describe("versioned Office Event contract", () => {
     expect(() =>
       createOfficeEventKey("reaction.changed", "contains spaces"),
     ).toThrow("source identifier");
+  });
+
+  test("creates a complete reaction event with a retry-stable identity", () => {
+    const input = {
+      mutationId: "reaction-operation-44",
+      occurredAt,
+      officeDay: "2026-07-22",
+      officeChannelId: "general:2026-07-22",
+      messageId: "message-44",
+      actorId: "user_reactor",
+      reaction: "🎉" as const,
+      operation: "add" as const,
+    };
+
+    expect(createReactionOfficeEvent(input)).toEqual({
+      version: OFFICE_EVENT_VERSION,
+      type: "reaction.changed",
+      eventKey: eventKey("reaction.changed", input.mutationId),
+      occurredAt,
+      officeDay: "2026-07-22",
+      officeChannelId: "general:2026-07-22",
+      messageId: "message-44",
+      actorId: "user_reactor",
+      reaction: "🎉",
+      operation: "add",
+    });
+    expect(createReactionOfficeEvent(input)).toEqual(
+      createReactionOfficeEvent(input),
+    );
+    expect(() =>
+      createReactionOfficeEvent({
+        ...input,
+        officeChannelId: "watercooler:2026-07-21",
+      }),
+    ).toThrow("Office Day");
   });
 
   test("rejects unknown, malformed, oversized, and mutable invalidation payloads", () => {
@@ -267,6 +304,96 @@ describe("versioned Office Event contract", () => {
     ]);
     expect(projection.apply(removed)).toBe(true);
     expect(projection.read(added.officeChannelId, added.messageId)).toEqual([]);
+  });
+
+  test("folds duplicate and out-of-order operations by event time", () => {
+    const first = supportedEvents[0];
+    if (first.type !== "reaction.changed") {
+      throw new Error("Expected the reaction fixture first.");
+    }
+    const removed = {
+      ...first,
+      eventKey: eventKey("reaction.changed", "reaction-operation-2"),
+      occurredAt: "2026-07-22T12:02:00.000Z",
+      operation: "remove" as const,
+    };
+    const addedAgain = {
+      ...first,
+      eventKey: eventKey("reaction.changed", "reaction-operation-3"),
+      occurredAt: "2026-07-22T12:03:00.000Z",
+    };
+    const projection = createReactionProjection();
+
+    expect(projection.apply(removed)).toBe(true);
+    expect(projection.apply(first)).toBe(false);
+    expect(projection.apply(removed)).toBe(false);
+    expect(projection.read(first.officeChannelId, first.messageId)).toEqual([]);
+    expect(projection.apply(addedAgain)).toBe(true);
+    expect(projection.read(first.officeChannelId, first.messageId)).toEqual([
+      { reaction: "👍", actorIds: ["user_reactor"] },
+    ]);
+  });
+
+  test("keeps participant ownership isolated while folding counts", () => {
+    const first = supportedEvents[0];
+    if (first.type !== "reaction.changed") {
+      throw new Error("Expected the reaction fixture first.");
+    }
+    const colleague = {
+      ...first,
+      eventKey: eventKey("reaction.changed", "colleague-add"),
+      actorId: "user_colleague",
+    };
+    const ownerRemoves = {
+      ...first,
+      eventKey: eventKey("reaction.changed", "owner-remove"),
+      occurredAt: "2026-07-22T12:01:00.000Z",
+      operation: "remove" as const,
+    };
+    const projection = createReactionProjection();
+
+    projection.apply(first);
+    projection.apply(colleague);
+    expect(projection.read(first.officeChannelId, first.messageId)).toEqual([
+      {
+        reaction: "👍",
+        actorIds: ["user_colleague", "user_reactor"],
+      },
+    ]);
+    projection.apply(ownerRemoves);
+    expect(projection.read(first.officeChannelId, first.messageId)).toEqual([
+      { reaction: "👍", actorIds: ["user_colleague"] },
+    ]);
+  });
+
+  test("ignores reactions targeting missing or cross-channel messages", () => {
+    const reaction = supportedEvents[0];
+    if (reaction.type !== "reaction.changed") {
+      throw new Error("Expected the reaction fixture first.");
+    }
+    const projection = createReactionProjection({
+      isValidTarget: (officeChannelId, messageId) =>
+        officeChannelId === "general:2026-07-22" && messageId === "message-1",
+    });
+
+    expect(
+      projection.apply({
+        ...reaction,
+        eventKey: eventKey("reaction.changed", "missing-message"),
+        messageId: "message-missing",
+      }),
+    ).toBe(false);
+    expect(
+      projection.apply({
+        ...reaction,
+        eventKey: eventKey("reaction.changed", "wrong-channel"),
+        officeChannelId: "watercooler:2026-07-22",
+      }),
+    ).toBe(false);
+    expect(projection.apply(reaction)).toBe(true);
+    expect(projection.read("general:2026-07-22", "message-1")).toEqual([
+      { reaction: "👍", actorIds: ["user_reactor"] },
+    ]);
   });
 
   test("mutes and clears only the hidden channel inbox entry", () => {

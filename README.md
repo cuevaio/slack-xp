@@ -214,8 +214,10 @@ wrong-channel envelopes are ignored before dispatch.
 The supported v1 events are:
 
 - `reaction.changed`: authoritative add/remove operations containing only the
-  visible Office Channel ID, message ID, actor ID, and one fixed reaction from
-  `👍 ❤️ 😂 😮 😢 🎉`. The verified Portal sender must equal the actor.
+  Office Day, visible Office Channel ID, message ID, actor ID, operation, and
+  one fixed reaction from `👍 ❤️ 😂 😮 😢 🎉`. The Office Day must match both
+  the visible and hidden channel IDs, and the verified Portal sender must equal
+  the actor.
 - `profile.invalidated`: a `profileId` reference, accepted only from
   `office-events:profiles`.
 - `report.invalidated`, `message-removal.invalidated`,
@@ -230,10 +232,23 @@ retries and reconnect replay by event key, pages through the current Office
 Day's event history to rebuild reaction state, and exposes neither the
 underlying message list nor a generic event-channel send function.
 
+Reaction state is last-write-wins per message, emoji, and actor using canonical
+event time with the event key as a deterministic tie-breaker. This makes replay
+order irrelevant while preserving ownership: a New Hire's event can change
+only that New Hire's participation. Clients fold an event only when its target
+is a runtime-valid visible message in the named Office Channel for the same
+Office Day. Missing, malformed, removed-from-view, and cross-channel targets do
+not affect the rendered projection. The message UI exposes the fixed palette as
+native controls with named choices, focus restoration, Escape handling, and
+44-pixel touch targets.
+
 The subscriber advances the event channel read position, durably mutes its
 Portal inbox entry, and clears that entry's independent inbox watermark. Product
 channel lists also exclude the event channel, so Office Events do not render as
 messages, appear as visible channels, or contribute to user-facing attention.
+Guarded mock mode persists the same event envelopes in its in-memory Portal
+adapter and exposes them through an authenticated test-only route; production
+and live mode continue to publish and replay directly through Portal.
 
 ## Clerk Authentication
 

@@ -6,12 +6,16 @@ import { useCallback, useEffect, useRef } from "react";
 import { silenceOfficeEventAttention } from "@/lib/office-events/attention";
 import {
   createOfficeEventDispatcher,
+  OFFICE_EVENT_MESSAGE_TYPE,
   type OfficeEventDispatcher,
   type OfficeEventHandlers,
+  parseOfficeEvent,
+  type ReactionOfficeEvent,
 } from "@/lib/office-events/contract";
 
 export type OfficeEventSubscription = {
   status: ChannelStatus;
+  publishReaction(event: ReactionOfficeEvent): Promise<void>;
 };
 
 type OfficeEventSubscriptionOptions = OfficeEventHandlers & {
@@ -61,6 +65,12 @@ export function useOfficeEventSubscription({
   const inbox = useInbox();
 
   useEffect(() => {
+    for (const message of channel.messages) {
+      dispatchMessage(message);
+    }
+  }, [channel.messages, dispatchMessage]);
+
+  useEffect(() => {
     silenceOfficeEventAttention(inbox.channels.get(channelId));
   }, [channelId, inbox.channels]);
 
@@ -75,5 +85,24 @@ export function useOfficeEventSubscription({
     channel.loadPrevious,
   ]);
 
-  return { status: channel.status };
+  const publishReaction = useCallback(
+    async (event: ReactionOfficeEvent): Promise<void> => {
+      const parsed = parseOfficeEvent(event);
+      if (
+        parsed?.type !== "reaction.changed" ||
+        parsed.officeDay !== channelId.slice(0, 10) ||
+        channel.me?.id !== parsed.actorId
+      ) {
+        throw new TypeError("Invalid reaction Office Event publication.");
+      }
+      await channel.send({
+        content: parsed,
+        type: OFFICE_EVENT_MESSAGE_TYPE,
+      });
+      latestHandlers.current.onReaction(parsed);
+    },
+    [channel.me?.id, channel.send, channelId],
+  );
+
+  return { status: channel.status, publishReaction };
 }

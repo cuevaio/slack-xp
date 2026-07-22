@@ -1,9 +1,13 @@
 import type {
   HRReportCategory,
   HRReportRepository,
+  HRReportReviewRecord,
   HRReportState,
   HRReportSubjectType,
+  MessageHRReportCategory,
+  OperatorActionRecord,
   PendingHRReportNotification,
+  ProfileHRReportCategory,
 } from "@/lib/hr-reports/contract";
 import { planOfficeDay } from "@/lib/office-days/contract";
 import type {
@@ -111,6 +115,7 @@ export type InMemoryNeonRepository = OnboardingRepository &
     profileBatchReadCount(): number;
     hrReportRecords(): readonly StoredHRReport[];
     hrReportNotificationRecords(): readonly StoredHRReportNotification[];
+    operatorActionRecords(): readonly OperatorActionRecord[];
     reset(): void;
   };
 
@@ -130,6 +135,7 @@ export function createInMemoryNeonRepository(
   >();
   const hrReports = new Map<string, StoredHRReport>();
   const hrReportNotifications = new Map<string, StoredHRReportNotification>();
+  const operatorActions = new Map<string, OperatorActionRecord>();
   let projectionWrites = 0;
   let profileBatchReads = 0;
 
@@ -325,6 +331,96 @@ export function createInMemoryNeonRepository(
       }
     },
 
+    async listHRReports(limit) {
+      return [...hrReports.values()]
+        .sort(
+          (left, right) =>
+            (left.state === right.state ? 0 : left.state === "open" ? -1 : 1) ||
+            right.createdAt.getTime() - left.createdAt.getTime(),
+        )
+        .slice(0, limit)
+        .flatMap((report): HRReportReviewRecord[] => {
+          const resolution = [...operatorActions.values()].find(
+            (action) => action.targetId === report.reportId,
+          );
+          const shared = {
+            reportId: report.reportId,
+            reporterId: report.reporterId,
+            category: report.category,
+            state: report.state,
+            createdAt: new Date(report.createdAt),
+            updatedAt: new Date(report.updatedAt),
+            resolution: resolution
+              ? {
+                  actionId: resolution.actionId,
+                  operatorId: resolution.operatorId,
+                  action: resolution.action,
+                  privateNote: resolution.privateNote,
+                  actedAt: new Date(resolution.actedAt),
+                  createdAt: new Date(resolution.createdAt),
+                }
+              : null,
+          };
+          if (
+            report.subjectType === "message" &&
+            report.officeDay &&
+            report.officeChannelId &&
+            report.messageId
+          ) {
+            return [
+              {
+                ...shared,
+                subjectType: "message",
+                officeDay: report.officeDay,
+                officeChannelId: report.officeChannelId,
+                messageId: report.messageId,
+                category: report.category as MessageHRReportCategory,
+              },
+            ];
+          }
+          if (report.subjectType === "profile" && report.profileId) {
+            return [
+              {
+                ...shared,
+                subjectType: "profile",
+                profileId: report.profileId,
+                category: report.category as ProfileHRReportCategory,
+              },
+            ];
+          }
+          return [];
+        });
+    },
+
+    async dismissHRReport(input) {
+      const report = hrReports.get(input.reportId);
+      if (!report) return null;
+      if (report.state === "dismissed") {
+        const current = (await this.listHRReports(50)).find(
+          ({ reportId }) => reportId === input.reportId,
+        );
+        return current
+          ? { status: "already-dismissed", report: current }
+          : null;
+      }
+      report.state = "dismissed";
+      report.updatedAt = new Date(input.actedAt);
+      operatorActions.set(report.reportId, {
+        actionId: input.actionId,
+        operatorId: input.operatorId,
+        targetType: "hr_report",
+        targetId: report.reportId,
+        action: "dismissed",
+        privateNote: input.privateNote,
+        actedAt: new Date(input.actedAt),
+        createdAt: new Date(input.actedAt),
+      });
+      const current = (await this.listHRReports(50)).find(
+        ({ reportId }) => reportId === input.reportId,
+      );
+      return current ? { status: "dismissed", report: current } : null;
+    },
+
     async enterNewHire(profile) {
       applyProfileProjection(profile);
       let onboarding = onboardings.get(profile.clerkUserId);
@@ -400,6 +496,10 @@ export function createInMemoryNeonRepository(
       return [...hrReportNotifications.values()];
     },
 
+    operatorActionRecords() {
+      return [...operatorActions.values()];
+    },
+
     reset() {
       profiles.clear();
       onboardings.clear();
@@ -408,6 +508,7 @@ export function createInMemoryNeonRepository(
       systemEventOutbox.clear();
       hrReports.clear();
       hrReportNotifications.clear();
+      operatorActions.clear();
       projectionWrites = 0;
       profileBatchReads = 0;
     },

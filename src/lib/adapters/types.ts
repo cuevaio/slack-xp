@@ -1,4 +1,5 @@
 import type {
+  HRReportInvalidationPublisher,
   HRReportNotificationPublisher,
   HRReportRepository,
 } from "@/lib/hr-reports/contract";
@@ -17,6 +18,7 @@ import type {
 export type PortalAdapter = PortalAuthority &
   ProfileInvalidationPublisher &
   ScriptedSystemEventPublisher &
+  HRReportInvalidationPublisher &
   HRReportNotificationPublisher & {
     listChannels(now?: Date): Promise<readonly OfficeChannel[]>;
   };

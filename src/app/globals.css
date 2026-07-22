@@ -1201,6 +1201,94 @@ a {
   font-size: 0.64rem;
 }
 
+.hr-review-queue {
+  display: grid;
+  gap: 0.5rem;
+  max-height: 340px;
+  margin-top: 1rem;
+  padding: 0.7rem;
+  overflow: auto;
+  border: 2px inset #eee;
+  background: #e8f2ff;
+}
+
+.hr-review-queue h2,
+.hr-review-queue p {
+  margin: 0;
+}
+
+.hr-review-queue h2 {
+  color: #183b75;
+  font-size: 0.9rem;
+}
+
+.hr-review-queue > p {
+  font-size: 0.72rem;
+}
+
+.hr-review-queue ul {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hr-review-item {
+  display: grid;
+  gap: 0.4rem;
+  padding: 0.55rem;
+  border: 1px solid #5877a2;
+  background: white;
+  font-size: 0.7rem;
+}
+
+.hr-review-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.hr-review-state {
+  padding: 0.1rem 0.3rem;
+  border: 1px solid #81775d;
+  background: #fff3a8;
+  text-transform: uppercase;
+  font-size: 0.58rem;
+  font-weight: 800;
+}
+
+.hr-review-state[data-state="dismissed"] {
+  background: #e1e1df;
+}
+
+.hr-review-item > a {
+  color: #163d84;
+  font-weight: 800;
+}
+
+.hr-review-item form {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.hr-review-item textarea {
+  width: 100%;
+  resize: vertical;
+  border: 2px inset #eee;
+  background: #fffef5;
+  color: var(--ink);
+  font: inherit;
+}
+
+.hr-review-resolution {
+  display: grid;
+  gap: 0.25rem;
+  padding-top: 0.3rem;
+  border-top: 1px dotted #8a8a86;
+}
+
 .conversation-panel {
   background: var(--paper);
   min-width: 0;

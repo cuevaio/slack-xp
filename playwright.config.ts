@@ -24,6 +24,7 @@ export default defineConfig({
     env: {
       APP_ENV: "test",
       SERVICE_MODE: "mock",
+      OPERATOR_CLERK_USER_IDS: "user_mock_operator",
     },
   },
 });

@@ -1,6 +1,7 @@
 import {
   and,
   asc,
+  desc,
   eq,
   inArray,
   isNotNull,
@@ -16,12 +17,17 @@ import {
   hrReports,
   newHireOnboarding,
   officeDays,
+  operatorActions,
   profileInvalidationOutbox,
   scriptedSystemEventOutbox,
 } from "@/lib/db/schema";
 import type {
   CreateHRReportInput,
+  DismissHRReportInput,
+  HRReportReviewRecord,
+  MessageHRReportCategory,
   PendingHRReportNotification,
+  ProfileHRReportCategory,
 } from "@/lib/hr-reports/contract";
 import {
   type PlannedSystemEvent,
@@ -280,7 +286,167 @@ export function buildHRReportOutboxQuery(
     .onConflictDoNothing({ target: hrReportNotificationOutbox.outboxId });
 }
 
+export function buildHRReportDismissQuery(
+  database: Database,
+  input: DismissHRReportInput,
+) {
+  return database
+    .update(hrReports)
+    .set({
+      state: "dismissed",
+      dismissedBy: input.operatorId,
+      dismissedAt: input.actedAt,
+      updatedAt: input.actedAt,
+    })
+    .where(
+      and(
+        eq(hrReports.reportId, input.reportId),
+        eq(hrReports.state, "open"),
+        isNull(hrReports.dismissedBy),
+        isNull(hrReports.dismissedAt),
+      ),
+    )
+    .returning({ reportId: hrReports.reportId });
+}
+
+export function buildOperatorActionInsertQuery(
+  database: Database,
+  input: DismissHRReportInput,
+) {
+  return database
+    .insert(operatorActions)
+    .select(
+      database
+        .select({
+          actionId: sql<string>`${input.actionId}`.as("action_id"),
+          operatorId: hrReports.dismissedBy,
+          targetType: sql<string>`'hr_report'`.as("target_type"),
+          targetId: hrReports.reportId,
+          action: sql<string>`'dismissed'`.as("action"),
+          privateNote: sql<string | null>`${input.privateNote}`.as(
+            "private_note",
+          ),
+          actedAt: hrReports.dismissedAt,
+          createdAt: sql<Date>`${input.actedAt}`.as("created_at"),
+        })
+        .from(hrReports)
+        .where(
+          and(
+            eq(hrReports.reportId, input.reportId),
+            eq(hrReports.state, "dismissed"),
+            eq(hrReports.dismissedBy, input.operatorId),
+            eq(hrReports.dismissedAt, input.actedAt),
+          ),
+        ),
+    )
+    .onConflictDoNothing({
+      target: [
+        operatorActions.targetType,
+        operatorActions.targetId,
+        operatorActions.action,
+      ],
+    });
+}
+
 export function createNeonRepository(database: Database): NeonAdapter {
+  async function listHRReportRows(
+    limit: number,
+    reportId?: string,
+  ): Promise<HRReportReviewRecord[]> {
+    const rows = await database
+      .select({
+        reportId: hrReports.reportId,
+        reporterId: hrReports.reporterId,
+        subjectType: hrReports.subjectType,
+        officeDay: hrReports.officeDay,
+        officeChannelId: hrReports.officeChannelId,
+        messageId: hrReports.messageId,
+        profileId: hrReports.profileId,
+        category: hrReports.category,
+        state: hrReports.state,
+        createdAt: hrReports.createdAt,
+        updatedAt: hrReports.updatedAt,
+        actionId: operatorActions.actionId,
+        operatorId: operatorActions.operatorId,
+        action: operatorActions.action,
+        privateNote: operatorActions.privateNote,
+        actedAt: operatorActions.actedAt,
+        actionCreatedAt: operatorActions.createdAt,
+      })
+      .from(hrReports)
+      .leftJoin(
+        operatorActions,
+        and(
+          eq(operatorActions.targetType, "hr_report"),
+          eq(operatorActions.targetId, hrReports.reportId),
+          eq(operatorActions.action, "dismissed"),
+        ),
+      )
+      .where(reportId ? eq(hrReports.reportId, reportId) : undefined)
+      .orderBy(
+        sql`case when ${hrReports.state} = 'open' then 0 else 1 end`,
+        desc(hrReports.createdAt),
+      )
+      .limit(limit);
+
+    const reports: HRReportReviewRecord[] = [];
+    for (const row of rows) {
+      if (
+        (row.state !== "open" && row.state !== "dismissed") ||
+        (row.action !== null && row.action !== "dismissed")
+      ) {
+        continue;
+      }
+      const resolution =
+        row.actionId &&
+        row.operatorId &&
+        row.action === "dismissed" &&
+        row.actedAt &&
+        row.actionCreatedAt
+          ? {
+              actionId: row.actionId,
+              operatorId: row.operatorId,
+              action: "dismissed" as const,
+              privateNote: row.privateNote,
+              actedAt: row.actedAt,
+              createdAt: row.actionCreatedAt,
+            }
+          : null;
+      const shared = {
+        reportId: row.reportId,
+        reporterId: row.reporterId,
+        category: row.category as HRReportReviewRecord["category"],
+        state: row.state as HRReportReviewRecord["state"],
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        resolution,
+      };
+      if (
+        row.subjectType === "message" &&
+        row.officeDay &&
+        row.officeChannelId &&
+        row.messageId
+      ) {
+        reports.push({
+          ...shared,
+          subjectType: "message",
+          officeDay: row.officeDay,
+          officeChannelId: row.officeChannelId,
+          messageId: row.messageId,
+          category: row.category as MessageHRReportCategory,
+        });
+      } else if (row.subjectType === "profile" && row.profileId) {
+        reports.push({
+          ...shared,
+          subjectType: "profile",
+          profileId: row.profileId,
+          category: row.category as ProfileHRReportCategory,
+        });
+      }
+    }
+    return reports;
+  }
+
   async function findOnboarding(
     clerkUserId: string,
   ): Promise<OnboardingSnapshot | null> {
@@ -497,6 +663,19 @@ export function createNeonRepository(database: Database): NeonAdapter {
         throw new Error("HR Report uniqueness could not be resolved.");
       }
       return { reportId: existing.reportId, status: "already-reported" };
+    },
+    listHRReports: listHRReportRows,
+    async dismissHRReport(input) {
+      const [dismissedRows] = await database.batch([
+        buildHRReportDismissQuery(database, input),
+        buildOperatorActionInsertQuery(database, input),
+      ]);
+      const [report] = await listHRReportRows(1, input.reportId);
+      if (!report) return null;
+      return {
+        status: dismissedRows.length > 0 ? "dismissed" : "already-dismissed",
+        report,
+      };
     },
     async pendingHRReportNotifications(limit) {
       const rows = await database

@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import { createDatabase } from "@/lib/db/client";
 import {
+  buildHRReportDismissQuery,
   buildHRReportInsertQuery,
   buildHRReportOutboxQuery,
   buildOfficeDayQueries,
+  buildOperatorActionInsertQuery,
   buildProfileOutboxQuery,
   buildProfileProjectionQuery,
 } from "@/lib/onboarding/neon";
@@ -167,5 +169,38 @@ describe("initial Neon migration", () => {
     expect(query.sql).toContain('"profile_id"');
     expect(query.sql).toContain('"subject_type"');
     expect(query.sql).toContain('returning "report_id"');
+  });
+
+  test("adds one-way HR Report dismissal and private Operator audits", async () => {
+    const migration = await Bun.file(
+      new URL(
+        "../../drizzle/0005_review_hr_reports_inline.sql",
+        import.meta.url,
+      ),
+    ).text();
+    expect(migration).toContain('CREATE TABLE "operator_actions"');
+    expect(migration).toContain('"dismissed_by" text');
+    expect(migration).toContain('"dismissed_at" timestamp with time zone');
+    expect(migration).toContain("hr_reports_resolution_check");
+    expect(migration).toContain("operator_actions_one_report_dismissal_idx");
+    expect(migration).toContain('"private_note" text');
+    expect(migration).not.toMatch(/message[_ ]?(body|content)|preview/iu);
+
+    const database = createDatabase("postgresql://test:test@localhost/test");
+    const input = {
+      actionId: "action-sql-contract",
+      reportId: "report-sql-contract",
+      operatorId: "user-operator",
+      privateNote: "Reviewed privately.",
+      actedAt: new Date("2026-07-22T12:05:00.000Z"),
+    };
+    const dismissal = buildHRReportDismissQuery(database, input).toSQL();
+    const audit = buildOperatorActionInsertQuery(database, input).toSQL();
+    expect(dismissal.sql).toContain('"state" =');
+    expect(dismissal.sql).toContain('"dismissed_by" is null');
+    expect(dismissal.sql).toContain('returning "report_id"');
+    expect(audit.sql).toContain("insert into");
+    expect(audit.sql).toContain("select");
+    expect(audit.sql).toContain("on conflict");
   });
 });

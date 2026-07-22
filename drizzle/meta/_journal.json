@@ -36,6 +36,13 @@
       "when": 1784753172567,
       "tag": "0004_report_profiles_to_hr",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1784754850228,
+      "tag": "0005_review_hr_reports_inline",
+      "breakpoints": true
     }
   ]
 }

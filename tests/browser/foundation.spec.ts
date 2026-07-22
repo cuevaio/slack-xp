@@ -237,7 +237,25 @@ test("message HR Reports stay private and deep-link Operators to review context"
     data: submittedRequest.postDataJSON(),
   });
   expect(duplicate.status()).toBe(200);
-  expect(await duplicate.json()).toMatchObject({ status: "already-reported" });
+  const duplicatePayload = await duplicate.json();
+  expect(duplicatePayload).toMatchObject({ status: "already-reported" });
+
+  expect(
+    (await page.request.get("/api/office/operator/hr-reports")).status(),
+  ).toBe(403);
+  expect(
+    (
+      await page.request.patch("/api/office/operator/hr-reports", {
+        data: {
+          reportId: duplicatePayload.reportId,
+          privateNote: "Forged Operator note",
+        },
+      })
+    ).status(),
+  ).toBe(403);
+  await expect(
+    page.getByRole("region", { name: "HR Report review queue" }),
+  ).toHaveCount(0);
 
   const publicEvents = await page.request.get("/api/office/portal/mock-events");
   expect(JSON.stringify(await publicEvents.json())).not.toMatch(
@@ -260,6 +278,34 @@ test("message HR Reports stay private and deep-link Operators to review context"
     .filter({ hasText: reportText });
   await expect(reviewMessage).toBeVisible();
   await expect(reviewMessage).toBeFocused();
+
+  const queue = page.getByRole("region", {
+    name: "HR Report review queue",
+  });
+  const queueItem = queue
+    .getByRole("listitem")
+    .filter({ hasText: "Threatening behavior" });
+  await expect(queueItem).toContainText("Message HR Report");
+  await expect(queueItem).toContainText("open");
+  await queueItem
+    .getByLabel("Private Operator note (optional)")
+    .fill("Reviewed in context; harmless office banter.");
+  await queueItem.getByRole("button", { name: "Dismiss HR Report" }).click();
+  await expect(queueItem).toContainText("dismissed");
+  await expect(queueItem).toContainText(
+    "Reviewed in context; harmless office banter.",
+  );
+
+  const dismissalEvents = await page.request.get(
+    "/api/office/portal/mock-events",
+  );
+  const serializedDismissalEvents = JSON.stringify(
+    await dismissalEvents.json(),
+  );
+  expect(serializedDismissalEvents).toContain("report.invalidated");
+  expect(serializedDismissalEvents).not.toMatch(
+    /harmless office banter|threatening-behavior|user_reporter/i,
+  );
 });
 
 test("New Hire Profile HR Reports follow current canonical profile context", async ({
@@ -358,6 +404,12 @@ test("New Hire Profile HR Reports follow current canonical profile context", asy
     reviewProfile.getByRole("heading", { name: "Current Profile" }),
   ).toBeVisible();
   await expect(reviewProfile.getByText("Terry Byte")).toHaveCount(0);
+  const queueItem = page
+    .getByRole("region", { name: "HR Report review queue" })
+    .getByRole("listitem")
+    .filter({ hasText: "Abusive or explicit picture" });
+  await expect(queueItem).toContainText("Profile HR Report");
+  await expect(queueItem).toContainText("open");
 });
 
 test("general chat confirms, reconnects, validates text, and recovers from Portal faults", async ({

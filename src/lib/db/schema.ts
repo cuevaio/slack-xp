@@ -186,6 +186,8 @@ export const hrReports = pgTable(
     profileId: text("profile_id"),
     category: text("category").notNull(),
     state: text("state").default("open").notNull(),
+    dismissedBy: text("dismissed_by"),
+    dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -222,12 +224,58 @@ export const hrReports = pgTable(
       "hr_reports_state_check",
       sql`${table.state} in ('open', 'dismissed')`,
     ),
+    check(
+      "hr_reports_resolution_check",
+      sql`(${table.state} = 'open' and ${table.dismissedBy} is null and ${table.dismissedAt} is null) or (${table.state} = 'dismissed' and char_length(${table.dismissedBy}) between 1 and 255 and ${table.dismissedAt} is not null)`,
+    ),
     uniqueIndex("hr_reports_one_open_message_per_reporter_idx")
       .on(table.reporterId, table.officeChannelId, table.messageId)
       .where(sql`${table.subjectType} = 'message' and ${table.state} = 'open'`),
     uniqueIndex("hr_reports_one_open_profile_per_reporter_idx")
       .on(table.reporterId, table.profileId)
       .where(sql`${table.subjectType} = 'profile' and ${table.state} = 'open'`),
+  ],
+);
+
+export const operatorActions = pgTable(
+  "operator_actions",
+  {
+    actionId: text("action_id").primaryKey(),
+    operatorId: text("operator_id").notNull(),
+    targetType: text("target_type").notNull(),
+    targetId: text("target_id")
+      .notNull()
+      .references(() => hrReports.reportId, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    privateNote: text("private_note"),
+    actedAt: timestamp("acted_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "operator_actions_action_id_check",
+      sql`char_length(${table.actionId}) between 1 and 255`,
+    ),
+    check(
+      "operator_actions_operator_id_check",
+      sql`char_length(${table.operatorId}) between 1 and 255`,
+    ),
+    check(
+      "operator_actions_hr_report_dismissal_check",
+      sql`${table.targetType} = 'hr_report' and ${table.action} = 'dismissed'`,
+    ),
+    check(
+      "operator_actions_private_note_check",
+      sql`${table.privateNote} is null or char_length(${table.privateNote}) between 1 and 1000`,
+    ),
+    uniqueIndex("operator_actions_one_report_dismissal_idx").on(
+      table.targetType,
+      table.targetId,
+      table.action,
+    ),
+    index("operator_actions_target_idx").on(table.targetType, table.targetId),
   ],
 );
 

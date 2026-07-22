@@ -6,7 +6,10 @@ import {
   MOCK_AUTH_IDENTITIES,
   readMockSessionToken,
 } from "@/lib/auth/mock-session";
-import { isOperatorUserId } from "@/lib/auth/operator";
+import {
+  configuredOperatorUserIds,
+  isOperatorUserId,
+} from "@/lib/auth/operator";
 
 describe("mock authentication", () => {
   test("issues stable New Hire and Operator identities", () => {
@@ -59,5 +62,18 @@ describe("Operator allowlist", () => {
     expect(isOperatorUserId("user_operator", allowlist)).toBe(true);
     expect(isOperatorUserId("user_oper", allowlist)).toBe(false);
     expect(isOperatorUserId("user_operator", undefined)).toBe(false);
+  });
+
+  test("fails closed for empty or partially invalid Operator allowlists", () => {
+    expect(configuredOperatorUserIds("")).toEqual([]);
+    expect(configuredOperatorUserIds("user_operator,not-a-clerk-id")).toEqual(
+      [],
+    );
+    expect(isOperatorUserId("user_operator", "user_operator, bad")).toBe(false);
+  });
+
+  test("re-evaluates changed allowlist values for every authorization check", () => {
+    expect(isOperatorUserId("user_operator", "user_operator")).toBe(true);
+    expect(isOperatorUserId("user_operator", "user_replacement")).toBe(false);
   });
 });

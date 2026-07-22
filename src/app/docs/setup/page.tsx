@@ -56,10 +56,13 @@ export default function SetupPage() {
               account records.
             </p>
             <p>
-              Optionally set <code>OPERATOR_CLERK_USER_IDS</code> to a comma- or
-              whitespace-separated list of exact Clerk user IDs. This value is
-              server-only. Those Operators receive private targeted Portal inbox
-              items when New Hires submit HR Reports.
+              Set <code>OPERATOR_CLERK_USER_IDS</code> to a comma- or
+              whitespace-separated list of exact Clerk user IDs that should act
+              as Operators. This value is server-only and is rechecked on every
+              private queue read and dismissal. Empty values and any malformed
+              entry fail closed with no Operator access. Those Operators receive
+              private targeted Portal inbox items and can review and dismiss HR
+              Reports inline.
             </p>
             <h2>Project current Clerk profiles</h2>
             <p>
@@ -96,14 +99,17 @@ export default function SetupPage() {
               The migrations create Clerk profile projections, a retry-safe
               profile invalidation outbox, resumable New Hire onboarding
               records, Office Days, the scripted System Event outbox, and
-              body-free HR Report workflow and notification-outbox records.
-              Message and New Hire Profile reports use separate open-report
-              uniqueness rules. Profile reports retain only stable Clerk IDs, so
-              later edits or deletion do not copy or preserve public names and
-              pictures. The outboxes contain stable references, attempt state,
-              and delivery timestamps, never profile values, message bodies,
-              previews, or presence. Portal remains the authority for messages
-              and conversation state.
+              body-free HR Report workflow and notification-outbox records. The
+              latest migration also adds one-way report dismissal fields and
+              uniquely constrained private Operator audit records containing
+              stable actor and target IDs, timestamps, action, and an optional
+              private note. Message and New Hire Profile reports use separate
+              open-report uniqueness rules. Profile reports retain only stable
+              Clerk IDs, so later edits or deletion do not copy or preserve
+              public names and pictures. The outboxes contain stable references,
+              attempt state, and delivery timestamps, never profile values,
+              message bodies, previews, or presence. Portal remains the
+              authority for messages and conversation state.
             </p>
             <h2>Prove production readiness</h2>
             <p>

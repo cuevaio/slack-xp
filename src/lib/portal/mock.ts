@@ -4,6 +4,8 @@ import type {
   DetailedPresence,
 } from "@portalsdk/core";
 import type {
+  HRReportInvalidationEvent,
+  HRReportInvalidationPublisher,
   HRReportNotification,
   HRReportNotificationPublisher,
 } from "@/lib/hr-reports/contract";
@@ -78,6 +80,7 @@ export class MockPortalUnavailableError extends Error {
 
 export type MockPortalAdapter = PortalAuthority &
   ProfileInvalidationPublisher &
+  HRReportInvalidationPublisher &
   ScriptedSystemEventPublisher &
   HRReportNotificationPublisher & {
     history(channelId: string): Promise<readonly PortalVisibleMessage[]>;
@@ -315,6 +318,26 @@ export function createMockPortalAdapter({
         channelId,
         sender: { id: OFFICE_EVENT_SENDERS.profiles, anon: false },
         timestamp: now().getTime(),
+        kind: "text",
+        type: OFFICE_EVENT_MESSAGE_TYPE,
+        ephemeral: false,
+        retracted: false,
+        status: "sent",
+        content: event,
+      });
+      officeEvents.set(channelId, channelEvents);
+    },
+
+    async publishHRReportInvalidation(event: HRReportInvalidationEvent) {
+      requireOnline();
+      const channelId = officeEventChannelId(new Date(event.occurredAt));
+      const channelEvents = officeEvents.get(channelId) ?? [];
+      messageSequence += 1;
+      channelEvents.push({
+        id: `mock_office_event_${messageSequence}`,
+        channelId,
+        sender: { id: OFFICE_EVENT_SENDERS.operations, anon: false },
+        timestamp: new Date(event.occurredAt).getTime(),
         kind: "text",
         type: OFFICE_EVENT_MESSAGE_TYPE,
         ephemeral: false,

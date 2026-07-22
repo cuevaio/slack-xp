@@ -1,3 +1,5 @@
+import type { OfficeInvalidationEvent } from "@/lib/office-events/contract";
+
 export const HR_REPORT_CATEGORIES = [
   "harassment-or-bullying",
   "hate-or-discrimination",
@@ -30,6 +32,11 @@ export type HRReportCategory =
   | ProfileHRReportCategory;
 export type HRReportState = "open" | "dismissed";
 export type HRReportSubjectType = "message" | "profile";
+export type HRReportOperatorAction = "dismissed";
+export type HRReportInvalidationEvent = Extract<
+  OfficeInvalidationEvent,
+  { type: "report.invalidated" }
+>;
 
 export type MessageHRReportStableContext = {
   subjectType: "message";
@@ -89,6 +96,54 @@ export type PendingHRReportNotification = HRReportStableContext & {
   outboxId: string;
 };
 
+export type HRReportResolution = {
+  actionId: string;
+  operatorId: string;
+  action: HRReportOperatorAction;
+  privateNote: string | null;
+  actedAt: Date;
+  createdAt: Date;
+};
+
+type HRReportReviewRecordBase = {
+  reportId: string;
+  reporterId: string;
+  state: HRReportState;
+  createdAt: Date;
+  updatedAt: Date;
+  resolution: HRReportResolution | null;
+};
+
+export type HRReportReviewRecord =
+  | (MessageHRReportStableContext &
+      HRReportReviewRecordBase & { category: MessageHRReportCategory })
+  | (ProfileHRReportStableContext &
+      HRReportReviewRecordBase & { category: ProfileHRReportCategory });
+
+export type DismissHRReportInput = {
+  actionId: string;
+  reportId: string;
+  operatorId: string;
+  privateNote: string | null;
+  actedAt: Date;
+};
+
+export type DismissHRReportResult = {
+  status: "dismissed" | "already-dismissed";
+  report: HRReportReviewRecord;
+};
+
+export type OperatorActionRecord = {
+  actionId: string;
+  operatorId: string;
+  targetType: "hr_report";
+  targetId: string;
+  action: HRReportOperatorAction;
+  privateNote: string | null;
+  actedAt: Date;
+  createdAt: Date;
+};
+
 type HRReportNotificationBase = {
   notificationId: string;
   type: typeof HR_REPORT_NOTIFICATION_TYPE;
@@ -109,6 +164,10 @@ export type HRReportNotification = HRReportNotificationBase &
 
 export type HRReportRepository = {
   createHRReport(input: CreateHRReportInput): Promise<CreateHRReportResult>;
+  listHRReports(limit: number): Promise<HRReportReviewRecord[]>;
+  dismissHRReport(
+    input: DismissHRReportInput,
+  ): Promise<DismissHRReportResult | null>;
   pendingHRReportNotifications(
     limit: number,
   ): Promise<PendingHRReportNotification[]>;
@@ -123,4 +182,8 @@ export type HRReportNotificationPublisher = {
     notification: HRReportNotification,
     operatorIds: readonly string[],
   ): Promise<void>;
+};
+
+export type HRReportInvalidationPublisher = {
+  publishHRReportInvalidation(event: HRReportInvalidationEvent): Promise<void>;
 };

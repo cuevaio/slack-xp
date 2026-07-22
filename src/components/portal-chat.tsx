@@ -20,8 +20,10 @@ import {
   useRef,
   useState,
 } from "react";
+import { HRReportReviewQueue } from "@/components/hr-report-review-queue";
 import { MessageHRReportControls } from "@/components/message-hr-report-controls";
 import { NewHireProfileContext } from "@/components/new-hire-profile-context";
+import { invalidateHRReportQueue } from "@/lib/hr-reports/client";
 import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import type { SafeScriptedSystemEventMessage } from "@/lib/office-days/contract";
 import { useOfficeEventSubscription } from "@/lib/office-events/client";
@@ -36,6 +38,10 @@ import {
   parseOfficeEventMessage,
   type ReactionOfficeEvent,
 } from "@/lib/office-events/contract";
+import {
+  invalidateOperatorState,
+  useOperatorState,
+} from "@/lib/operators/client";
 import {
   listOfficeChannelsForDay,
   type OfficeChannel,
@@ -1346,6 +1352,9 @@ function OfficeWorkspace({
   children,
 }: OfficeWorkspaceProps) {
   const currentProfile = useProfileBatch([identityId]);
+  const operatorState = useOperatorState(isOperator);
+  const hasOperatorAccess =
+    !operatorState.isError && operatorState.data?.isOperator === true;
   const currentDisplayName =
     currentProfile.data?.find((profile) => profile.clerkUserId === identityId)
       ?.displayName ?? displayName;
@@ -1356,7 +1365,9 @@ function OfficeWorkspace({
   );
   const totalUnread =
     inboxRows.reduce((total, row) => total + row.unread, 0) +
-    reportNotifications.filter(({ read }) => !read).length;
+    (hasOperatorAccess
+      ? reportNotifications.filter(({ read }) => !read).length
+      : 0);
 
   useEffect(() => {
     if (isMobile !== true) return;
@@ -1377,7 +1388,7 @@ function OfficeWorkspace({
           <p className="eyebrow">Shared Public Office</p>
           <h1>Welcome, {currentDisplayName}</h1>
           <p className="job-title">{jobTitle}</p>
-          {isOperator ? (
+          {hasOperatorAccess ? (
             <p className="operator-badge">Operator access</p>
           ) : null}
           <output className="inbox-status" aria-live="polite">
@@ -1431,7 +1442,8 @@ function OfficeWorkspace({
               );
             })}
           </nav>
-          {isOperator ? (
+          <HRReportReviewQueue enabled={hasOperatorAccess} />
+          {hasOperatorAccess ? (
             <section
               aria-label="HR Report notifications"
               className="hr-report-inbox"
@@ -1637,9 +1649,16 @@ function LivePortalWorkspace({
     (event: OfficeInvalidationEvent) => {
       if (event.type === "profile.invalidated") {
         void invalidateProfileBatches(queryClient, event.profileId);
+      } else if (event.type === "report.invalidated") {
+        void invalidateHRReportQueue(queryClient);
+      } else if (
+        event.type === "operator.invalidated" &&
+        event.operatorId === identityId
+      ) {
+        void invalidateOperatorState(queryClient);
       }
     },
-    [queryClient],
+    [identityId, queryClient],
   );
   const { status: eventStatus, publishReaction } = useOfficeEventSubscription({
     channelId: eventChannelId,

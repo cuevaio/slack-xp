@@ -49,6 +49,29 @@ export function isHRReportIdentifier(value: unknown): value is string {
   return typeof value === "string" && IDENTIFIER_PATTERN.test(value);
 }
 
+export function parseHRReportDismissalRequest(
+  value: unknown,
+): { reportId: string; privateNote: string | null } | null {
+  if (!isObject(value) || !isHRReportIdentifier(value.reportId)) return null;
+  const keys = Object.keys(value);
+  if (
+    keys.length > 2 ||
+    keys.some((key) => key !== "reportId" && key !== "privateNote")
+  ) {
+    return null;
+  }
+  if (value.privateNote === undefined || value.privateNote === null) {
+    return { reportId: value.reportId, privateNote: null };
+  }
+  if (typeof value.privateNote !== "string") return null;
+  const privateNote = value.privateNote.trim();
+  if (privateNote.length === 0) {
+    return { reportId: value.reportId, privateNote: null };
+  }
+  if (privateNote.length > 1_000) return null;
+  return { reportId: value.reportId, privateNote };
+}
+
 export function isHRReportCategory(
   value: unknown,
 ): value is MessageHRReportCategory {

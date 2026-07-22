@@ -37,10 +37,7 @@ export async function POST(request: Request) {
   if (!input) {
     return Response.json({ error: "invalid_hr_report" }, { status: 422 });
   }
-  const operatorIds =
-    configuration.serviceMode === "mock"
-      ? ["user_mock_operator"]
-      : configuredOperatorUserIds();
+  const operatorIds = configuredOperatorUserIds();
   const dependencies = {
     repository: adapters.neon,
     publisher: adapters.portal,

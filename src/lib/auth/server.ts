@@ -42,6 +42,7 @@ export async function authenticateOfficeRequest(
       fullName: profile.displayName,
       imageUrl: profile.imageUrl,
       sourceVersion: profile.sourceVersion,
+      isOperator: isOperatorUserId(identity.id),
     };
   }
 

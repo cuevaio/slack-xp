@@ -42,7 +42,10 @@ Live mode requires these variables:
 
 `OPERATOR_CLERK_USER_IDS` is an optional comma- or whitespace-separated list of
 exact Clerk user IDs that receive Operator-shaped identity. It is read only on
-the server.
+the server and re-read for every Operator query and mutation. An empty value or
+any malformed entry makes the entire allowlist grant no Operator access. Mock
+mode uses the same allowlist contract; the browser fixture configures
+`user_mock_operator` explicitly.
 
 Use one development Clerk, Portal, and Neon stack for local and preview scopes.
 Set the same variable names to a separate production stack in Vercel's
@@ -109,6 +112,13 @@ and message or per reporter and profile. The report and pending notification
 row commit together so retries return `already-reported` without creating
 another workflow record. The profile subject is deliberately not a foreign key:
 a later profile tombstone does not remove or rewrite the private review record.
+The review migration adds one-way dismissal columns and `operator_actions`.
+Each dismissal updates an open report and inserts one uniquely constrained audit
+record in the same Neon transaction. The audit stores the acting Operator ID,
+HR Report target, `dismissed` action, action and creation timestamps, and an
+optional private note of at most 1,000 characters. Retry and concurrent calls
+return the existing dismissed state without reopening the report or adding a
+second audit.
 
 In the Clerk Dashboard, create a webhook endpoint for
 `https://<deployment>/api/webhooks/clerk`, subscribe it to `user.created` and
@@ -256,6 +266,19 @@ row pending for a safe retry on a later report submission or Portal-token
 refresh. Profile links resolve the current Neon projection at review time, so
 edits appear immediately and tombstoned profiles render as Former Employee
 without breaking the stable review context.
+
+Operators see a canonical in-messenger HR Review Queue backed by
+`GET /api/office/operator/hr-reports`. It distinguishes message and profile
+reports plus open and dismissed state, and its context links use the same stable
+message coordinates or current New Hire Profile lookup as notifications.
+`PATCH /api/office/operator/hr-reports` accepts only a stable report ID and an
+optional private note, then performs the validated one-way dismissal. Both
+methods authenticate the current Clerk session, require completed onboarding,
+and re-evaluate `OPERATOR_CLERK_USER_IDS`; UI visibility and client claims are
+never authorization boundaries. The queue and Operator status have separate
+TanStack Query caches with periodic repair. Trusted `report.invalidated` and
+`operator.invalidated` Office Events narrowly invalidate those caches and never
+carry canonical state or private notes.
 
 The Office Day is the pure UTC date of the current instant. A client monitor
 arms for the next UTC boundary and also rechecks at least once per minute and
@@ -512,7 +535,8 @@ the server clock.
   deterministic daily planning, retry-state publishing, Cron authorization,
   and client event-key deduplication.
 - `src/lib/hr-reports/` owns approved categories, stable-reference validation,
-  open-report idempotency, safe review links, and notification outbox draining.
+  open-report idempotency, safe review links, one-way dismissal, private audit
+  records, canonical review-query caching, and notification outbox draining.
 - `/api/office/onboarding` authenticates every mutation, updates Clerk before a
   profile projection, and rejects Clock In until required onboarding state is
   durable.
@@ -522,6 +546,10 @@ the server clock.
 - `/api/office/hr-reports` authenticates completed New Hires, rejects unknown
   type-specific categories, non-current Office Channels, and unavailable New
   Hire Profiles, and never accepts message text or mutable profile values.
+- `/api/office/operator/hr-reports` rechecks authenticated Clerk identity and
+  the complete environment allowlist for every read and dismissal. It returns
+  private review state only to Operators and atomically records each dismissal
+  once with its optional private note.
 - `/api/office/portal/token` authenticates the New Hire, checks completed
   onboarding, idempotently grants all five daily Office Channel memberships and
   the hidden Office Event membership, and mints a 15-minute Portal user token

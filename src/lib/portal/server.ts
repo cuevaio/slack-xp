@@ -1,5 +1,7 @@
 import {
   HR_REPORT_NOTIFICATION_CHANNEL_ID,
+  type HRReportInvalidationEvent,
+  type HRReportInvalidationPublisher,
   type HRReportNotification,
   type HRReportNotificationPublisher,
 } from "@/lib/hr-reports/contract";
@@ -247,6 +249,42 @@ export function createPortalProfileInvalidationPublisher({
         ...sender,
       });
 
+      await publishPortalMessage({
+        channelId,
+        content: event,
+        failureCode: "portal_event_publish_failed",
+        messageType: OFFICE_EVENT_MESSAGE_TYPE,
+        token: token.token,
+      });
+    },
+  };
+}
+
+export function createPortalHRReportInvalidationPublisher({
+  secret,
+  apiKey,
+  apiUrl = DEFAULT_PORTAL_API_URL,
+  fetcher = fetch,
+}: Omit<PortalProfilePublisherOptions, "now">): HRReportInvalidationPublisher {
+  const controlPlane = createPortalControlPlane({ secret, apiUrl, fetcher });
+  const publishPortalMessage = createPortalMessagePublisher({
+    apiKey,
+    apiUrl,
+    fetcher,
+  });
+
+  return {
+    async publishHRReportInvalidation(event: HRReportInvalidationEvent) {
+      const channelId = officeEventChannelId(new Date(event.occurredAt));
+      const sender = {
+        userId: OFFICE_EVENT_SENDERS.operations,
+        claims: { username: "Portal Systems Operations", avatar: null },
+      };
+      await controlPlane.ensureMembership({ channelId, ...sender });
+      const token = await controlPlane.mintToken({
+        channelIds: [channelId],
+        ...sender,
+      });
       await publishPortalMessage({
         channelId,
         content: event,

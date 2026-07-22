@@ -1,7 +1,9 @@
 import {
   type CreateHRReportInput,
   type CreateHRReportResult,
+  type DismissHRReportResult,
   HR_REPORT_NOTIFICATION_TYPE,
+  type HRReportInvalidationPublisher,
   type HRReportNotification,
   type HRReportNotificationPublisher,
   type HRReportRepository,
@@ -12,8 +14,123 @@ import {
   type ProfileHRReportCategory,
 } from "@/lib/hr-reports/contract";
 import { createHRReportDeepLink } from "@/lib/hr-reports/domain";
+import {
+  createOfficeEventKey,
+  OFFICE_EVENT_VERSION,
+} from "@/lib/office-events/contract";
 
 const HR_REPORT_OUTBOX_BATCH_SIZE = 50;
+const HR_REPORT_REVIEW_BATCH_SIZE = 50;
+
+type SerializedHRReportReview<
+  TReport extends Awaited<
+    ReturnType<HRReportRepository["listHRReports"]>
+  >[number],
+> = TReport extends TReport
+  ? Omit<TReport, "createdAt" | "updatedAt" | "resolution"> & {
+      href: string;
+      createdAt: string;
+      updatedAt: string;
+      resolution: {
+        actionId: string;
+        operatorId: string;
+        action: "dismissed";
+        privateNote: string | null;
+        actedAt: string;
+        createdAt: string;
+      } | null;
+    }
+  : never;
+
+export type HRReportReviewItem = SerializedHRReportReview<
+  Awaited<ReturnType<HRReportRepository["listHRReports"]>>[number]
+>;
+
+export class HRReportReviewError extends Error {
+  constructor(
+    readonly code: "report_not_found",
+    message: string,
+  ) {
+    super(message);
+    this.name = "HRReportReviewError";
+  }
+}
+
+function toReviewItem(
+  appOrigin: string,
+  report: Awaited<ReturnType<HRReportRepository["listHRReports"]>>[number],
+): HRReportReviewItem {
+  return {
+    ...report,
+    href: createHRReportDeepLink(appOrigin, report),
+    createdAt: report.createdAt.toISOString(),
+    updatedAt: report.updatedAt.toISOString(),
+    resolution: report.resolution
+      ? {
+          ...report.resolution,
+          actedAt: report.resolution.actedAt.toISOString(),
+          createdAt: report.resolution.createdAt.toISOString(),
+        }
+      : null,
+  };
+}
+
+export async function listHRReportsForReview({
+  repository,
+  appOrigin,
+}: {
+  repository: HRReportRepository;
+  appOrigin: string;
+}): Promise<HRReportReviewItem[]> {
+  const reports = await repository.listHRReports(HR_REPORT_REVIEW_BATCH_SIZE);
+  return reports.map((report) => toReviewItem(appOrigin, report));
+}
+
+export async function dismissHRReport({
+  repository,
+  reportId,
+  operatorId,
+  privateNote,
+  publisher,
+  now = new Date(),
+}: {
+  repository: HRReportRepository;
+  reportId: string;
+  operatorId: string;
+  privateNote: string | null;
+  publisher?: HRReportInvalidationPublisher;
+  now?: Date;
+}): Promise<DismissHRReportResult> {
+  const actionId = crypto.randomUUID();
+  const result = await repository.dismissHRReport({
+    actionId,
+    reportId,
+    operatorId,
+    privateNote,
+    actedAt: now,
+  });
+  if (!result) {
+    throw new HRReportReviewError(
+      "report_not_found",
+      "The requested HR Report does not exist.",
+    );
+  }
+  if (result.status === "dismissed" && publisher) {
+    try {
+      await publisher.publishHRReportInvalidation({
+        version: OFFICE_EVENT_VERSION,
+        type: "report.invalidated",
+        eventKey: createOfficeEventKey("report.invalidated", actionId),
+        occurredAt: now.toISOString(),
+        reportId,
+      });
+    } catch {
+      // This event is only an invalidation hint. Canonical Neon state is
+      // committed and periodic query repair will converge connected Operators.
+    }
+  }
+  return result;
+}
 
 export type SubmitHRReportResult = CreateHRReportResult & {
   notificationStatus: "sent" | "pending";

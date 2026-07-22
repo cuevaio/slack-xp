@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
+import { NextRequest } from "next/server";
 import { handleProfileBatchRequest } from "@/app/api/office/profiles/route";
 import { handleClerkProfileWebhook } from "@/app/api/webhooks/clerk/route";
 import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
@@ -42,7 +43,7 @@ function clerkEvent(
 function signedWebhookRequest(
   event: ReturnType<typeof clerkEvent>,
   signingSecret = SIGNING_SECRET,
-): Request {
+): NextRequest {
   const body = JSON.stringify(event);
   const messageId = `msg_${event.data.updated_at}`;
   const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -51,7 +52,7 @@ function signedWebhookRequest(
     .update(`${messageId}.${timestamp}.${body}`)
     .digest("base64");
 
-  return new Request("http://localhost/api/webhooks/clerk", {
+  return new NextRequest("http://localhost/api/webhooks/clerk", {
     method: "POST",
     headers: {
       "content-type": "application/json",

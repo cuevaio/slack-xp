@@ -1,7 +1,7 @@
 import { verifyWebhook } from "@clerk/nextjs/webhooks";
+import type { NextRequest } from "next/server";
+import { createServiceAdapters } from "@/lib/adapters";
 import { readAppConfiguration } from "@/lib/config";
-import { createDatabase } from "@/lib/db/client";
-import { createNeonOnboardingRepository } from "@/lib/onboarding/neon";
 import {
   InvalidClerkProfilePayloadError,
   profileFromClerkPayload,
@@ -16,20 +16,14 @@ type ClerkWebhookDependencies = {
 };
 
 export async function handleClerkProfileWebhook(
-  request: Request,
+  request: NextRequest,
   dependencies: ClerkWebhookDependencies,
 ): Promise<Response> {
   let event: Awaited<ReturnType<typeof verifyWebhook>>;
   try {
-    // Clerk's Next.js type currently narrows this Web Request to NextRequest,
-    // although verification only consumes headers and text(). Route Handlers
-    // and deterministic boundary tests both provide that complete contract.
-    event = await verifyWebhook(
-      request as unknown as Parameters<typeof verifyWebhook>[0],
-      {
-        signingSecret: dependencies.signingSecret,
-      },
-    );
+    event = await verifyWebhook(request, {
+      signingSecret: dependencies.signingSecret,
+    });
   } catch {
     // Do not log the request, signature, secret, or profile payload.
     return Response.json({ error: "invalid_webhook" }, { status: 400 });
@@ -51,7 +45,7 @@ export async function handleClerkProfileWebhook(
   return new Response(null, { status: 204 });
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   const configuration = readAppConfiguration();
   if (
     configuration.status === "incomplete" ||
@@ -60,11 +54,8 @@ export async function POST(request: Request) {
     return Response.json({ error: "installation_incomplete" }, { status: 503 });
   }
 
-  const repository = createNeonOnboardingRepository(
-    createDatabase(configuration.values.DATABASE_URL),
-  );
   return handleClerkProfileWebhook(request, {
-    repository,
+    repository: createServiceAdapters(configuration).neon,
     signingSecret: configuration.values.CLERK_WEBHOOK_SECRET,
   });
 }

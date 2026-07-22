@@ -1,4 +1,5 @@
 import type { NewHireProfile } from "@/lib/onboarding/types";
+import type { ProfileAttribution } from "@/lib/profiles/types";
 
 export const UNAVAILABLE_PROFILE_NAME = "New Hire";
 export const MAX_PROFILE_BATCH_SIZE = 100;
@@ -23,6 +24,32 @@ export class ProfileBatchError extends Error {
     super(message);
     this.name = "ProfileBatchError";
   }
+}
+
+type ProfileAttributionSource = {
+  displayName: string | null;
+  imageUrl: string | null;
+};
+
+export function toProfileAttribution(
+  clerkUserId: string,
+  profile: ProfileAttributionSource | undefined,
+): ProfileAttribution {
+  if (!profile?.displayName) {
+    return {
+      clerkUserId,
+      displayName: UNAVAILABLE_PROFILE_NAME,
+      imageUrl: null,
+      status: "unavailable",
+    };
+  }
+
+  return {
+    clerkUserId,
+    displayName: profile.displayName,
+    imageUrl: profile.imageUrl,
+    status: "current",
+  };
 }
 
 export function profileFromClerkPayload(payload: unknown): NewHireProfile {

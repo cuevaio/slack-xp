@@ -3,12 +3,13 @@ import { authenticateOfficeRequest } from "@/lib/auth/server";
 import { readAppConfiguration } from "@/lib/config";
 import { ProfileBatchError } from "@/lib/profiles/domain";
 import { readProfileBatch } from "@/lib/profiles/service";
+import type { ProfileRepository } from "@/lib/profiles/types";
 
 export const runtime = "nodejs";
 
 export async function handleProfileBatchRequest(
   request: Request,
-  repository: Parameters<typeof readProfileBatch>[0],
+  repository: ProfileRepository,
 ): Promise<Response> {
   let payload: unknown;
   try {
@@ -18,10 +19,11 @@ export async function handleProfileBatchRequest(
   }
 
   try {
-    const clerkUserIds =
-      payload && typeof payload === "object" && "clerkUserIds" in payload
-        ? payload.clerkUserIds
-        : undefined;
+    let clerkUserIds: unknown;
+    if (payload && typeof payload === "object" && "clerkUserIds" in payload) {
+      clerkUserIds = payload.clerkUserIds;
+    }
+
     const profiles = await readProfileBatch(repository, clerkUserIds);
     return Response.json({ profiles });
   } catch (error) {

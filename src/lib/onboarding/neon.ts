@@ -11,7 +11,7 @@ import type {
   NewHireProfile,
   OnboardingSnapshot,
 } from "@/lib/onboarding/types";
-import { UNAVAILABLE_PROFILE_NAME } from "@/lib/profiles/domain";
+import { toProfileAttribution } from "@/lib/profiles/domain";
 import type { ProfileAttribution } from "@/lib/profiles/types";
 
 type OnboardingRow = {
@@ -73,14 +73,23 @@ export function buildProfileProjectionQuery(
       },
       // A newer webhook always wins. Equal-version repair may correct drift,
       // but an exact replay performs no write and leaves updated_at stable.
-      setWhere: sql`${clerkProfiles.sourceVersion} < excluded.source_version or (${clerkProfiles.sourceVersion} = excluded.source_version and (${clerkProfiles.firstName} is distinct from excluded.first_name or ${clerkProfiles.lastName} is distinct from excluded.last_name or ${clerkProfiles.displayName} is distinct from excluded.display_name or ${clerkProfiles.imageUrl} is distinct from excluded.image_url))`,
+      setWhere: sql`
+        ${clerkProfiles.sourceVersion} < excluded.source_version
+        or (
+          ${clerkProfiles.sourceVersion} = excluded.source_version
+          and (
+            ${clerkProfiles.firstName} is distinct from excluded.first_name
+            or ${clerkProfiles.lastName} is distinct from excluded.last_name
+            or ${clerkProfiles.displayName} is distinct from excluded.display_name
+            or ${clerkProfiles.imageUrl} is distinct from excluded.image_url
+          )
+        )
+      `,
     })
     .returning({ clerkUserId: clerkProfiles.clerkUserId });
 }
 
-export function createNeonOnboardingRepository(
-  database: Database,
-): NeonAdapter {
+export function createNeonRepository(database: Database): NeonAdapter {
   async function findOnboarding(
     clerkUserId: string,
   ): Promise<OnboardingSnapshot | null> {
@@ -144,21 +153,7 @@ export function createNeonOnboardingRepository(
     const rowsById = new Map(rows.map((row) => [row.clerkUserId, row]));
 
     return clerkUserIds.map((clerkUserId) => {
-      const row = rowsById.get(clerkUserId);
-      if (!row?.displayName) {
-        return {
-          clerkUserId,
-          displayName: UNAVAILABLE_PROFILE_NAME,
-          imageUrl: null,
-          status: "unavailable",
-        };
-      }
-      return {
-        clerkUserId,
-        displayName: row.displayName,
-        imageUrl: row.imageUrl,
-        status: "current",
-      };
+      return toProfileAttribution(clerkUserId, rowsById.get(clerkUserId));
     });
   }
 

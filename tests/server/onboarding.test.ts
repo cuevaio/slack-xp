@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createInMemoryOnboardingRepository } from "@/lib/onboarding/memory";
+import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
 import { confirmNewHireProfile } from "@/lib/onboarding/service";
 
 const profile = {
@@ -13,7 +13,7 @@ const profile = {
 
 describe("onboarding persistence boundary", () => {
   test("creates one stable assignment across concurrent first entry", async () => {
-    const repository = createInMemoryOnboardingRepository();
+    const repository = createInMemoryNeonRepository();
 
     const entries = await Promise.all(
       Array.from({ length: 8 }, () => repository.enterNewHire(profile)),
@@ -25,7 +25,7 @@ describe("onboarding persistence boundary", () => {
   });
 
   test("resumes interrupted setup and completes Clock In exactly once", async () => {
-    const repository = createInMemoryOnboardingRepository();
+    const repository = createInMemoryNeonRepository();
     await repository.enterNewHire(profile);
 
     await repository.confirmProfile(profile);
@@ -45,7 +45,7 @@ describe("onboarding persistence boundary", () => {
   });
 
   test("rejects Clock In until profile and conduct requirements are met", async () => {
-    const repository = createInMemoryOnboardingRepository();
+    const repository = createInMemoryNeonRepository();
     await repository.enterNewHire(profile);
 
     await expect(repository.clockIn(profile.clerkUserId)).rejects.toMatchObject(
@@ -56,7 +56,7 @@ describe("onboarding persistence boundary", () => {
   });
 
   test("updates Clerk before committing profile confirmation to Neon", async () => {
-    const repository = createInMemoryOnboardingRepository();
+    const repository = createInMemoryNeonRepository();
     await repository.enterNewHire(profile);
 
     await expect(

@@ -8,9 +8,8 @@ import type {
   OnboardingRepository,
   OnboardingSnapshot,
 } from "@/lib/onboarding/types";
-import { UNAVAILABLE_PROFILE_NAME } from "@/lib/profiles/domain";
+import { toProfileAttribution } from "@/lib/profiles/domain";
 import type {
-  ProfileAttribution,
   ProfileProjectionResult,
   ProfileRepository,
 } from "@/lib/profiles/types";
@@ -21,6 +20,33 @@ type StoredOnboarding = {
   conductAcceptedAt: string | null;
   completedAt: string | null;
 };
+
+function hasSameProfileValues(
+  current: NewHireProfile,
+  candidate: NewHireProfile,
+): boolean {
+  return (
+    current.firstName === candidate.firstName &&
+    current.lastName === candidate.lastName &&
+    current.displayName === candidate.displayName &&
+    current.imageUrl === candidate.imageUrl
+  );
+}
+
+function shouldApplyProfile(
+  current: NewHireProfile | undefined,
+  candidate: NewHireProfile,
+): boolean {
+  if (!current) {
+    return true;
+  }
+
+  if (candidate.sourceVersion !== current.sourceVersion) {
+    return candidate.sourceVersion > current.sourceVersion;
+  }
+
+  return !hasSameProfileValues(current, candidate);
+}
 
 function toSnapshot(
   profile: NewHireProfile,
@@ -78,17 +104,11 @@ export function createInMemoryNeonRepository(
     return profile;
   }
 
-  function projectProfile(profile: NewHireProfile): ProfileProjectionResult {
+  function applyProfileProjection(
+    profile: NewHireProfile,
+  ): ProfileProjectionResult {
     const current = profiles.get(profile.clerkUserId);
-    if (
-      current &&
-      (current.sourceVersion > profile.sourceVersion ||
-        (current.sourceVersion === profile.sourceVersion &&
-          current.firstName === profile.firstName &&
-          current.lastName === profile.lastName &&
-          current.displayName === profile.displayName &&
-          current.imageUrl === profile.imageUrl))
-    ) {
+    if (!shouldApplyProfile(current, profile)) {
       return "unchanged";
     }
 
@@ -99,31 +119,18 @@ export function createInMemoryNeonRepository(
 
   return {
     async projectProfile(profile) {
-      return projectProfile(profile);
+      return applyProfileProjection(profile);
     },
 
     async getProfiles(clerkUserIds) {
       profileBatchReads += 1;
-      return clerkUserIds.map<ProfileAttribution>((clerkUserId) => {
-        const profile = profiles.get(clerkUserId);
-        return profile
-          ? {
-              clerkUserId,
-              displayName: profile.displayName,
-              imageUrl: profile.imageUrl,
-              status: "current",
-            }
-          : {
-              clerkUserId,
-              displayName: UNAVAILABLE_PROFILE_NAME,
-              imageUrl: null,
-              status: "unavailable",
-            };
-      });
+      return clerkUserIds.map((clerkUserId) =>
+        toProfileAttribution(clerkUserId, profiles.get(clerkUserId)),
+      );
     },
 
     async enterNewHire(profile) {
-      projectProfile(profile);
+      applyProfileProjection(profile);
       let onboarding = onboardings.get(profile.clerkUserId);
       if (!onboarding) {
         onboarding = {
@@ -139,7 +146,7 @@ export function createInMemoryNeonRepository(
 
     async confirmProfile(profile) {
       const onboarding = requireOnboarding(profile.clerkUserId);
-      projectProfile(profile);
+      applyProfileProjection(profile);
       onboarding.profileConfirmedAt ??= now().toISOString();
       return toSnapshot(requireProfile(profile.clerkUserId), onboarding);
     },
@@ -194,5 +201,3 @@ export function createInMemoryNeonRepository(
     },
   };
 }
-
-export const createInMemoryOnboardingRepository = createInMemoryNeonRepository;

@@ -1,7 +1,7 @@
 import type { ServiceAdapters } from "@/lib/adapters/types";
 import type { ReadyAppConfiguration } from "@/lib/config";
 import { createDatabase } from "@/lib/db/client";
-import { createNeonOnboardingRepository } from "@/lib/onboarding/neon";
+import { createNeonRepository } from "@/lib/onboarding/neon";
 
 // These boundaries intentionally do no network work during construction. Service-specific
 // integrations can replace each method without changing the office entry contract.
@@ -20,6 +20,6 @@ export function createLiveAdapters(
         return [];
       },
     },
-    neon: createNeonOnboardingRepository(createDatabase(databaseUrl)),
+    neon: createNeonRepository(createDatabase(databaseUrl)),
   };
 }

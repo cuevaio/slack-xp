@@ -65,6 +65,11 @@ type LivePortalOfficeProps = PortalOfficeBaseProps & {
 
 type PortalChatProps = MockPortalOfficeProps | LivePortalOfficeProps;
 
+type OfficeDayWorkspace = Pick<
+  PortalOfficeBaseProps,
+  "channels" | "eventChannelId" | "officeDay"
+>;
+
 type ChatSurfaceProps = {
   active: boolean;
   channel: OfficeChannel;
@@ -845,8 +850,18 @@ function ShiftEndedDialog({
   );
 }
 
+function createOfficeDayWorkspace(
+  currentOfficeDay: string,
+): OfficeDayWorkspace {
+  return {
+    channels: listOfficeChannelsForDay(currentOfficeDay),
+    eventChannelId: officeEventChannelIdForDay(currentOfficeDay),
+    officeDay: currentOfficeDay,
+  };
+}
+
 export function PortalChat(props: PortalChatProps): ReactNode {
-  const [workspace, setWorkspace] = useState(() => ({
+  const [workspace, setWorkspace] = useState<OfficeDayWorkspace>(() => ({
     channels: props.channels,
     eventChannelId: props.eventChannelId,
     officeDay: props.officeDay,
@@ -878,20 +893,17 @@ export function PortalChat(props: PortalChatProps): ReactNode {
     return () => cancelAnimationFrame(frame);
   }, [endedOfficeDay, focusNewOffice, workspace.channels]);
 
+  function continueToCurrentOfficeDay(): void {
+    setWorkspace(createOfficeDayWorkspace(officeDay()));
+    setEndedOfficeDay(null);
+    setFocusNewOffice(true);
+  }
+
   if (endedOfficeDay) {
     return (
       <ShiftEndedDialog
         endedOfficeDay={endedOfficeDay}
-        onContinue={() => {
-          const nextOfficeDay = officeDay();
-          setWorkspace({
-            channels: listOfficeChannelsForDay(nextOfficeDay),
-            eventChannelId: officeEventChannelIdForDay(nextOfficeDay),
-            officeDay: nextOfficeDay,
-          });
-          setEndedOfficeDay(null);
-          setFocusNewOffice(true);
-        }}
+        onContinue={continueToCurrentOfficeDay}
       />
     );
   }

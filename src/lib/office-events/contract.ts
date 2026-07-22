@@ -208,15 +208,22 @@ export function officeEventChannelIdForDay(currentOfficeDay: string): string {
   return `office-events:${currentOfficeDay}`;
 }
 
-export function isOfficeEventChannelId(value: unknown): value is string {
-  if (typeof value !== "string") return false;
+function officeDayFromEventChannelId(value: unknown): string | null {
+  if (typeof value !== "string") return null;
   const [channelName, currentOfficeDay, extra] = value.split(":");
-  return (
+  if (
     extra === undefined &&
     channelName === "office-events" &&
     currentOfficeDay !== undefined &&
     isOfficeDay(currentOfficeDay)
-  );
+  ) {
+    return currentOfficeDay;
+  }
+  return null;
+}
+
+export function isOfficeEventChannelId(value: unknown): value is string {
+  return officeDayFromEventChannelId(value) !== null;
 }
 
 export function createOfficeEventKey(
@@ -269,9 +276,10 @@ export function parseOfficeEventMessage(
   value: unknown,
   expectedChannelId: string,
 ): SafeOfficeEventMessage | null {
+  const expectedOfficeDay = officeDayFromEventChannelId(expectedChannelId);
   if (
     !isObject(value) ||
-    !isOfficeEventChannelId(expectedChannelId) ||
+    expectedOfficeDay === null ||
     !isIdentifier(value.id) ||
     value.channelId !== expectedChannelId ||
     !isObject(value.sender) ||
@@ -294,7 +302,7 @@ export function parseOfficeEventMessage(
   if (!event || !isTrustedSender(event, value.sender.id)) return null;
   if (
     event.type === "reaction.changed" &&
-    !event.officeChannelId.endsWith(`:${expectedChannelId.slice(-10)}`)
+    !event.officeChannelId.endsWith(`:${expectedOfficeDay}`)
   ) {
     return null;
   }

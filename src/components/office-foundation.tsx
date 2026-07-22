@@ -34,8 +34,8 @@ export async function OfficeFoundation({
   if (!generalChannel) {
     throw new Error("The General Office Channel is not configured.");
   }
-  const [, officeDay] = generalChannel.id.split(":");
-  const eventChannelId = officeEventChannelIdForDay(officeDay ?? "");
+  const [, currentOfficeDay = ""] = generalChannel.id.split(":");
+  const eventChannelId = officeEventChannelIdForDay(currentOfficeDay);
 
   return (
     <main className="office-shell">
@@ -53,7 +53,7 @@ export async function OfficeFoundation({
           displayName={onboarding.displayName}
           employeeRecord={<EmployeeRecordDialog onboarding={onboarding} />}
           eventChannelId={eventChannelId}
-          officeDay={officeDay ?? ""}
+          officeDay={currentOfficeDay}
           identityId={identity.id}
           isOperator={identity.isOperator}
           jobTitle={onboarding.jobTitle}

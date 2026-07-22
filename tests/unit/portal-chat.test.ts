@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { listOfficeChannels, officeChannelId } from "@/lib/portal/channels";
+import {
+  listOfficeChannels,
+  listOfficeChannelsForDay,
+  officeChannelId,
+} from "@/lib/portal/channels";
 import {
   generalChannelId,
   linkifyChatText,
@@ -142,9 +146,9 @@ describe("Office Channel chat contract", () => {
         sequence += 1;
         return Response.json({
           token: `token-${sequence}`,
-          channelIds: listOfficeChannels(
-            new Date("2026-07-22T12:00:00.000Z"),
-          ).map(({ id }) => id),
+          channelIds: listOfficeChannelsForDay("2026-07-22").map(
+            ({ id }) => id,
+          ),
           eventChannelId: "office-events:2026-07-22",
         });
       },
@@ -161,9 +165,9 @@ describe("Office Channel chat contract", () => {
       fetcher: async () =>
         Response.json({
           token: "next-day-token",
-          channelIds: listOfficeChannels(
-            new Date("2026-07-23T00:00:00.000Z"),
-          ).map(({ id }) => id),
+          channelIds: listOfficeChannelsForDay("2026-07-23").map(
+            ({ id }) => id,
+          ),
           eventChannelId: "office-events:2026-07-23",
         }),
       onOfficeDayExpired: () => {

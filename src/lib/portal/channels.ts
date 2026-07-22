@@ -57,10 +57,7 @@ export function officeChannelId(
 }
 
 export function listOfficeChannels(now: Date = new Date()): OfficeChannel[] {
-  return OFFICE_CHANNEL_DEFINITIONS.map((channel) => ({
-    ...channel,
-    id: officeChannelId(channel.slug, now),
-  }));
+  return listOfficeChannelsForDay(officeDay(now));
 }
 
 export function listOfficeChannelsForDay(
@@ -69,7 +66,10 @@ export function listOfficeChannelsForDay(
   if (!isOfficeDay(currentOfficeDay)) {
     throw new TypeError("A valid UTC Office Day is required.");
   }
-  return listOfficeChannels(new Date(`${currentOfficeDay}T00:00:00.000Z`));
+  return OFFICE_CHANNEL_DEFINITIONS.map((channel) => ({
+    ...channel,
+    id: `${channel.slug}:${currentOfficeDay}`,
+  }));
 }
 
 export function isOfficeChannelSlug(value: string): value is OfficeChannelSlug {

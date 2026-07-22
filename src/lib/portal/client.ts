@@ -13,10 +13,10 @@ type PortalTokenSourceOptions = {
 };
 
 function hasExpectedOfficeChannels(
-  payload: Record<string, unknown>,
+  payload: object,
   expectedOfficeDay: string,
 ): boolean {
-  const channelIds = payload.channelIds;
+  const channelIds = "channelIds" in payload ? payload.channelIds : undefined;
   if (!Array.isArray(channelIds)) return false;
   const expectedChannelIds = listOfficeChannelsForDay(expectedOfficeDay).map(
     ({ id }) => id,
@@ -24,6 +24,7 @@ function hasExpectedOfficeChannels(
   return (
     channelIds.length === expectedChannelIds.length &&
     expectedChannelIds.every((channelId) => channelIds.includes(channelId)) &&
+    "eventChannelId" in payload &&
     payload.eventChannelId === officeEventChannelIdForDay(expectedOfficeDay)
   );
 }
@@ -43,14 +44,13 @@ export function createPortalTokenSource({
     if (!response.ok || typeof payload !== "object" || payload === null) {
       throw new Error("Portal authentication is temporarily unavailable.");
     }
-    const tokenPayload = payload as Record<string, unknown>;
-    if (!hasExpectedOfficeChannels(tokenPayload, expectedOfficeDay)) {
+    if (!hasExpectedOfficeChannels(payload, expectedOfficeDay)) {
       onOfficeDayExpired?.();
       throw new Error("This Office Day has ended. Continue to reconnect.");
     }
-    if (typeof tokenPayload.token !== "string") {
+    if (!("token" in payload) || typeof payload.token !== "string") {
       throw new Error("Portal authentication is temporarily unavailable.");
     }
-    return tokenPayload.token;
+    return payload.token;
   };
 }

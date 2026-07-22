@@ -1,5 +1,7 @@
+const MILLISECONDS_PER_DAY = 86_400_000;
 const OFFICE_DAY_RECHECK_INTERVAL = 60_000;
-const OFFICE_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const OFFICE_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
+const OFFICE_DAY_RECOVERY_EVENTS = ["pageshow", "focus", "online"] as const;
 
 type TimerHandle = number;
 
@@ -35,7 +37,7 @@ export function officeDay(now: Date = new Date()): string {
 export function millisecondsUntilNextOfficeDay(now: Date = new Date()): number {
   const currentOfficeDay = officeDay(now);
   const nextBoundary =
-    Date.parse(`${currentOfficeDay}T00:00:00.000Z`) + 86_400_000;
+    Date.parse(`${currentOfficeDay}T00:00:00.000Z`) + MILLISECONDS_PER_DAY;
   return nextBoundary - now.getTime();
 }
 
@@ -79,9 +81,9 @@ export function observeOfficeDayBoundary({
     stopped = true;
     cancelTimer();
     documentTarget.removeEventListener("visibilitychange", onVisibilityChange);
-    windowTarget.removeEventListener("pageshow", recheck);
-    windowTarget.removeEventListener("focus", recheck);
-    windowTarget.removeEventListener("online", recheck);
+    for (const eventName of OFFICE_DAY_RECOVERY_EVENTS) {
+      windowTarget.removeEventListener(eventName, recheck);
+    }
   }
 
   function recheck(): void {
@@ -109,9 +111,9 @@ export function observeOfficeDayBoundary({
   }
 
   documentTarget.addEventListener("visibilitychange", onVisibilityChange);
-  windowTarget.addEventListener("pageshow", recheck);
-  windowTarget.addEventListener("focus", recheck);
-  windowTarget.addEventListener("online", recheck);
+  for (const eventName of OFFICE_DAY_RECOVERY_EVENTS) {
+    windowTarget.addEventListener(eventName, recheck);
+  }
   recheck();
 
   return stop;

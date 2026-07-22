@@ -1,6 +1,7 @@
 import { createServiceAdapters } from "@/lib/adapters";
 import { authenticateOfficeRequest } from "@/lib/auth/server";
 import { readAppConfiguration } from "@/lib/config";
+import { repairOfficeDayOnEntry } from "@/lib/office-days/cron";
 import { MockPortalUnavailableError } from "@/lib/portal/mock";
 import { officeNowForRequest } from "@/lib/portal/request-time";
 import { PortalServiceError } from "@/lib/portal/server";
@@ -26,10 +27,12 @@ export async function POST(request: Request) {
   const adapters = createServiceAdapters(configuration);
   try {
     await flushProfileInvalidations(adapters.neon, adapters.portal);
+    const now = officeNowForRequest(request.headers, configuration);
+    await repairOfficeDayOnEntry({ adapters, now });
     const session = await issueOfficePortalSession({
       identity,
       onboarding: await adapters.neon.getNewHire(identity.id),
-      now: officeNowForRequest(request.headers, configuration),
+      now,
       portal: adapters.portal,
     });
     return Response.json(session, {

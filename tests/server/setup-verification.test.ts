@@ -15,6 +15,7 @@ const liveEnvironment = {
   NEXT_PUBLIC_PORTAL_KEY: "pk_portal_public",
   PORTAL_SECRET: "sk_portal_secret",
   DATABASE_URL: "postgresql://user:password@example.com/database",
+  CRON_SECRET: "cron_secret_for_tests",
 };
 
 function passingVerifier(): SetupVerifier {

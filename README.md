@@ -38,6 +38,7 @@ Live mode requires these variables:
 - `NEXT_PUBLIC_PORTAL_KEY`
 - `PORTAL_SECRET`
 - `DATABASE_URL`
+- `CRON_SECRET`
 
 `OPERATOR_CLERK_USER_IDS` is an optional comma- or whitespace-separated list of
 exact Clerk user IDs that receive Operator-shaped identity. It is read only on
@@ -89,6 +90,12 @@ messages or message bodies. The next migration adds
 stable Clerk user ID, delivery timestamps, and no name, picture, or message
 content. A profile upsert and its outbox insert run in one Neon transaction;
 Portal publishing starts only after that transaction commits.
+The Office Day migration adds `office_days` and
+`scripted_system_event_outbox`. The outbox stores deterministic script,
+channel, and Office Character references plus due, attempt, acknowledgement,
+and creation timestamps; fixed message text remains in source control and is
+not copied into Neon. The Office Day row and all five planned outbox rows are
+created in one idempotent Neon transaction.
 
 In the Clerk Dashboard, create a webhook endpoint for
 `https://<deployment>/api/webhooks/clerk`, subscribe it to `user.created` and
@@ -237,6 +244,28 @@ currently rendered; a refresh or reconnect for another day returns to the
 shift-ended interstitial instead of silently connecting stale UI. Portal retains
 older persistent history, while every timestamp that remains visible is
 formatted from its canonical instant in the browser's local timezone.
+
+At midnight UTC, Vercel invokes `GET /api/cron/office-days` using
+`Authorization: Bearer $CRON_SECRET`. The route creates the current Office Day,
+publishes every due scripted System Event, and reports a retryable failure when
+any delivery remains pending. The first authenticated Portal-token request also
+runs the same idempotent repair, covering delayed or missed Cron delivery
+without preventing the New Hire from entering if the repair itself is
+temporarily unavailable.
+
+Scripted System Events use the persistent Portal message type `system.event`.
+Their event keys are `system-event:v1:{office-day}:{script-id}` and stay stable
+across every retry. Neon records an attempt before Portal publishing and records
+success only after Portal returns a message acknowledgement. If acknowledgement
+state is lost, a retry may create another Portal delivery; clients validate the
+fixed script/sender/channel tuple and collapse repeated deliveries by event key.
+
+Three original, fixed Office Characters—Barb Dwyer, Chip Ramsey, and Dot
+Matrix—author the five checked-in scripts. The interface labels each one
+`Office Character · Fictional`. These identities can publish only System
+Events: they are rejected from ordinary New Hire messages and filtered from
+presence and typing, and they never enter onboarding or HR employment records.
+No generated text or generative AI is used.
 
 Portal connection and publish failures remain visible as offline/retry states.
 Live mode never substitutes mock or browser-local messages. Mock chat uses a
@@ -429,6 +458,10 @@ the server clock.
   current profile writes only after Clerk signature verification, applies
   source-version ordering in Neon, and drains committed profile invalidations
   through the reserved Portal sender.
+- `/api/cron/office-days` is the Vercel Cron boundary. It requires the exact
+  server-only `CRON_SECRET`, transactionally ensures the daily plan in Neon,
+  and drains due scripted System Events through labeled Office Character
+  senders.
 - `src/proxy.ts` performs an early protection check for office pages and server
   operations. It is not the sole authorization boundary.
 - `src/lib/auth/` owns Clerk verification, mock sessions, and exact Operator
@@ -445,6 +478,9 @@ the server clock.
 - `src/lib/office-events/` owns the versioned Office Event runtime contract,
   reserved-sender checks, reaction projection, replay deduplication, and the
   narrow browser subscription that isolates event-channel inbox attention.
+- `src/lib/office-days/` owns fixed Office Character identities and scripts,
+  deterministic daily planning, retry-state publishing, Cron authorization,
+  and client event-key deduplication.
 - `/api/office/onboarding` authenticates every mutation, updates Clerk before a
   profile projection, and rejects Clock In until required onboarding state is
   durable.

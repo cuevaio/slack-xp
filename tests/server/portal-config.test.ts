@@ -23,6 +23,12 @@ describe("deployed Portal customer contract", () => {
     expect(vercelConfig.regions).toEqual(["iad1"]);
   });
 
+  test("schedules the authenticated Office Day seed at midnight UTC", () => {
+    expect(vercelConfig.crons).toEqual([
+      { path: "/api/cron/office-days", schedule: "0 0 * * *" },
+    ]);
+  });
+
   test("exposes explicit setup and Portal verification commands", () => {
     expect(packageJson.scripts["setup:check"]).toBe(
       "bun scripts/setup-check.ts",

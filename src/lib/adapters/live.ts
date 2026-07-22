@@ -6,6 +6,7 @@ import { listOfficeChannels } from "@/lib/portal/channels";
 import {
   createPortalControlPlane,
   createPortalProfileInvalidationPublisher,
+  createPortalScriptedSystemEventPublisher,
 } from "@/lib/portal/server";
 
 // These boundaries intentionally do no network work during construction. Service-specific
@@ -25,12 +26,19 @@ export function createLiveAdapters(
       apiKey: configuration.values.NEXT_PUBLIC_PORTAL_KEY,
     },
   );
+  const scriptedSystemEventPublisher = createPortalScriptedSystemEventPublisher(
+    {
+      secret: portalSecret,
+      apiKey: configuration.values.NEXT_PUBLIC_PORTAL_KEY,
+    },
+  );
 
   return {
     kind: "live",
     portal: {
       ...portalControlPlane,
       ...profileInvalidationPublisher,
+      ...scriptedSystemEventPublisher,
       async listChannels(now) {
         return listOfficeChannels(now);
       },

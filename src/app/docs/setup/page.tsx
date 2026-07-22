@@ -41,6 +41,12 @@ export default function SetupPage() {
               production stack. Select one Vercel Function region near Neon in
               <code> vercel.json</code>.
             </p>
+            <p>
+              Generate a long <code>CRON_SECRET</code> in Vercel. The scheduled
+              midnight UTC request uses it as a bearer token when creating and
+              publishing the next Office Day; authenticated entry uses the same
+              retry-safe repair if Cron is delayed.
+            </p>
             <h2>Configure Clerk sign-in</h2>
             <p>
               In the Clerk Dashboard, enable the hosted social connections and
@@ -87,10 +93,11 @@ export default function SetupPage() {
             </p>
             <p>
               The migrations create Clerk profile projections, a retry-safe
-              profile invalidation outbox, and resumable New Hire onboarding
-              records. The outbox contains stable references and delivery
-              timestamps, never profile values or message content. Portal
-              remains the authority for messages and conversation state.
+              profile invalidation outbox, resumable New Hire onboarding
+              records, Office Days, and the scripted System Event outbox.
+              Outboxes contain stable references, attempt state, and delivery
+              timestamps, never profile values or conversation message bodies.
+              Portal remains the authority for messages and conversation state.
             </p>
             <h2>Prove production readiness</h2>
             <p>

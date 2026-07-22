@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { createDatabase } from "@/lib/db/client";
 import {
+  buildOfficeDayQueries,
   buildProfileOutboxQuery,
   buildProfileProjectionQuery,
 } from "@/lib/onboarding/neon";
@@ -71,5 +72,31 @@ describe("initial Neon migration", () => {
     expect(query.sql).toContain("select");
     expect(query.sql).toContain("source_version");
     expect(query.sql).toContain("on conflict");
+  });
+
+  test("adds constrained Office Day and retry-state outbox records", async () => {
+    const migration = await Bun.file(
+      new URL("../../drizzle/0002_productive_kitty_pryde.sql", import.meta.url),
+    ).text();
+    expect(migration).toContain('CREATE TABLE "office_days"');
+    expect(migration).toContain('CREATE TABLE "scripted_system_event_outbox"');
+    expect(migration).toContain('"event_key" text PRIMARY KEY');
+    expect(migration).toContain('"attempt_count" integer DEFAULT 0 NOT NULL');
+    expect(migration).toContain('"last_attempt_at" timestamp with time zone');
+    expect(migration).toContain('"published_at" timestamp with time zone');
+    expect(migration).toContain(
+      'UNIQUE INDEX "scripted_system_event_outbox_day_script_uidx"',
+    );
+    expect(migration).not.toMatch(/message[_ ]?(body|content)/i);
+
+    const queries = buildOfficeDayQueries(
+      createDatabase("postgresql://test:test@localhost/test"),
+      "2026-07-22",
+      new Date("2026-07-22T00:00:00.000Z"),
+    );
+    expect(queries).toHaveLength(2);
+    expect(
+      queries.every((query) => query.toSQL().sql.includes("on conflict")),
+    ).toBe(true);
   });
 });

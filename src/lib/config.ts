@@ -15,6 +15,7 @@ export const LIVE_ENVIRONMENT_VARIABLES = [
   "NEXT_PUBLIC_PORTAL_KEY",
   "PORTAL_SECRET",
   "DATABASE_URL",
+  "CRON_SECRET",
 ] as const;
 
 export type AppEnvironment = (typeof APP_ENVIRONMENTS)[number];
@@ -95,6 +96,10 @@ function validateValue(name: LiveEnvironmentVariable, value: string): boolean {
     } catch {
       return false;
     }
+  }
+
+  if (name === "CRON_SECRET") {
+    return value.length >= 16;
   }
 
   const prefixes = VALUE_PREFIXES[name];

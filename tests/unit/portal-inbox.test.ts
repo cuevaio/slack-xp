@@ -88,6 +88,12 @@ describe("Office Channel inbox projection", () => {
         1_753_188_100_000,
       ),
       inboxEntry("watercooler:2026-07-21", 99, "Yesterday"),
+      inboxEntry(
+        "watercooler:2026-07-22",
+        3,
+        "The decaf pot is evidence.",
+        "office-character:dot-matrix",
+      ),
       inboxEntry("tech-support:2026-07-22", 1, " ".repeat(4)),
       inboxEntry("all-hands:2026-07-22", 8, "x".repeat(1_001)),
     ];
@@ -102,13 +108,17 @@ describe("Office Channel inbox projection", () => {
     expect(rows.map(({ channelId }) => channelId)).toEqual(
       channels.map(({ id }) => id),
     );
-    expect(rows.map(({ unread }) => unread)).toEqual([2, 0, 1, 4, 8]);
+    expect(rows.map(({ unread }) => unread)).toEqual([2, 3, 1, 4, 8]);
     expect(rows[0]?.preview).toEqual({
       sender: "Pat Pending",
       text: "My own update",
       at: 1_753_188_100_000,
     });
     expect(rows[2]?.preview).toBeNull();
+    expect(rows[1]?.preview).toMatchObject({
+      sender: "Dot Matrix",
+      text: "The decaf pot is evidence.",
+    });
     expect(rows[3]?.preview).toMatchObject({
       sender: "New Hire",
       text: "Deploy <script>alert(1)</script>",

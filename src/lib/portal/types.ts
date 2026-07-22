@@ -1,3 +1,4 @@
+import type { ScriptedSystemEvent } from "@/lib/office-days/contract";
 import type { ReactionOfficeEvent } from "@/lib/office-events/contract";
 import type { PortalChatContent } from "@/lib/portal/chat";
 
@@ -42,6 +43,27 @@ export type PortalChatMessage = {
   unread: boolean;
   status: "sent";
 };
+
+export type PortalScriptedSystemEventMessage = {
+  id: string;
+  channelId: string;
+  sender: {
+    id: string;
+    anon: false;
+  };
+  timestamp: number;
+  retracted: false;
+  ephemeral: false;
+  kind: "text";
+  type: "system.event";
+  content: ScriptedSystemEvent;
+  unread: boolean;
+  status: "sent";
+};
+
+export type PortalVisibleMessage =
+  | PortalChatMessage
+  | PortalScriptedSystemEventMessage;
 
 export type PortalOfficeEventMessage = {
   id: string;

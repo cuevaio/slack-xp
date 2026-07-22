@@ -1,3 +1,4 @@
+import { officeCharacterById } from "@/lib/office-days/contract";
 import type { OfficeChannel } from "@/lib/portal/channels";
 import { parseChatContent } from "@/lib/portal/chat";
 
@@ -98,7 +99,10 @@ function createInboxPreview(
   }
 
   return {
-    sender: latest.sender.id === identityId ? displayName : "New Hire",
+    sender:
+      latest.sender.id === identityId
+        ? displayName
+        : (officeCharacterById(latest.sender.id)?.name ?? "New Hire"),
     text: content.text,
     at: latest.at,
   };

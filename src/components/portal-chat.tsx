@@ -20,6 +20,10 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  parseScriptedSystemEventMessage,
+  type SafeScriptedSystemEventMessage,
+} from "@/lib/office-days/contract";
 import { useOfficeEventSubscription } from "@/lib/office-events/client";
 import {
   createReactionOfficeEvent,
@@ -159,6 +163,10 @@ type ProfileResolution = {
   status: "loading" | "ready" | "error";
   profiles: readonly ProfileAttribution[];
 };
+
+type SafeVisibleMessage =
+  | SafePortalChatMessage
+  | SafeScriptedSystemEventMessage;
 
 type LiveActivityProps = {
   active: boolean;
@@ -730,6 +738,38 @@ function profileDisplayName(profile: ProfileAttribution | undefined): string {
   return profile?.displayName ?? FALLBACK_PROFILE_NAME;
 }
 
+function isScriptedSystemEventMessage(
+  message: SafeVisibleMessage,
+): message is SafeScriptedSystemEventMessage {
+  return "eventKey" in message;
+}
+
+function parseVisibleMessages(
+  rawMessages: readonly unknown[],
+  channelId: string,
+): { messages: SafeVisibleMessage[]; invalidCount: number } {
+  const messages: SafeVisibleMessage[] = [];
+  const seenSystemEventKeys = new Set<string>();
+  let invalidCount = 0;
+  for (const rawMessage of rawMessages) {
+    const newHireMessage = parsePortalChatMessage(rawMessage);
+    if (newHireMessage?.channelId === channelId) {
+      messages.push(newHireMessage);
+      continue;
+    }
+    const systemEvent = parseScriptedSystemEventMessage(rawMessage, channelId);
+    if (systemEvent) {
+      if (!seenSystemEventKeys.has(systemEvent.eventKey)) {
+        seenSystemEventKeys.add(systemEvent.eventKey);
+        messages.push(systemEvent);
+      }
+      continue;
+    }
+    invalidCount += 1;
+  }
+  return { messages, invalidCount };
+}
+
 function ProfileAvatar({
   profile,
   size,
@@ -771,7 +811,7 @@ function MessageHistory({
   profilesById,
 }: ReactionProps & {
   channel: OfficeChannel;
-  messages: readonly SafePortalChatMessage[];
+  messages: readonly SafeVisibleMessage[];
   identityId: string;
   profilesById: ReadonlyMap<string, ProfileAttribution>;
 }) {
@@ -787,7 +827,13 @@ function MessageHistory({
   }
 
   const visibleMessageIds = new Set(
-    messages.filter(({ status }) => status === "sent").map(({ id }) => id),
+    messages
+      .filter(
+        (message): message is SafePortalChatMessage =>
+          !isScriptedSystemEventMessage(message),
+      )
+      .filter(({ status }) => status === "sent")
+      .map(({ id }) => id),
   );
   const projection = createReactionProjection({
     isValidTarget: (officeChannelId, messageId) =>
@@ -803,6 +849,33 @@ function MessageHistory({
       aria-label={`${channel.name} message history`}
     >
       {messages.map((message) => {
+        if (isScriptedSystemEventMessage(message)) {
+          return (
+            <li
+              className="chat-message system-event-message"
+              data-event-key={message.eventKey}
+              data-message-id={message.id}
+              key={message.id}
+            >
+              <div className="message-meta system-event-meta">
+                <span aria-hidden="true" className="system-event-icon">
+                  !
+                </span>
+                <strong>{message.character.name}</strong>
+                <span className="office-character-badge">
+                  Office Character · Fictional
+                </span>
+                <time dateTime={new Date(message.timestamp).toISOString()}>
+                  {formatOfficeTimestamp(message.timestamp)}
+                </time>
+              </div>
+              <small>{message.character.role}</small>
+              <p>
+                <SafeMessageText text={message.content.text} />
+              </p>
+            </li>
+          );
+        }
         const profile = profilesById.get(message.senderId);
         return (
           <li
@@ -907,20 +980,21 @@ function ChatSurface({
   const scrollRegionRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLElement>(null);
   const latestOnContentVisible = useRef(onContentVisible);
-  const messages = useMemo(
-    () =>
-      rawMessages
-        .map(parsePortalChatMessage)
-        .filter(
-          (message): message is SafePortalChatMessage =>
-            message !== null && message.channelId === channel.id,
-        ),
+  const parsedMessages = useMemo(
+    () => parseVisibleMessages(rawMessages, channel.id),
     [channel.id, rawMessages],
   );
-  const invalidMessageCount = rawMessages.length - messages.length;
+  const messages = parsedMessages.messages;
+  const invalidMessageCount = parsedMessages.invalidCount;
   const latestMessageId = messages.at(-1)?.id ?? null;
   const profileIds = useMemo(
-    () => messages.map(({ senderId }) => senderId),
+    () =>
+      messages
+        .filter(
+          (message): message is SafePortalChatMessage =>
+            !isScriptedSystemEventMessage(message),
+        )
+        .map(({ senderId }) => senderId),
     [messages],
   );
   const profileQuery = useProfileBatch(profileIds);

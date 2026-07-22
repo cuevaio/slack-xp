@@ -15,6 +15,13 @@
       "when": 1784747699587,
       "tag": "0001_keen_penance",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784751017268,
+      "tag": "0002_productive_kitty_pryde",
+      "breakpoints": true
     }
   ]
 }

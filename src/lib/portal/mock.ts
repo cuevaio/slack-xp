@@ -4,6 +4,12 @@ import type {
   DetailedPresence,
 } from "@portalsdk/core";
 import {
+  officeCharacterById,
+  planOfficeDay,
+  SCRIPTED_SYSTEM_EVENT_MESSAGE_TYPE,
+} from "@/lib/office-days/contract";
+import type { ScriptedSystemEventPublisher } from "@/lib/office-days/types";
+import {
   isOfficeEventChannelId,
   OFFICE_EVENT_MESSAGE_TYPE,
   OFFICE_EVENT_SENDERS,
@@ -18,7 +24,9 @@ import type {
   PortalChatMessage,
   PortalMembershipInput,
   PortalOfficeEventMessage,
+  PortalScriptedSystemEventMessage,
   PortalTokenInput,
+  PortalVisibleMessage,
 } from "@/lib/portal/types";
 import type {
   ProfileInvalidationEvent,
@@ -66,13 +74,14 @@ export class MockPortalUnavailableError extends Error {
 }
 
 export type MockPortalAdapter = PortalAuthority &
-  ProfileInvalidationPublisher & {
-    history(channelId: string): Promise<readonly PortalChatMessage[]>;
+  ProfileInvalidationPublisher &
+  ScriptedSystemEventPublisher & {
+    history(channelId: string): Promise<readonly PortalVisibleMessage[]>;
     historyPage(
       channelId: string,
       options: { before?: string; limit: number },
     ): Promise<{
-      messages: readonly PortalChatMessage[];
+      messages: readonly PortalVisibleMessage[];
       hasPrevious: boolean;
     }>;
     sendMessage(input: {
@@ -131,7 +140,7 @@ export function createMockPortalAdapter({
     string,
     Map<string, PortalMembershipInput["claims"]>
   >();
-  const messages = new Map<string, PortalChatMessage[]>();
+  const messages = new Map<string, PortalVisibleMessage[]>();
   const connections = new Map<string, MockConnectionState>();
   const recentPresence = new Map<string, MockPresenceEvent[]>();
   const typing = new Map<string, Map<string, MockTypingActivity>>();
@@ -301,6 +310,40 @@ export function createMockPortalAdapter({
       officeEvents.set(channelId, channelEvents);
     },
 
+    async publishScriptedSystemEvent(entry) {
+      requireOnline();
+      const character = officeCharacterById(entry.characterId);
+      const planned = planOfficeDay(entry.officeDay).find(
+        ({ eventKey }) => eventKey === entry.eventKey,
+      );
+      if (
+        !character ||
+        !planned ||
+        planned.channelId !== entry.channelId ||
+        planned.characterId !== entry.characterId ||
+        planned.event.text !== entry.event.text
+      ) {
+        throw new TypeError("Invalid scripted System Event publication.");
+      }
+      const message: PortalScriptedSystemEventMessage = {
+        id: `mock_system_event_${++messageSequence}`,
+        channelId: entry.channelId,
+        sender: { id: character.id, anon: false },
+        timestamp: now().getTime(),
+        retracted: false,
+        ephemeral: false,
+        kind: "text",
+        type: SCRIPTED_SYSTEM_EVENT_MESSAGE_TYPE,
+        content: entry.event,
+        unread: false,
+        status: "sent",
+      };
+      const channelMessages = messages.get(entry.channelId) ?? [];
+      channelMessages.push(message);
+      messages.set(entry.channelId, channelMessages);
+      incrementUnread(entry.channelId, character.id);
+    },
+
     async history(channelId) {
       requireOnline();
       return [...(messages.get(channelId) ?? [])];
@@ -326,7 +369,10 @@ export function createMockPortalAdapter({
         rejectNextSend = false;
         throw new MockPortalUnavailableError();
       }
-      if (!members.get(channelId)?.has(senderId)) {
+      if (
+        isReservedPortalIdentity(senderId) ||
+        !members.get(channelId)?.has(senderId)
+      ) {
         throw new MockPortalUnavailableError();
       }
       const validatedContent = parseChatContent(content);
@@ -423,7 +469,8 @@ export function createMockPortalAdapter({
         throw new TypeError("Invalid reaction Office Event.");
       }
       const targetExists = (messages.get(content.officeChannelId) ?? []).some(
-        ({ id }) => id === content.messageId,
+        (message) =>
+          message.type === "message" && message.id === content.messageId,
       );
       if (!targetExists) {
         throw new TypeError("Invalid reaction target.");

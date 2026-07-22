@@ -1,3 +1,8 @@
+import { planOfficeDay } from "@/lib/office-days/contract";
+import type {
+  OfficeDayRepository,
+  ScriptedSystemEventOutboxEntry,
+} from "@/lib/office-days/types";
 import {
   assignJobTitle,
   getOnboardingStep,
@@ -69,8 +74,10 @@ function toSnapshot(
 }
 
 export type InMemoryNeonRepository = OnboardingRepository &
-  ProfileRepository & {
+  ProfileRepository &
+  OfficeDayRepository & {
     recordCount(): number;
+    officeDayCount(): number;
     projectionWriteCount(): number;
     profileBatchReadCount(): number;
     reset(): void;
@@ -84,6 +91,11 @@ export function createInMemoryNeonRepository(
   const profileOutbox = new Map<
     string,
     ProfileInvalidationOutboxEntry & { publishedAt: Date | null }
+  >();
+  const officeDays = new Map<string, Date>();
+  const systemEventOutbox = new Map<
+    string,
+    ScriptedSystemEventOutboxEntry & { publishedAt: Date | null }
   >();
   let projectionWrites = 0;
   let profileBatchReads = 0;
@@ -129,6 +141,52 @@ export function createInMemoryNeonRepository(
   }
 
   return {
+    async seedOfficeDay(currentOfficeDay, seededAt) {
+      if (officeDays.has(currentOfficeDay)) {
+        return 0;
+      }
+      const planned = planOfficeDay(currentOfficeDay);
+      officeDays.set(currentOfficeDay, new Date(seededAt));
+      for (const entry of planned) {
+        systemEventOutbox.set(entry.eventKey, {
+          ...entry,
+          dueAt: new Date(entry.dueAt),
+          attemptCount: 0,
+          lastAttemptAt: null,
+          publishedAt: null,
+        });
+      }
+      return planned.length;
+    },
+
+    async pendingSystemEvents(currentOfficeDay, dueAt, limit) {
+      return [...systemEventOutbox.values()]
+        .filter(
+          (entry) =>
+            entry.officeDay === currentOfficeDay &&
+            entry.publishedAt === null &&
+            entry.dueAt <= dueAt,
+        )
+        .sort((left, right) => left.dueAt.getTime() - right.dueAt.getTime())
+        .slice(0, limit)
+        .map(({ publishedAt: _publishedAt, ...entry }) => ({ ...entry }));
+    },
+
+    async markSystemEventAttempt(eventKey, attemptedAt) {
+      const entry = systemEventOutbox.get(eventKey);
+      if (entry && entry.publishedAt === null) {
+        entry.attemptCount += 1;
+        entry.lastAttemptAt = new Date(attemptedAt);
+      }
+    },
+
+    async markSystemEventPublished(eventKey, publishedAt) {
+      const entry = systemEventOutbox.get(eventKey);
+      if (entry && entry.publishedAt === null && entry.lastAttemptAt !== null) {
+        entry.publishedAt = new Date(publishedAt);
+      }
+    },
+
     async projectProfile(profile) {
       return applyProfileProjection(profile);
     },
@@ -209,6 +267,10 @@ export function createInMemoryNeonRepository(
       return onboardings.size;
     },
 
+    officeDayCount() {
+      return officeDays.size;
+    },
+
     projectionWriteCount() {
       return projectionWrites;
     },
@@ -221,6 +283,8 @@ export function createInMemoryNeonRepository(
       profiles.clear();
       onboardings.clear();
       profileOutbox.clear();
+      officeDays.clear();
+      systemEventOutbox.clear();
       projectionWrites = 0;
       profileBatchReads = 0;
     },

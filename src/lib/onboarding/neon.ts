@@ -1,11 +1,24 @@
-import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  lte,
+  sql,
+} from "drizzle-orm";
 import type { NeonAdapter } from "@/lib/adapters/types";
 import type { Database } from "@/lib/db/client";
 import {
   clerkProfiles,
   newHireOnboarding,
+  officeDays,
   profileInvalidationOutbox,
+  scriptedSystemEventOutbox,
 } from "@/lib/db/schema";
+import { planOfficeDay } from "@/lib/office-days/contract";
+import type { ScriptedSystemEventOutboxEntry } from "@/lib/office-days/types";
 import { OFFICE_EVENT_VERSION } from "@/lib/office-events/contract";
 import {
   assignJobTitle,
@@ -132,6 +145,38 @@ export function buildProfileOutboxQuery(
     .onConflictDoNothing({ target: profileInvalidationOutbox.eventKey });
 }
 
+export function buildOfficeDayQueries(
+  database: Database,
+  currentOfficeDay: string,
+  seededAt: Date,
+) {
+  const planned = planOfficeDay(currentOfficeDay);
+  return [
+    database
+      .insert(officeDays)
+      .values({
+        officeDay: currentOfficeDay,
+        seededAt,
+        createdAt: seededAt,
+      })
+      .onConflictDoNothing({ target: officeDays.officeDay }),
+    database
+      .insert(scriptedSystemEventOutbox)
+      .values(
+        planned.map((entry) => ({
+          eventKey: entry.eventKey,
+          officeDay: entry.officeDay,
+          scriptId: entry.scriptId,
+          channelId: entry.channelId,
+          characterId: entry.characterId,
+          dueAt: entry.dueAt,
+          createdAt: seededAt,
+        })),
+      )
+      .onConflictDoNothing({ target: scriptedSystemEventOutbox.eventKey }),
+  ] as const;
+}
+
 export function createNeonRepository(database: Database): NeonAdapter {
   async function findOnboarding(
     clerkUserId: string,
@@ -204,6 +249,88 @@ export function createNeonRepository(database: Database): NeonAdapter {
   }
 
   return {
+    async seedOfficeDay(currentOfficeDay, seededAt) {
+      const planned = planOfficeDay(currentOfficeDay);
+      await database.batch(
+        buildOfficeDayQueries(database, currentOfficeDay, seededAt),
+      );
+      return planned.length;
+    },
+
+    async pendingSystemEvents(currentOfficeDay, dueAt, limit) {
+      const rows = await database
+        .select({
+          eventKey: scriptedSystemEventOutbox.eventKey,
+          officeDay: scriptedSystemEventOutbox.officeDay,
+          scriptId: scriptedSystemEventOutbox.scriptId,
+          channelId: scriptedSystemEventOutbox.channelId,
+          characterId: scriptedSystemEventOutbox.characterId,
+          dueAt: scriptedSystemEventOutbox.dueAt,
+          attemptCount: scriptedSystemEventOutbox.attemptCount,
+          lastAttemptAt: scriptedSystemEventOutbox.lastAttemptAt,
+        })
+        .from(scriptedSystemEventOutbox)
+        .where(
+          and(
+            eq(scriptedSystemEventOutbox.officeDay, currentOfficeDay),
+            isNull(scriptedSystemEventOutbox.publishedAt),
+            lte(scriptedSystemEventOutbox.dueAt, dueAt),
+          ),
+        )
+        .orderBy(asc(scriptedSystemEventOutbox.dueAt))
+        .limit(limit);
+      const plannedByKey = new Map(
+        planOfficeDay(currentOfficeDay).map((entry) => [entry.eventKey, entry]),
+      );
+      return rows.flatMap((row): ScriptedSystemEventOutboxEntry[] => {
+        const planned = plannedByKey.get(row.eventKey);
+        if (
+          !planned ||
+          planned.scriptId !== row.scriptId ||
+          planned.channelId !== row.channelId ||
+          planned.characterId !== row.characterId ||
+          planned.dueAt.getTime() !== row.dueAt.getTime()
+        ) {
+          return [];
+        }
+        return [
+          {
+            ...planned,
+            attemptCount: row.attemptCount,
+            lastAttemptAt: row.lastAttemptAt,
+          },
+        ];
+      });
+    },
+
+    async markSystemEventAttempt(eventKey, attemptedAt) {
+      await database
+        .update(scriptedSystemEventOutbox)
+        .set({
+          attemptCount: sql`${scriptedSystemEventOutbox.attemptCount} + 1`,
+          lastAttemptAt: attemptedAt,
+        })
+        .where(
+          and(
+            eq(scriptedSystemEventOutbox.eventKey, eventKey),
+            isNull(scriptedSystemEventOutbox.publishedAt),
+          ),
+        );
+    },
+
+    async markSystemEventPublished(eventKey, publishedAt) {
+      await database
+        .update(scriptedSystemEventOutbox)
+        .set({ publishedAt })
+        .where(
+          and(
+            eq(scriptedSystemEventOutbox.eventKey, eventKey),
+            isNull(scriptedSystemEventOutbox.publishedAt),
+            isNotNull(scriptedSystemEventOutbox.lastAttemptAt),
+          ),
+        );
+    },
+
     projectProfile,
     getProfiles,
     async pendingProfileInvalidations(limit) {

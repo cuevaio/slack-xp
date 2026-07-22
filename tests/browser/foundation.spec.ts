@@ -312,6 +312,30 @@ test("live presence resolves New Hire Profiles and all-hands stays aggregate", a
   ).toHaveCount(0);
 });
 
+test("scripted System Events visibly identify fictional Office Characters", async ({
+  page,
+}) => {
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+
+  const systemEvent = page.locator(".system-event-message").filter({
+    hasText: "motivational poster has been rebooted",
+  });
+  await expect(systemEvent).toBeVisible();
+  await expect(systemEvent).toContainText("Barb Dwyer");
+  await expect(systemEvent).toContainText("Office Character · Fictional");
+  await expect(
+    systemEvent.getByRole("button", { name: /reaction/i }),
+  ).toHaveCount(0);
+
+  const generalRoster = page.getByRole("list", {
+    name: "General current New Hires",
+  });
+  await expect(generalRoster).not.toContainText("Barb Dwyer");
+});
+
 test("emoji reactions use the fixed accessible palette and survive reconnect", async ({
   page,
 }) => {

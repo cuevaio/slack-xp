@@ -354,6 +354,24 @@ describe("controlled Portal adapter", () => {
     expect(await portal.history("general:2026-07-22")).toEqual([]);
   });
 
+  test("rejects Office Characters from ordinary New Hire messages", async () => {
+    const portal = createMockPortalAdapter();
+    await portal.ensureMembership({
+      channelId: "general:2026-07-22",
+      userId: "office-character:chip-ramsey",
+      claims: { username: "Chip Ramsey · Office Character", avatar: null },
+    });
+
+    await expect(
+      portal.sendMessage({
+        channelId: "general:2026-07-22",
+        senderId: "office-character:chip-ramsey",
+        content: { text: "This must not become an ordinary message." },
+      }),
+    ).rejects.toThrow("temporarily unavailable");
+    expect(await portal.history("general:2026-07-22")).toEqual([]);
+  });
+
   test("paginates backward without duplicates or client-created gaps", async () => {
     let tick = 0;
     const portal = createMockPortalAdapter({

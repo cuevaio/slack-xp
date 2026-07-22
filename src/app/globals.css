@@ -1469,6 +1469,39 @@ a {
   background: #fff1ed;
 }
 
+.system-event-message {
+  border-color: #8d6b17;
+  background: #fff8cf;
+  box-shadow: inset 4px 0 0 #d49b1d;
+}
+
+.system-event-meta {
+  flex-wrap: wrap;
+}
+
+.system-event-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid #8d6b17;
+  background: #ffcf45;
+  color: #3d2d00;
+  font-weight: 900;
+}
+
+.office-character-badge {
+  padding: 0.12rem 0.35rem;
+  border: 1px solid #725a21;
+  background: #fff2a8;
+  color: #493700;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.62rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
 .message-meta {
   display: flex;
   align-items: center;

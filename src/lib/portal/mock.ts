@@ -347,17 +347,13 @@ export function createMockPortalAdapter({
     async reconcileReinstatementBans({ channelIds, newHireId, sentHomeUntil }) {
       requireOnline();
       for (const channelId of channelIds) {
-        const channelBans = bans.get(channelId);
         if (sentHomeUntil) {
-          (channelBans ?? new Map()).set(newHireId, new Date(sentHomeUntil));
-          if (!channelBans)
-            bans.set(
-              channelId,
-              new Map([[newHireId, new Date(sentHomeUntil)]]),
-            );
-        } else {
-          channelBans?.delete(newHireId);
+          const channelBans = bans.get(channelId) ?? new Map();
+          channelBans.set(newHireId, new Date(sentHomeUntil));
+          bans.set(channelId, channelBans);
+          continue;
         }
+        bans.get(channelId)?.delete(newHireId);
       }
     },
 

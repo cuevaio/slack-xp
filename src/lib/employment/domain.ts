@@ -99,22 +99,23 @@ export function parseSendHomeRequest(value: unknown): SendHomeRequest | null {
   };
 }
 
-function parseEmploymentReasonRequest(
-  value: unknown,
-  allowReport: boolean,
-): TerminationRequest | ReinstatementRequest | null {
-  if (!isObject(value)) return null;
-  const allowed = allowReport
-    ? ["requestId", "targetNewHireId", "privateReason", "reportId"]
-    : ["requestId", "targetNewHireId", "privateReason"];
+const REINSTATEMENT_REQUEST_FIELDS = new Set([
+  "requestId",
+  "targetNewHireId",
+  "privateReason",
+]);
+const TERMINATION_REQUEST_FIELDS = new Set([
+  ...REINSTATEMENT_REQUEST_FIELDS,
+  "reportId",
+]);
+
+function parseEmploymentReasonFields(
+  value: Record<string, unknown>,
+): ReinstatementRequest | null {
   if (
-    Object.keys(value).some((key) => !allowed.includes(key)) ||
     !isEmploymentIdentifier(value.requestId) ||
     !isEmploymentIdentifier(value.targetNewHireId) ||
-    typeof value.privateReason !== "string" ||
-    (allowReport &&
-      value.reportId !== undefined &&
-      !isEmploymentIdentifier(value.reportId))
+    typeof value.privateReason !== "string"
   ) {
     return null;
   }
@@ -129,25 +130,39 @@ function parseEmploymentReasonRequest(
     requestId: value.requestId,
     targetNewHireId: value.targetNewHireId,
     privateReason,
-    ...(allowReport && typeof value.reportId === "string"
-      ? { reportId: value.reportId }
-      : {}),
   };
 }
 
 export function parseTerminationRequest(
   value: unknown,
 ): TerminationRequest | null {
-  return parseEmploymentReasonRequest(value, true) as TerminationRequest | null;
+  if (
+    !isObject(value) ||
+    Object.keys(value).some((key) => !TERMINATION_REQUEST_FIELDS.has(key)) ||
+    (value.reportId !== undefined && !isEmploymentIdentifier(value.reportId))
+  ) {
+    return null;
+  }
+
+  const request = parseEmploymentReasonFields(value);
+  if (!request) return null;
+
+  return typeof value.reportId === "string"
+    ? { ...request, reportId: value.reportId }
+    : request;
 }
 
 export function parseReinstatementRequest(
   value: unknown,
 ): ReinstatementRequest | null {
-  return parseEmploymentReasonRequest(
-    value,
-    false,
-  ) as ReinstatementRequest | null;
+  if (
+    !isObject(value) ||
+    Object.keys(value).some((key) => !REINSTATEMENT_REQUEST_FIELDS.has(key))
+  ) {
+    return null;
+  }
+
+  return parseEmploymentReasonFields(value);
 }
 
 export function createTerminationSystemEventKey(
@@ -262,18 +277,20 @@ function parsePublicTerminationSystemEvent(
   expectedChannelId: string,
 ): PublicTerminationSystemEvent | null {
   if (!isObject(value)) return null;
-  const action =
-    value.type === "employment.terminated"
-      ? "terminated"
-      : value.type === "employment.reinstated"
-        ? "reinstated"
-        : null;
-  const expectedText =
-    action === "terminated"
-      ? TERMINATION_SYSTEM_EVENT_TEXT
-      : REINSTATEMENT_SYSTEM_EVENT_TEXT;
+
+  let action: "terminated" | "reinstated";
+  let expectedText: string;
+  if (value.type === "employment.terminated") {
+    action = "terminated";
+    expectedText = TERMINATION_SYSTEM_EVENT_TEXT;
+  } else if (value.type === "employment.reinstated") {
+    action = "reinstated";
+    expectedText = REINSTATEMENT_SYSTEM_EVENT_TEXT;
+  } else {
+    return null;
+  }
+
   if (
-    !action ||
     Object.keys(value).length !== 8 ||
     value.version !== EMPLOYMENT_SYSTEM_EVENT_VERSION ||
     typeof value.eventKey !== "string" ||
@@ -290,7 +307,17 @@ function parsePublicTerminationSystemEvent(
   ) {
     return null;
   }
-  return value as PublicTerminationSystemEvent;
+
+  return {
+    version: EMPLOYMENT_SYSTEM_EVENT_VERSION,
+    type: value.type,
+    eventKey: value.eventKey,
+    officeDay: value.officeDay,
+    operatorId: value.operatorId,
+    targetNewHireId: value.targetNewHireId,
+    terminationId: value.terminationId,
+    text: expectedText,
+  };
 }
 
 export function parsePublicTerminationSystemEventMessage(

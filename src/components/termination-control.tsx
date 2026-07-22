@@ -17,6 +17,26 @@ import { EMPLOYMENT_PRIVATE_REASON_MAX_LENGTH } from "@/lib/employment/contract"
 
 type EmploymentAction = "terminate" | "reinstate";
 
+const ACTION_COPY: Record<
+  EmploymentAction,
+  { trigger: string; title: string; description: string; confirmation: string }
+> = {
+  terminate: {
+    trigger: "Terminate",
+    title: "Terminate this New Hire?",
+    description:
+      "Access ends immediately and remains blocked across future Office Days until an Operator reverses it.",
+    confirmation: "Confirm Termination",
+  },
+  reinstate: {
+    trigger: "Reinstate",
+    title: "Reinstate this New Hire?",
+    description:
+      "Persistent access denial will be removed. Any active Send Home or account-deletion restriction remains in force.",
+    confirmation: "Confirm Reinstatement",
+  },
+};
+
 export function TerminationControl({
   targetNewHireId,
   reportId,
@@ -28,7 +48,9 @@ export function TerminationControl({
   allowReinstatement?: boolean;
   onCompleted?(): void;
 }) {
-  const [active, setActive] = useState<boolean | null>(null);
+  const [hasActiveTermination, setHasActiveTermination] = useState<
+    boolean | null
+  >(null);
   const [action, setAction] = useState<EmploymentAction | null>(null);
   const [privateReason, setPrivateReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -42,16 +64,18 @@ export function TerminationControl({
   const instanceId = useId();
 
   useEffect(() => {
-    let current = true;
+    let isCurrent = true;
     void fetchNewHireEmploymentState(targetNewHireId)
       .then((state) => {
-        if (current) setActive(state.activeTermination !== null);
+        if (isCurrent) {
+          setHasActiveTermination(state.activeTermination !== null);
+        }
       })
       .catch(() => {
-        if (current) setActive(null);
+        if (isCurrent) setHasActiveTermination(null);
       });
     return () => {
-      current = false;
+      isCurrent = false;
     };
   }, [targetNewHireId]);
 
@@ -104,14 +128,14 @@ export function TerminationControl({
           privateReason: reason,
           ...(reportId ? { reportId } : {}),
         });
-        setActive(true);
+        setHasActiveTermination(true);
       } else {
         await requestReinstatement({
           requestId: requestIds.reinstate,
           targetNewHireId,
           privateReason: reason,
         });
-        setActive(false);
+        setHasActiveTermination(false);
       }
       close();
       onCompleted?.();
@@ -122,8 +146,12 @@ export function TerminationControl({
     }
   }
 
-  const nextAction: EmploymentAction = active ? "reinstate" : "terminate";
-  if (active && !allowReinstatement) {
+  const nextAction: EmploymentAction = hasActiveTermination
+    ? "reinstate"
+    : "terminate";
+  const nextActionCopy = ACTION_COPY[nextAction];
+  const selectedActionCopy = action ? ACTION_COPY[action] : null;
+  if (hasActiveTermination && !allowReinstatement) {
     return <output>Active Termination</output>;
   }
 
@@ -132,7 +160,7 @@ export function TerminationControl({
       <button
         aria-haspopup="dialog"
         className="classic-button"
-        disabled={active === null}
+        disabled={hasActiveTermination === null}
         onClick={() => {
           setError(false);
           setAction(nextAction);
@@ -140,9 +168,9 @@ export function TerminationControl({
         ref={triggerRef}
         type="button"
       >
-        {nextAction === "terminate" ? "Terminate" : "Reinstate"}
+        {nextActionCopy.trigger}
       </button>
-      {action ? (
+      {selectedActionCopy ? (
         <div
           aria-labelledby={`employment-action-title-${instanceId}`}
           aria-modal="true"
@@ -152,15 +180,9 @@ export function TerminationControl({
         >
           <form className="hr-report-dialog" onSubmit={submit}>
             <h2 id={`employment-action-title-${instanceId}`}>
-              {action === "terminate"
-                ? "Terminate this New Hire?"
-                : "Reinstate this New Hire?"}
+              {selectedActionCopy.title}
             </h2>
-            <p>
-              {action === "terminate"
-                ? "Access ends immediately and remains blocked across future Office Days until an Operator reverses it."
-                : "Persistent access denial will be removed. Any active Send Home or account-deletion restriction remains in force."}
-            </p>
+            <p>{selectedActionCopy.description}</p>
             <label htmlFor={`employment-action-reason-${instanceId}`}>
               Private Operator reason (required)
             </label>
@@ -192,11 +214,7 @@ export function TerminationControl({
                 disabled={submitting || privateReason.trim().length === 0}
                 type="submit"
               >
-                {submitting
-                  ? "Recording…"
-                  : action === "terminate"
-                    ? "Confirm Termination"
-                    : "Confirm Reinstatement"}
+                {submitting ? "Recording…" : selectedActionCopy.confirmation}
               </button>
             </div>
           </form>

@@ -38,8 +38,6 @@ import {
   type RecordReinstatementInput,
   type RecordSendHomeInput,
   type RecordTerminationInput,
-  type ReinstatementRecord,
-  type TerminationRecord,
 } from "@/lib/employment/contract";
 import { employmentAccessDecision } from "@/lib/employment/domain";
 import type {
@@ -1270,8 +1268,8 @@ export function createNeonRepository(database: Database): NeonAdapter {
           );
         }
         return {
-          status: "existing" as const,
-          termination: requested as TerminationRecord,
+          status: "existing",
+          termination: requested,
         };
       }
       if (input.reportId) {
@@ -1318,10 +1316,10 @@ export function createNeonRepository(database: Database): NeonAdapter {
           "The Termination request could not be resolved.",
         );
       }
+      const status = createdRows.length > 0 ? "created" : "existing";
       return {
-        status:
-          createdRows.length > 0 ? ("created" as const) : ("existing" as const),
-        termination: termination as TerminationRecord,
+        status,
+        termination,
       };
     },
     async recordReinstatement(input) {
@@ -1349,8 +1347,8 @@ export function createNeonRepository(database: Database): NeonAdapter {
           );
         }
         return {
-          status: "existing" as const,
-          reinstatement: requested as ReinstatementRecord,
+          status: "existing",
+          reinstatement: requested,
         };
       }
       const [termination] = await database
@@ -1393,10 +1391,10 @@ export function createNeonRepository(database: Database): NeonAdapter {
           "The reinstatement request could not be resolved.",
         );
       }
+      const status = createdRows.length > 0 ? "created" : "existing";
       return {
-        status:
-          createdRows.length > 0 ? ("created" as const) : ("existing" as const),
-        reinstatement: reinstatement as ReinstatementRecord,
+        status,
+        reinstatement,
       };
     },
     async getEmploymentState(newHireId, checkedAt) {

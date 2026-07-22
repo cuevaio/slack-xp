@@ -58,6 +58,26 @@ function parseEmploymentAccessDecision(
   return { eligible: false, reason: value.reason, until };
 }
 
+function parseActiveTermination(
+  value: unknown,
+): EmploymentState["activeTermination"] | undefined {
+  if (value === null) return null;
+  if (
+    !isObject(value) ||
+    typeof value.terminationId !== "string" ||
+    typeof value.operatorId !== "string" ||
+    typeof value.terminatedAt !== "string"
+  ) {
+    return undefined;
+  }
+
+  return {
+    terminationId: value.terminationId,
+    operatorId: value.operatorId,
+    terminatedAt: new Date(value.terminatedAt),
+  };
+}
+
 export async function requestSendHome(
   input: SendHomeRequest,
 ): Promise<SendHomeResponse> {
@@ -99,28 +119,11 @@ export async function fetchNewHireEmploymentState(
     throw new Error("Employment state is unavailable.");
   }
   const access = parseEmploymentAccessDecision(payload.access);
-  const active = payload.activeTermination;
-  if (
-    !access ||
-    (active !== null &&
-      (!isObject(active) ||
-        typeof active.terminationId !== "string" ||
-        typeof active.operatorId !== "string" ||
-        typeof active.terminatedAt !== "string"))
-  ) {
+  const activeTermination = parseActiveTermination(payload.activeTermination);
+  if (!access || activeTermination === undefined) {
     throw new Error("Employment state is unavailable.");
   }
-  return {
-    access,
-    activeTermination:
-      active === null
-        ? null
-        : {
-            terminationId: active.terminationId as string,
-            operatorId: active.operatorId as string,
-            terminatedAt: new Date(active.terminatedAt as string),
-          },
-  };
+  return { access, activeTermination };
 }
 
 async function requestEmploymentChange(

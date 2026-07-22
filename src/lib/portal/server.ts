@@ -147,17 +147,19 @@ export function createPortalControlPlane({
 
     async reconcileReinstatementBans({ channelIds, newHireId, sentHomeUntil }) {
       await Promise.all(
-        channelIds.map((channelId) =>
-          sentHomeUntil
-            ? post(`/v1/channels/${encodeURIComponent(channelId)}/bans`, {
-                userId: newHireId,
-                expiresAt: sentHomeUntil.toISOString(),
-              })
-            : request(
-                "DELETE",
-                `/v1/channels/${encodeURIComponent(channelId)}/bans/${encodeURIComponent(newHireId)}`,
-              ),
-        ),
+        channelIds.map((channelId) => {
+          const bansPath = `/v1/channels/${encodeURIComponent(channelId)}/bans`;
+          if (sentHomeUntil) {
+            return post(bansPath, {
+              userId: newHireId,
+              expiresAt: sentHomeUntil.toISOString(),
+            });
+          }
+          return request(
+            "DELETE",
+            `${bansPath}/${encodeURIComponent(newHireId)}`,
+          );
+        }),
       );
     },
 

@@ -17,9 +17,11 @@ import { officeNowForRequest } from "@/lib/portal/request-time";
 
 export const runtime = "nodejs";
 
-const PRIVATE_HEADERS = { "Cache-Control": "no-store, private" } as const;
+const PRIVATE_NO_STORE_HEADERS = {
+  "Cache-Control": "no-store, private",
+} as const;
 
-type Dependencies = {
+type TerminationDependencies = {
   repository: EmploymentRepository;
   portal: EmploymentPortalAuthority;
   requesterId: string;
@@ -30,7 +32,7 @@ type Dependencies = {
 function forbidden(): Response {
   return Response.json(
     { error: "operator_required" },
-    { status: 403, headers: PRIVATE_HEADERS },
+    { status: 403, headers: PRIVATE_NO_STORE_HEADERS },
   );
 }
 
@@ -38,13 +40,20 @@ function employmentError(error: EmploymentActionError): Response {
   const status = error.code === "request_conflict" ? 409 : 404;
   return Response.json(
     { error: error.code },
-    { status, headers: PRIVATE_HEADERS },
+    { status, headers: PRIVATE_NO_STORE_HEADERS },
+  );
+}
+
+function invalidEmploymentAction(): Response {
+  return Response.json(
+    { error: "invalid_employment_action" },
+    { status: 422, headers: PRIVATE_NO_STORE_HEADERS },
   );
 }
 
 export async function handleTerminationRequest(
   request: Request,
-  dependencies: Dependencies,
+  dependencies: TerminationDependencies,
 ): Promise<Response> {
   if (
     !isOperatorUserId(dependencies.requesterId, dependencies.operatorUserIds)
@@ -58,7 +67,7 @@ export async function handleTerminationRequest(
     if (!isEmploymentIdentifier(targetNewHireId)) {
       return Response.json(
         { error: "invalid_target" },
-        { status: 422, headers: PRIVATE_HEADERS },
+        { status: 422, headers: PRIVATE_NO_STORE_HEADERS },
       );
     }
     const state = await dependencies.repository.getEmploymentState(
@@ -78,48 +87,42 @@ export async function handleTerminationRequest(
             }
           : null,
       },
-      { headers: PRIVATE_HEADERS },
+      { headers: PRIVATE_NO_STORE_HEADERS },
     );
   }
-  const input =
-    request.method === "POST"
-      ? parseTerminationRequest(await request.json().catch(() => null))
-      : request.method === "PATCH"
-        ? parseReinstatementRequest(await request.json().catch(() => null))
-        : null;
-  if (!input) {
+
+  if (request.method !== "POST" && request.method !== "PATCH") {
     return Response.json(
-      {
-        error:
-          request.method === "POST" || request.method === "PATCH"
-            ? "invalid_employment_action"
-            : "method_not_allowed",
-      },
-      {
-        status:
-          request.method === "POST" || request.method === "PATCH" ? 422 : 405,
-        headers: PRIVATE_HEADERS,
-      },
+      { error: "method_not_allowed" },
+      { status: 405, headers: PRIVATE_NO_STORE_HEADERS },
     );
   }
+
+  const body = await request.json().catch(() => null);
   try {
-    const result =
-      request.method === "POST"
-        ? await terminateNewHire({
-            repository: dependencies.repository,
-            portal: dependencies.portal,
-            operatorId: dependencies.requesterId,
-            now: dependencies.now,
-            ...input,
-          })
-        : await reinstateNewHire({
-            repository: dependencies.repository,
-            portal: dependencies.portal,
-            operatorId: dependencies.requesterId,
-            now: dependencies.now,
-            ...input,
-          });
-    return Response.json(result, { headers: PRIVATE_HEADERS });
+    if (request.method === "POST") {
+      const input = parseTerminationRequest(body);
+      if (!input) return invalidEmploymentAction();
+      const result = await terminateNewHire({
+        repository: dependencies.repository,
+        portal: dependencies.portal,
+        operatorId: dependencies.requesterId,
+        now: dependencies.now,
+        ...input,
+      });
+      return Response.json(result, { headers: PRIVATE_NO_STORE_HEADERS });
+    }
+
+    const input = parseReinstatementRequest(body);
+    if (!input) return invalidEmploymentAction();
+    const result = await reinstateNewHire({
+      repository: dependencies.repository,
+      portal: dependencies.portal,
+      operatorId: dependencies.requesterId,
+      now: dependencies.now,
+      ...input,
+    });
+    return Response.json(result, { headers: PRIVATE_NO_STORE_HEADERS });
   } catch (error) {
     if (error instanceof EmploymentActionError) return employmentError(error);
     throw error;
@@ -135,7 +138,7 @@ async function route(request: Request): Promise<Response> {
   if (!identity) {
     return Response.json(
       { error: "authentication_required" },
-      { status: 401, headers: PRIVATE_HEADERS },
+      { status: 401, headers: PRIVATE_NO_STORE_HEADERS },
     );
   }
   const adapters = createServiceAdapters(configuration);
@@ -143,7 +146,7 @@ async function route(request: Request): Promise<Response> {
   if (!onboarding?.completedAt || onboarding.step !== "complete") {
     return Response.json(
       { error: "new_hire_ineligible" },
-      { status: 403, headers: PRIVATE_HEADERS },
+      { status: 403, headers: PRIVATE_NO_STORE_HEADERS },
     );
   }
   return handleTerminationRequest(request, {

@@ -24,6 +24,22 @@ import { officeDay } from "@/lib/portal/office-day";
 
 const EMPLOYMENT_EFFECT_BATCH_SIZE = 50;
 
+function terminationSystemEventDetails(action: "terminated" | "reinstated"): {
+  type: "employment.terminated" | "employment.reinstated";
+  text: string;
+} {
+  if (action === "terminated") {
+    return {
+      type: "employment.terminated",
+      text: TERMINATION_SYSTEM_EVENT_TEXT,
+    };
+  }
+  return {
+    type: "employment.reinstated",
+    text: REINSTATEMENT_SYSTEM_EVENT_TEXT,
+  };
+}
+
 export { EmploymentActionError } from "@/lib/employment/contract";
 
 export async function flushEmploymentEffects({
@@ -217,12 +233,10 @@ export async function flushTerminationEffects({
     }
     if (!effect.publicEventPublishedAt) {
       try {
+        const eventDetails = terminationSystemEventDetails(effect.action);
         await portal.publishTerminationSystemEvent({
           version: EMPLOYMENT_SYSTEM_EVENT_VERSION,
-          type:
-            effect.action === "terminated"
-              ? "employment.terminated"
-              : "employment.reinstated",
+          type: eventDetails.type,
           eventKey: createTerminationSystemEventKey(
             effect.action,
             effect.officeDay,
@@ -232,10 +246,7 @@ export async function flushTerminationEffects({
           operatorId: effect.operatorId,
           targetNewHireId: effect.targetNewHireId,
           terminationId: effect.terminationId,
-          text:
-            effect.action === "terminated"
-              ? TERMINATION_SYSTEM_EVENT_TEXT
-              : REINSTATEMENT_SYSTEM_EVENT_TEXT,
+          text: eventDetails.text,
         });
         await repository.markTerminationPublicEventPublished(
           effect.effectId,

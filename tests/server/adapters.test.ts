@@ -14,14 +14,21 @@ describe("service adapter boundary", () => {
 
     const adapters = createServiceAdapters(configuration);
     const channels = await adapters.portal.listChannels();
-    const newHire = await adapters.neon.getNewHire("user_mock_new_hire");
+    const newHire = await adapters.neon.enterNewHire({
+      clerkUserId: "user_adapter_test",
+      firstName: "Pat",
+      lastName: "Pending",
+      displayName: "Pat Pending",
+      imageUrl: null,
+      sourceVersion: 1,
+    });
 
     expect(channels.map((channel) => channel.name)).toEqual([
       "General",
       "Watercooler",
       "Technical Support",
     ]);
-    expect(newHire).toMatchObject({ onboardingComplete: true });
+    expect(newHire).toMatchObject({ step: "profile" });
   });
 
   test("keeps adapter construction behind successful validation", () => {

@@ -46,6 +46,12 @@ export default function SignInPage() {
                 Sign in as Operator
               </button>
             </form>
+            <form action="/api/auth/mock-session" method="post">
+              <input type="hidden" name="identity" value="returning-new-hire" />
+              <button className="classic-button" type="submit">
+                Sign in as Returning New Hire
+              </button>
+            </form>
           </div>
           <Link href="/">Return to Observer preview</Link>
         </div>

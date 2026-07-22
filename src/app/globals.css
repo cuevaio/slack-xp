@@ -50,7 +50,8 @@ a {
 
 .observer-shell,
 .office-shell,
-.installation-shell {
+.installation-shell,
+.onboarding-shell {
   min-height: 100vh;
 }
 
@@ -293,7 +294,8 @@ a {
 
 .preview-window,
 .messenger-window,
-.system-window {
+.system-window,
+.setup-window {
   border: 2px solid #e8e5da;
   border-right-color: #393939;
   border-bottom-color: #393939;
@@ -762,7 +764,8 @@ a {
 }
 
 .office-shell,
-.installation-shell {
+.installation-shell,
+.onboarding-shell {
   display: grid;
   place-items: center;
   padding: clamp(1rem, 4vw, 3rem);
@@ -770,6 +773,200 @@ a {
     linear-gradient(90deg, rgb(255 255 255 / 5%) 1px, transparent 1px),
     linear-gradient(rgb(255 255 255 / 5%) 1px, transparent 1px), var(--desktop);
   background-size: 32px 32px;
+}
+
+.setup-window {
+  width: min(820px, 100%);
+}
+
+.setup-body {
+  display: grid;
+  min-height: 560px;
+  grid-template-columns: 180px 1fr;
+  padding: 3px;
+}
+
+.setup-sidebar {
+  position: relative;
+  overflow: hidden;
+  padding: 2rem 1.2rem;
+  background: linear-gradient(160deg, var(--navy), var(--desktop));
+  color: white;
+  font-family: var(--font-geist-mono), monospace;
+  letter-spacing: 0.12em;
+}
+
+.setup-brand-word {
+  display: block;
+}
+
+.setup-orb {
+  position: absolute;
+  right: -52px;
+  bottom: 35px;
+  display: grid;
+  width: 170px;
+  height: 170px;
+  place-items: center;
+  border: 12px solid rgb(255 255 255 / 25%);
+  border-radius: 50%;
+  color: #d5ff48;
+  font:
+    900 5rem Georgia,
+    serif;
+  transform: rotate(-12deg);
+}
+
+.setup-content {
+  padding: clamp(1.5rem, 5vw, 3.3rem);
+  border: 1px inset white;
+  background: var(--paper);
+}
+
+.setup-content h1 {
+  margin: 0 0 0.7rem;
+  font-family: Georgia, serif;
+  font-size: clamp(2rem, 5vw, 3rem);
+  line-height: 1;
+}
+
+.setup-content > form > p:not(.setup-error) {
+  max-width: 58ch;
+  line-height: 1.5;
+}
+
+.setup-progress {
+  margin: 0 0 1.2rem;
+  color: #5f5a4e;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.75rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.profile-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.9rem;
+  margin: 1.5rem 0;
+}
+
+.profile-preview {
+  display: flex;
+  gap: 0.8rem;
+  align-items: center;
+  margin-top: 1.4rem;
+}
+
+.profile-preview-image,
+.profile-preview-placeholder {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 2px outset #ddd;
+  background: #ffcf5d;
+  object-fit: cover;
+  font-weight: 900;
+}
+
+.profile-preview p,
+.profile-preview small {
+  display: block;
+  margin: 0;
+}
+
+.profile-preview small {
+  margin-top: 0.2rem;
+  color: #5f5a4e;
+}
+
+.profile-fields label {
+  display: grid;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.profile-fields label:last-child {
+  grid-column: 1 / -1;
+}
+
+.profile-fields input:not([type="file"]) {
+  width: 100%;
+  min-height: 38px;
+  padding: 0.45rem;
+  border: 2px inset white;
+  background: white;
+  font: inherit;
+}
+
+.assignment-card {
+  display: grid;
+  gap: 0.3rem;
+  margin: 1.5rem 0;
+  padding: 0.9rem;
+  border: 1px dashed #765b12;
+  background: #fff8d6;
+}
+
+.assignment-label {
+  color: #765b12;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.conduct-list {
+  padding-left: 1.3rem;
+  line-height: 1.55;
+}
+
+.conduct-acceptance {
+  display: flex;
+  gap: 0.7rem;
+  align-items: flex-start;
+  padding: 0.9rem;
+  border: 1px solid #777;
+  background: #e8f1ff;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.conduct-acceptance input {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
+.setup-error {
+  padding: 0.7rem;
+  border: 1px solid #9c271d;
+  background: #ffe7e2;
+  color: #7f160f;
+  font-weight: 700;
+}
+
+.clock-in-button {
+  min-width: 180px;
+  padding: 1rem 1.4rem;
+  border: 3px outset #eee;
+  background: #d5ff48;
+  color: var(--ink);
+  cursor: pointer;
+  font:
+    900 1.1rem var(--font-geist-mono),
+    monospace;
+  letter-spacing: 0.08em;
+}
+
+.classic-button:disabled,
+.clock-in-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
 }
 
 .messenger-window {
@@ -1188,12 +1385,32 @@ button.classic-button {
 }
 
 @media (max-width: 520px) {
-  .installation-shell {
+  .installation-shell,
+  .onboarding-shell {
     padding: 0;
   }
 
   .system-window {
     min-height: 100vh;
+  }
+
+  .setup-window {
+    min-height: 100vh;
+    border-right: 0;
+    border-left: 0;
+    box-shadow: none;
+  }
+
+  .setup-body {
+    grid-template-columns: 1fr;
+  }
+
+  .setup-sidebar {
+    display: none;
+  }
+
+  .profile-fields {
+    grid-template-columns: 1fr;
   }
 
   .installation-content {

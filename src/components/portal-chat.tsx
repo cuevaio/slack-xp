@@ -8,8 +8,10 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
+import type { OfficeChannel } from "@/lib/portal/channels";
 import {
   CHAT_TEXT_LIMIT,
   linkifyChatText,
@@ -29,25 +31,32 @@ type ChatConnectionStatus =
   | "degraded-http"
   | "blocked";
 
-type PortalChatBaseProps = {
-  channelId: string;
+type PortalOfficeBaseProps = {
+  channels: readonly OfficeChannel[];
   identityId: string;
   displayName: string;
+  jobTitle: string;
+  isOperator: boolean;
+  canSignOut: boolean;
 };
 
-type MockPortalChatProps = PortalChatBaseProps & {
+type MockPortalOfficeProps = PortalOfficeBaseProps & {
   mode: "mock";
   publishableKey?: never;
 };
 
-type LivePortalChatProps = PortalChatBaseProps & {
+type LivePortalOfficeProps = PortalOfficeBaseProps & {
   mode: "live";
   publishableKey: string;
 };
 
-type PortalChatProps = MockPortalChatProps | LivePortalChatProps;
+type PortalChatProps = MockPortalOfficeProps | LivePortalOfficeProps;
 
-type ChatSurfaceProps = PortalChatBaseProps & {
+type ChatSurfaceProps = {
+  active: boolean;
+  channel: OfficeChannel;
+  identityId: string;
+  displayName: string;
   messages: readonly unknown[];
   status: ChatConnectionStatus;
   onSend(text: string): Promise<void>;
@@ -55,6 +64,13 @@ type ChatSurfaceProps = PortalChatBaseProps & {
   loadPrevious?: () => Promise<unknown>;
   hasPrevious?: boolean;
   isLoadingPrevious?: boolean;
+};
+
+type OfficeWorkspaceProps = PortalOfficeBaseProps & {
+  activeChannelId: string;
+  unreadCounts: Readonly<Record<string, number>>;
+  onSelectChannel(channelId: string): void;
+  children: ReactNode;
 };
 
 function connectionStatusCopy(status: ChatConnectionStatus): string {
@@ -76,12 +92,8 @@ function connectionStatusCopy(status: ChatConnectionStatus): string {
 }
 
 function sendButtonCopy(isSending: boolean, hasError: boolean): string {
-  if (isSending) {
-    return "Sending…";
-  }
-  if (hasError) {
-    return "Retry send";
-  }
+  if (isSending) return "Sending…";
+  if (hasError) return "Retry send";
   return "Send";
 }
 
@@ -104,6 +116,45 @@ function replaceMessage(
   );
 }
 
+function prependUniqueMessages(
+  current: readonly unknown[],
+  previous: readonly unknown[],
+): unknown[] {
+  const currentIds = new Set(
+    current.flatMap((message) =>
+      typeof message === "object" &&
+      message !== null &&
+      "id" in message &&
+      typeof message.id === "string"
+        ? [message.id]
+        : [],
+    ),
+  );
+  return [
+    ...previous.filter(
+      (message) =>
+        !(
+          typeof message === "object" &&
+          message !== null &&
+          "id" in message &&
+          typeof message.id === "string" &&
+          currentIds.has(message.id)
+        ),
+    ),
+    ...current,
+  ];
+}
+
+function firstMessageId(messages: readonly unknown[]): string | undefined {
+  const first = messages[0];
+  return typeof first === "object" &&
+    first !== null &&
+    "id" in first &&
+    typeof first.id === "string"
+    ? first.id
+    : undefined;
+}
+
 function SafeMessageText({ text }: { text: string }) {
   let characterOffset = 0;
   return linkifyChatText(text).map((part) => {
@@ -120,10 +171,12 @@ function SafeMessageText({ text }: { text: string }) {
 }
 
 function MessageHistory({
+  channel,
   messages,
   identityId,
   displayName,
 }: {
+  channel: OfficeChannel;
   messages: readonly SafePortalChatMessage[];
   identityId: string;
   displayName: string;
@@ -131,7 +184,7 @@ function MessageHistory({
   if (messages.length === 0) {
     return (
       <div className="empty-chat">
-        <strong>The General Office Channel is quiet.</strong>
+        <strong>The {channel.name} Office Channel is quiet.</strong>
         <p>
           Start today&apos;s paper trail. Confirmed messages survive reconnects.
         </p>
@@ -140,7 +193,10 @@ function MessageHistory({
   }
 
   return (
-    <ol className="message-history" aria-label="General message history">
+    <ol
+      className="message-history"
+      aria-label={`${channel.name} message history`}
+    >
       {messages.map((message) => (
         <li
           className={`chat-message chat-message-${message.status}`}
@@ -171,7 +227,8 @@ function MessageHistory({
 }
 
 function ChatSurface({
-  channelId,
+  active,
+  channel,
   identityId,
   displayName,
   messages: rawMessages,
@@ -185,14 +242,16 @@ function ChatSurface({
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
+  const scrollRegionRef = useRef<HTMLDivElement>(null);
   const messages = useMemo(
     () =>
       rawMessages
         .map(parsePortalChatMessage)
         .filter(
-          (message): message is SafePortalChatMessage => message !== null,
+          (message): message is SafePortalChatMessage =>
+            message !== null && message.channelId === channel.id,
         ),
-    [rawMessages],
+    [channel.id, rawMessages],
   );
   const invalidMessageCount = rawMessages.length - messages.length;
 
@@ -219,31 +278,62 @@ function ChatSurface({
     }
   }
 
+  async function loadEarlier() {
+    if (!loadPrevious) return;
+    const region = scrollRegionRef.current;
+    const previousHeight = region?.scrollHeight ?? 0;
+    const previousTop = region?.scrollTop ?? 0;
+    await loadPrevious();
+    requestAnimationFrame(() => {
+      if (region) {
+        region.scrollTop = previousTop + region.scrollHeight - previousHeight;
+      }
+    });
+  }
+
   const canPublish =
     status === "ready" || status === "degraded" || status === "degraded-http";
+  const headingId = `office-channel-heading-${channel.slug}`;
 
   return (
-    <section className="general-chat" aria-labelledby="general-channel-heading">
+    <section
+      aria-labelledby={headingId}
+      className={`general-chat ${channel.mode === "broadcast" ? "broadcast-chat" : ""}`}
+      hidden={!active}
+      id={`office-channel-${channel.slug}`}
+    >
       <header className="conversation-heading">
         <div>
           <span
             className={`presence-dot connection-${status}`}
             aria-hidden="true"
           />
-          <strong id="general-channel-heading"># General</strong>
-          <span className="channel-purpose">Company-wide conversation</span>
+          <strong id={headingId}># {channel.slug}</strong>
+          {channel.mode === "broadcast" ? (
+            <span className="channel-mode-badge">Broadcast</span>
+          ) : null}
+          <span className="channel-purpose">{channel.purpose}</span>
         </div>
         <output className="connection-status" aria-live="polite">
           {connectionStatusCopy(status)}
         </output>
       </header>
 
-      <div className="chat-scroll-region">
+      <div className="chat-scroll-region" ref={scrollRegionRef}>
+        {channel.mode === "broadcast" ? (
+          <aside className="broadcast-notice">
+            <strong>System Events receive priority display.</strong>
+            <span>
+              Broadcast mode changes presentation and presence only. Every
+              authenticated New Hire can still publish here.
+            </span>
+          </aside>
+        ) : null}
         {hasPrevious && loadPrevious ? (
           <button
             className="classic-button load-history-button"
             disabled={isLoadingPrevious}
-            onClick={() => void loadPrevious()}
+            onClick={() => void loadEarlier()}
             type="button"
           >
             {isLoadingPrevious ? "Loading…" : "Load earlier messages"}
@@ -271,6 +361,7 @@ function ChatSurface({
           </output>
         ) : null}
         <MessageHistory
+          channel={channel}
           displayName={displayName}
           identityId={identityId}
           messages={messages}
@@ -278,10 +369,12 @@ function ChatSurface({
       </div>
 
       <form className="chat-composer" onSubmit={submit}>
-        <label htmlFor={`message-${channelId}`}>Message # General</label>
+        <label htmlFor={`message-${channel.id}`}>
+          Message # {channel.name}
+        </label>
         <textarea
           disabled={!canPublish}
-          id={`message-${channelId}`}
+          id={`message-${channel.id}`}
           maxLength={CHAT_TEXT_LIMIT}
           onChange={(event) => setDraft(event.target.value)}
           placeholder={
@@ -312,49 +405,93 @@ function ChatSurface({
   );
 }
 
-function LiveGeneralChat({
-  channelId,
-  identityId,
+function OfficeWorkspace({
+  channels,
+  identityId: _identityId,
   displayName,
-  publishableKey,
-}: Omit<LivePortalChatProps, "mode">) {
-  const [portal] = useState(
-    () =>
-      new Portal({
-        apiKey: publishableKey,
-        token: createPortalTokenSource(),
-      }),
-  );
-
+  jobTitle,
+  isOperator,
+  canSignOut,
+  activeChannelId,
+  unreadCounts,
+  onSelectChannel,
+  children,
+}: OfficeWorkspaceProps) {
   return (
-    <PortalProvider client={portal}>
-      <LiveGeneralChannel
-        channelId={channelId}
-        displayName={displayName}
-        identityId={identityId}
-      />
-    </PortalProvider>
+    <div className="office-body">
+      <aside className="channel-panel" aria-label="Office Channels">
+        <p className="eyebrow">Shared Public Office</p>
+        <h1>Welcome, {displayName}</h1>
+        <p className="job-title">{jobTitle}</p>
+        {isOperator ? <p className="operator-badge">Operator access</p> : null}
+        <nav aria-label="Office Channel directory">
+          {channels.map((channel) => {
+            const unreadCount = unreadCounts[channel.id] ?? 0;
+            return (
+              <button
+                aria-controls={`office-channel-${channel.slug}`}
+                aria-current={
+                  channel.id === activeChannelId ? "page" : undefined
+                }
+                className="channel-button"
+                key={channel.id}
+                onClick={() => onSelectChannel(channel.id)}
+                type="button"
+              >
+                <span className="channel-button-copy">
+                  <strong># {channel.slug}</strong>
+                  <small> {channel.name}</small>
+                </span>
+                {unreadCount > 0 ? (
+                  <b>
+                    <span className="sr-only">{unreadCount} unread</span>
+                    <span aria-hidden="true">{unreadCount}</span>
+                  </b>
+                ) : null}
+              </button>
+            );
+          })}
+        </nav>
+        {canSignOut ? (
+          <form action="/api/auth/sign-out" method="post">
+            <button className="classic-button sign-out-button" type="submit">
+              Sign out
+            </button>
+          </form>
+        ) : null}
+      </aside>
+      <section className="conversation-panel">{children}</section>
+    </div>
   );
 }
 
-function LiveGeneralChannel({
-  channelId,
+function LiveOfficeChannel({
+  active,
+  channel: officeChannel,
   identityId,
   displayName,
+  onUnread,
 }: {
-  channelId: string;
+  active: boolean;
+  channel: OfficeChannel;
   identityId: string;
   displayName: string;
+  onUnread(channelId: string, count: number): void;
 }) {
   const channel = useChannel<{ text: string }>({
-    channelId,
+    channelId: officeChannel.id,
     history: 50,
-    readOn: "visible",
+    readOn: active ? "visible" : "manual",
   });
+
+  useEffect(() => {
+    onUnread(officeChannel.id, channel.unread);
+  }, [channel.unread, officeChannel.id, onUnread]);
 
   return (
     <ChatSurface
-      channelId={channelId}
+      active={active}
+      channel={officeChannel}
       displayName={displayName}
       hasPrevious={channel.hasPrevious}
       identityId={identityId}
@@ -370,51 +507,135 @@ function LiveGeneralChannel({
   );
 }
 
-function MockGeneralChat({
-  channelId,
+function LivePortalOffice(props: Omit<LivePortalOfficeProps, "mode">) {
+  const { channels, publishableKey } = props;
+  const [activeChannelId, setActiveChannelId] = useState(channels[0]?.id ?? "");
+  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const [portal] = useState(
+    () =>
+      new Portal({
+        apiKey: publishableKey,
+        token: createPortalTokenSource(),
+      }),
+  );
+  const updateUnread = useCallback((channelId: string, count: number) => {
+    setUnreadCounts((current) =>
+      current[channelId] === count
+        ? current
+        : { ...current, [channelId]: count },
+    );
+  }, []);
+
+  return (
+    <PortalProvider client={portal}>
+      <OfficeWorkspace
+        {...props}
+        activeChannelId={activeChannelId}
+        onSelectChannel={setActiveChannelId}
+        unreadCounts={unreadCounts}
+      >
+        {channels.map((channel) => (
+          <LiveOfficeChannel
+            active={channel.id === activeChannelId}
+            channel={channel}
+            displayName={props.displayName}
+            identityId={props.identityId}
+            key={channel.id}
+            onUnread={updateUnread}
+          />
+        ))}
+      </OfficeWorkspace>
+    </PortalProvider>
+  );
+}
+
+function MockOfficeChannel({
+  active,
+  channel,
   identityId,
   displayName,
-}: PortalChatBaseProps) {
+}: {
+  active: boolean;
+  channel: OfficeChannel;
+  identityId: string;
+  displayName: string;
+}) {
   const [messages, setMessages] = useState<unknown[]>([]);
   const [status, setStatus] = useState<ChatConnectionStatus>("connecting");
+  const [hasPrevious, setHasPrevious] = useState(false);
+  const [isLoadingPrevious, setIsLoadingPrevious] = useState(false);
 
   const loadMockHistory = useCallback(async () => {
     setStatus("connecting");
     try {
-      const fetchPortalToken = createPortalTokenSource();
-      await fetchPortalToken();
-      const response = await fetch("/api/office/portal/mock-chat", {
-        credentials: "include",
-        cache: "no-store",
-      });
+      await createPortalTokenSource()();
+      const response = await fetch(
+        `/api/office/portal/mock-chat?channel=${encodeURIComponent(channel.slug)}`,
+        { credentials: "include", cache: "no-store" },
+      );
       const payload: unknown = await response.json().catch(() => null);
       if (
         !response.ok ||
         typeof payload !== "object" ||
         payload === null ||
         !("messages" in payload) ||
-        !Array.isArray(payload.messages)
+        !Array.isArray(payload.messages) ||
+        !("hasPrevious" in payload) ||
+        typeof payload.hasPrevious !== "boolean"
       ) {
         throw new Error("Mock Portal history unavailable");
       }
       setMessages(payload.messages);
+      setHasPrevious(payload.hasPrevious);
       setStatus("ready");
     } catch {
       setMessages([]);
+      setHasPrevious(false);
       setStatus("reconnecting");
     }
-  }, []);
+  }, [channel.slug]);
 
   useEffect(() => {
     void loadMockHistory();
   }, [loadMockHistory]);
+
+  async function loadPrevious(): Promise<void> {
+    const before = firstMessageId(messages);
+    if (!before) return;
+    setIsLoadingPrevious(true);
+    try {
+      const response = await fetch(
+        `/api/office/portal/mock-chat?channel=${encodeURIComponent(channel.slug)}&before=${encodeURIComponent(before)}`,
+        { credentials: "include", cache: "no-store" },
+      );
+      const payload: unknown = await response.json().catch(() => null);
+      if (
+        !response.ok ||
+        typeof payload !== "object" ||
+        payload === null ||
+        !("messages" in payload) ||
+        !Array.isArray(payload.messages) ||
+        !("hasPrevious" in payload) ||
+        typeof payload.hasPrevious !== "boolean"
+      ) {
+        throw new Error("Mock Portal history unavailable");
+      }
+      const previousMessages = payload.messages;
+      setMessages((current) =>
+        prependUniqueMessages(current, previousMessages),
+      );
+      setHasPrevious(payload.hasPrevious);
+    } finally {
+      setIsLoadingPrevious(false);
+    }
+  }
 
   async function sendMessage(text: string): Promise<void> {
     const content = validateChatDraft(text);
     const temporaryId = `pending-${crypto.randomUUID()}`;
     const pendingMessage = {
       id: temporaryId,
-      channelId,
+      channelId: channel.id,
       sender: { id: identityId, anon: false },
       timestamp: Date.now(),
       kind: "text",
@@ -427,12 +648,15 @@ function MockGeneralChat({
     setMessages((current) => [...current, pendingMessage]);
 
     try {
-      const response = await fetch("/api/office/portal/mock-chat", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(content),
-      });
+      const response = await fetch(
+        `/api/office/portal/mock-chat?channel=${encodeURIComponent(channel.slug)}`,
+        {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(content),
+        },
+      );
       const confirmed: unknown = await response.json().catch(() => null);
       if (!response.ok || !parsePortalChatMessage(confirmed)) {
         throw new Error("Mock Portal publish unavailable");
@@ -451,9 +675,13 @@ function MockGeneralChat({
 
   return (
     <ChatSurface
-      channelId={channelId}
+      active={active}
+      channel={channel}
       displayName={displayName}
+      hasPrevious={hasPrevious}
       identityId={identityId}
+      isLoadingPrevious={isLoadingPrevious}
+      loadPrevious={loadPrevious}
       messages={messages}
       onRetryConnection={() => void loadMockHistory()}
       onSend={sendMessage}
@@ -462,10 +690,34 @@ function MockGeneralChat({
   );
 }
 
+function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
+  const { channels } = props;
+  const [activeChannelId, setActiveChannelId] = useState(channels[0]?.id ?? "");
+
+  return (
+    <OfficeWorkspace
+      {...props}
+      activeChannelId={activeChannelId}
+      onSelectChannel={setActiveChannelId}
+      unreadCounts={{}}
+    >
+      {channels.map((channel) => (
+        <MockOfficeChannel
+          active={channel.id === activeChannelId}
+          channel={channel}
+          displayName={props.displayName}
+          identityId={props.identityId}
+          key={channel.id}
+        />
+      ))}
+    </OfficeWorkspace>
+  );
+}
+
 export function PortalChat(props: PortalChatProps): ReactNode {
   return props.mode === "live" ? (
-    <LiveGeneralChat {...props} />
+    <LivePortalOffice {...props} />
   ) : (
-    <MockGeneralChat {...props} />
+    <MockPortalOffice {...props} />
   );
 }

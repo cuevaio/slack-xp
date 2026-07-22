@@ -1,3 +1,5 @@
+import { officeChannelId } from "@/lib/portal/channels";
+
 export const CHAT_TEXT_LIMIT = 1_000;
 
 export type PortalChatContent = {
@@ -22,7 +24,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
 }
 
 export function generalChannelId(now: Date = new Date()): string {
-  return `${now.toISOString().slice(0, 10)}:general`;
+  return officeChannelId("general", now);
 }
 
 export function parseChatContent(value: unknown): PortalChatContent | null {

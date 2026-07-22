@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { listOfficeChannels, officeChannelId } from "@/lib/portal/channels";
 import {
   generalChannelId,
   linkifyChatText,
@@ -8,14 +9,67 @@ import {
 } from "@/lib/portal/chat";
 import { createPortalTokenSource } from "@/lib/portal/client";
 
-describe("general Office Channel chat contract", () => {
-  test("uses the UTC Office Day in the stable general channel id", () => {
+describe("Office Channel chat contract", () => {
+  test("defines the complete curated directory with channel-first UTC Office Day ids", () => {
+    const beforeMidnight = new Date("2026-07-22T23:59:59.999Z");
+
+    expect(
+      listOfficeChannels(beforeMidnight).map(
+        ({ slug, id, name, purpose, mode }) => ({
+          slug,
+          id,
+          name,
+          purpose,
+          mode,
+        }),
+      ),
+    ).toEqual([
+      {
+        slug: "general",
+        id: "general:2026-07-22",
+        name: "General",
+        purpose: "Company-wide conversation",
+        mode: "standard",
+      },
+      {
+        slug: "watercooler",
+        id: "watercooler:2026-07-22",
+        name: "Watercooler",
+        purpose: "Casual conversation and breakroom chatter",
+        mode: "standard",
+      },
+      {
+        slug: "tech-support",
+        id: "tech-support:2026-07-22",
+        name: "Technical Support",
+        purpose: "Comedic technical support for suspicious office technology",
+        mode: "standard",
+      },
+      {
+        slug: "urgent",
+        id: "urgent:2026-07-22",
+        name: "Urgent",
+        purpose: "Urgent workplace chatter",
+        mode: "standard",
+      },
+      {
+        slug: "all-hands",
+        id: "all-hands:2026-07-22",
+        name: "All Hands",
+        purpose: "System Events and company-wide announcements",
+        mode: "broadcast",
+      },
+    ]);
+
     expect(generalChannelId(new Date("2026-07-22T23:59:59.999Z"))).toBe(
-      "2026-07-22:general",
+      "general:2026-07-22",
     );
     expect(generalChannelId(new Date("2026-07-23T00:00:00.000Z"))).toBe(
-      "2026-07-23:general",
+      "general:2026-07-23",
     );
+    expect(
+      officeChannelId("all-hands", new Date("2026-07-23T00:00:00.000Z")),
+    ).toBe("all-hands:2026-07-23");
   });
 
   test("accepts only non-empty text payloads of at most 1,000 characters", () => {
@@ -39,7 +93,7 @@ describe("general Office Channel chat contract", () => {
   test("ignores malformed, retracted, ephemeral, and unknown Portal envelopes", () => {
     const message = {
       id: "message-1",
-      channelId: "2026-07-22:general",
+      channelId: "general:2026-07-22",
       sender: { id: "user-1", anon: false },
       timestamp: 1_753_184_800_000,
       kind: "text",

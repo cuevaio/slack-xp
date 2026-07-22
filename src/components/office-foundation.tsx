@@ -22,9 +22,8 @@ export async function OfficeFoundation({
   portalPublishableKey?: string;
 }) {
   const channels = await adapters.portal.listChannels();
-  const generalChannel = channels[0];
-  if (!generalChannel) {
-    throw new Error("The General Office Channel is not configured.");
+  if (channels.length !== 5) {
+    throw new Error("The Office Channel directory is incomplete.");
   }
 
   return (
@@ -37,50 +36,21 @@ export async function OfficeFoundation({
           <span id="office-title">Portal Messenger: Corporate Edition</span>
           <span aria-hidden="true">_ □ ×</span>
         </header>
-        <div className="office-body">
-          <aside className="channel-panel" aria-label="Office Channels">
-            <p className="eyebrow">Shared Public Office</p>
-            <h1>Welcome, {onboarding.displayName}</h1>
-            <p className="job-title">{onboarding.jobTitle}</p>
-            {identity.isOperator ? (
-              <p className="operator-badge">Operator access</p>
-            ) : null}
-            <nav>
-              {channels.map((channel) => (
-                <a href={`#${channel.id}`} key={channel.id}>
-                  <span># {channel.name}</span>
-                  {channel.unreadCount > 0 ? (
-                    <strong>{channel.unreadCount}</strong>
-                  ) : null}
-                </a>
-              ))}
-            </nav>
-            {identity.authentication === "mock" ? (
-              <form action="/api/auth/sign-out" method="post">
-                <button
-                  className="classic-button sign-out-button"
-                  type="submit"
-                >
-                  Sign out
-                </button>
-              </form>
-            ) : null}
-          </aside>
-          <section className="conversation-panel">
-            <PortalChat
-              channelId={generalChannel.id}
-              displayName={onboarding.displayName}
-              identityId={identity.id}
-              {...(adapters.kind === "mock"
-                ? { mode: "mock" as const }
-                : {
-                    mode: "live" as const,
-                    publishableKey:
-                      requirePortalPublishableKey(portalPublishableKey),
-                  })}
-            />
-          </section>
-        </div>
+        <PortalChat
+          canSignOut={identity.authentication === "mock"}
+          channels={channels}
+          displayName={onboarding.displayName}
+          identityId={identity.id}
+          isOperator={identity.isOperator}
+          jobTitle={onboarding.jobTitle}
+          {...(adapters.kind === "mock"
+            ? { mode: "mock" as const }
+            : {
+                mode: "live" as const,
+                publishableKey:
+                  requirePortalPublishableKey(portalPublishableKey),
+              })}
+        />
       </section>
     </main>
   );

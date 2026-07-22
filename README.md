@@ -18,8 +18,9 @@ Open [http://localhost:3000](http://localhost:3000) for the static Observer
 experience. Entering [http://localhost:3000/office](http://localhost:3000/office)
 first presents the deterministic mock sign-in, then opens the authenticated
 office seam. Mock authentication and mock services each display a permanent
-warning watermark. The returning fixture opens the daily General Office Channel,
-where deterministic messages persist across reloads without cloud credentials.
+warning watermark. The returning fixture opens the complete daily Office
+Channel directory, where deterministic messages persist across reloads without
+cloud credentials.
 
 ## Runtime Configuration
 
@@ -105,11 +106,22 @@ New Hires resume from the first missing timestamp.
 Mock mode provides isolated first-time and returning fixtures and exercises the
 same validation and persistence contract without Clerk or Neon credentials.
 
-## Portal General Office Channel
+## Portal Office Channels
 
 Portal is the sole authority for live conversation messages and history. Neon
-does not store or duplicate message bodies. The first connected Office Channel is
-`{YYYY-MM-DD}:general`, where the date is the current UTC Office Day.
+does not store or duplicate message bodies. Each UTC Office Day has exactly five
+visible Office Channels:
+
+| ID | Name | Purpose | Portal mode |
+| --- | --- | --- | --- |
+| `general:{YYYY-MM-DD}` | General | Company-wide conversation | standard |
+| `watercooler:{YYYY-MM-DD}` | Watercooler | Casual conversation and breakroom chatter | standard |
+| `tech-support:{YYYY-MM-DD}` | Technical Support | Comedic technical support for suspicious office technology | standard |
+| `urgent:{YYYY-MM-DD}` | Urgent | Urgent workplace chatter | standard |
+| `all-hands:{YYYY-MM-DD}` | All Hands | System Events and company-wide announcements | broadcast |
+
+IDs contain only the curated channel slug and UTC Office Day. They deliberately
+omit branch, deployment, tenant, user, and internal alias namespaces.
 
 Portal dependencies are exact because its APIs are pre-1.0:
 
@@ -122,23 +134,33 @@ Portal dependencies are exact because its APIs are pre-1.0:
 keep each direct version exact.
 
 The root `portal.config.ts` applies `anonymous: false` to every visible and
-hidden Office Channel. It deliberately defines no publish middleware or
-automated content moderation. Deploy that customer configuration with the
-server-only `PORTAL_SECRET` after selecting the correct Portal environment:
+hidden Office Channel. Its more specific `all-hands:*` template repeats that
+authentication setting and selects broadcast mode; Portal channel configuration
+entries do not merge. Broadcast mode changes presence and presentation, not
+publish authorization, so authenticated New Hires may still participate. The
+configuration deliberately defines no publish middleware or automated content
+moderation. Deploy it with the server-only `PORTAL_SECRET` after selecting the
+correct Portal environment:
 
 ```bash
 bun run portal:deploy
 ```
 
 Authenticated entry calls Portal's hosted control plane to upsert the New Hire's
-daily General membership, then mints a channel-scoped token with a 15-minute
-lifetime. `/api/office/portal/token` performs both operations only after
+membership in all five daily Office Channels, then mints an office-scoped token
+with a 15-minute lifetime. `/api/office/portal/token` performs both operations
+only after
 server-side authentication and completed onboarding. The browser receives the
 short-lived user token but never `PORTAL_SECRET`; the published Portal SDK calls
 the route again on connection, reconnect, and expiry.
 
-The SDK loads persistent history and owns optimistic `pending`, confirmed
-`sent`, and recoverable `failed` delivery states. The app accepts only a runtime-
+The SDK loads the 50 most recent persistent messages and paginates backward. Its
+sequence-aware buffer prevents history duplicates and gap-fills reconnects. The
+interface anchors the scroll position when older pages are prepended and keeps
+each mounted Office Channel's draft, optimistic `pending`, confirmed `sent`,
+recoverable `failed`, loading, pagination, unread, and reconnect state while the
+New Hire switches channels. Canonical Portal event timestamps are formatted in
+the browser's local timezone. The app accepts only a runtime-
 validated `{ text: string }` payload of 1–1,000 characters. Rendering uses React
 text escaping and linkifies only HTTP(S) URLs with a new browsing context and
 `noopener noreferrer`. HTML, rich Markdown, uploads, embeds, media, and URL
@@ -221,8 +243,8 @@ bunx playwright install chromium
   profile projection, and rejects Clock In until required onboarding state is
   durable.
 - `/api/office/portal/token` authenticates the New Hire, checks completed
-  onboarding, idempotently grants daily General membership, and mints a
-  15-minute Portal user token. It never returns the Portal secret.
+  onboarding, idempotently grants all five daily Office Channel memberships,
+  and mints a 15-minute Portal user token. It never returns the Portal secret.
 - `/api/office/portal/mock-chat` is a guarded non-production adapter route used
   only by the credential-free UI and browser tests. Live chat goes directly
   through the published Portal SDK and hosted APIs.

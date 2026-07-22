@@ -9,7 +9,11 @@ export type PortalMembershipInput = {
   };
 };
 
-export type PortalTokenInput = PortalMembershipInput;
+export type PortalTokenInput = {
+  channelIds: readonly string[];
+  userId: string;
+  claims: PortalMembershipInput["claims"];
+};
 
 export type PortalToken = {
   token: string;

@@ -23,7 +23,19 @@ describe("service adapter boundary", () => {
       sourceVersion: 1,
     });
 
-    expect(channels.map((channel) => channel.name)).toEqual(["General"]);
+    expect(
+      channels.map(({ slug, name, mode }) => ({ slug, name, mode })),
+    ).toEqual([
+      { slug: "general", name: "General", mode: "standard" },
+      { slug: "watercooler", name: "Watercooler", mode: "standard" },
+      {
+        slug: "tech-support",
+        name: "Technical Support",
+        mode: "standard",
+      },
+      { slug: "urgent", name: "Urgent", mode: "standard" },
+      { slug: "all-hands", name: "All Hands", mode: "broadcast" },
+    ]);
     expect(newHire).toMatchObject({ step: "profile" });
   });
 

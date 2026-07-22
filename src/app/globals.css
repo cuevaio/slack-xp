@@ -255,6 +255,7 @@ a {
 .primary-action:focus-visible,
 .classic-button:focus-visible,
 .channel-panel a:focus-visible,
+.channel-panel button:focus-visible,
 .observer-desktop button:focus-visible,
 .observer-desktop a:focus-visible,
 .observer-mobile a:focus-visible {
@@ -1009,22 +1010,39 @@ a {
   margin-top: 2rem;
 }
 
-.channel-panel nav a {
+.channel-panel nav button {
   display: flex;
+  width: 100%;
   min-height: 42px;
   align-items: center;
   justify-content: space-between;
   padding: 0.5rem 0.65rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
   text-decoration: none;
 }
 
-.channel-panel nav a:first-child,
-.channel-panel nav a:hover {
+.channel-panel nav button[aria-current="page"],
+.channel-panel nav button:hover {
   background: var(--navy);
   color: #fff;
 }
 
-.channel-panel nav strong {
+.channel-button > .channel-button-copy {
+  display: grid;
+  gap: 0.1rem;
+}
+
+.channel-button small {
+  font-size: 0.68rem;
+  opacity: 0.72;
+}
+
+.channel-panel nav b {
   display: grid;
   min-width: 24px;
   min-height: 24px;
@@ -1101,6 +1119,21 @@ a {
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
+.general-chat[hidden] {
+  display: none;
+}
+
+.channel-mode-badge {
+  padding: 0.12rem 0.35rem;
+  border: 1px solid #7b5410;
+  background: #ffdc63;
+  color: #4a3103;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .chat-scroll-region {
   min-height: 0;
   overflow-y: auto;
@@ -1122,6 +1155,21 @@ a {
   padding: 0.42rem 0.75rem;
   cursor: pointer;
   font-size: 0.75rem;
+}
+
+.broadcast-notice {
+  display: grid;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 0.85rem;
+  border: 2px solid #b67b10;
+  background: #fff4bd;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.broadcast-notice strong {
+  color: #684300;
 }
 
 .empty-chat {
@@ -1621,7 +1669,10 @@ button.classic-button {
   }
 
   .channel-panel nav {
+    grid-auto-columns: minmax(130px, 1fr);
+    grid-auto-flow: column;
     margin-top: 0;
+    overflow-x: auto;
   }
 
   .channel-panel form {

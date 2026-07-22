@@ -1,7 +1,7 @@
 import type { ServiceAdapters } from "@/lib/adapters/types";
 import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
 import type { NewHireProfile } from "@/lib/onboarding/types";
-import { generalChannelId } from "@/lib/portal/chat";
+import { listOfficeChannels } from "@/lib/portal/channels";
 import {
   createMockPortalAdapter,
   type MockPortalAdapter,
@@ -52,7 +52,7 @@ export function createMockAdapters(): ServiceAdapters {
     portal: {
       ...portal,
       async listChannels() {
-        return [{ id: generalChannelId(), name: "General", unreadCount: 0 }];
+        return listOfficeChannels();
       },
     },
     neon,

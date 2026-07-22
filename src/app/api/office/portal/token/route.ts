@@ -4,7 +4,7 @@ import { readAppConfiguration } from "@/lib/config";
 import { MockPortalUnavailableError } from "@/lib/portal/mock";
 import { PortalServiceError } from "@/lib/portal/server";
 import {
-  issueGeneralPortalSession,
+  issueOfficePortalSession,
   PortalEligibilityError,
 } from "@/lib/portal/session";
 
@@ -23,7 +23,7 @@ export async function POST() {
 
   const adapters = createServiceAdapters(configuration);
   try {
-    const session = await issueGeneralPortalSession({
+    const session = await issueOfficePortalSession({
       identity,
       onboarding: await adapters.neon.getNewHire(identity.id),
       portal: adapters.portal,

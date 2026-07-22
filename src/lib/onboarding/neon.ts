@@ -32,10 +32,8 @@ import type {
   PendingHRReportNotification,
   ProfileHRReportCategory,
 } from "@/lib/hr-reports/contract";
-import type {
-  CreateMessageRemovalInput,
-  PendingMessageRemovalInvalidation,
-} from "@/lib/message-removals/contract";
+import { HR_REPORT_STATES } from "@/lib/hr-reports/contract";
+import type { CreateMessageRemovalInput } from "@/lib/message-removals/contract";
 import {
   type PlannedSystemEvent,
   planOfficeDay,
@@ -500,7 +498,7 @@ type HRReportReviewRow = Awaited<
 function isHRReportReviewState(
   state: string,
 ): state is HRReportReviewRecord["state"] {
-  return state === "open" || state === "dismissed" || state === "removed";
+  return HR_REPORT_STATES.some((reviewState) => reviewState === state);
 }
 
 function toHRReportResolution(
@@ -863,7 +861,7 @@ export function createNeonRepository(database: Database): NeonAdapter {
         .orderBy(asc(messageRemovals.removedAt));
     },
     async pendingMessageRemovalInvalidations(limit) {
-      const rows = await database
+      return database
         .select({
           outboxId: messageRemovalInvalidationOutbox.outboxId,
           removalId: messageRemovals.removalId,
@@ -881,7 +879,6 @@ export function createNeonRepository(database: Database): NeonAdapter {
         .where(isNull(messageRemovalInvalidationOutbox.publishedAt))
         .orderBy(asc(messageRemovalInvalidationOutbox.createdAt))
         .limit(limit);
-      return rows as PendingMessageRemovalInvalidation[];
     },
     async markMessageRemovalInvalidationPublished(outboxId, publishedAt) {
       await database

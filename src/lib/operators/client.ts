@@ -5,9 +5,12 @@ import {
   queryOptions,
   useQuery,
 } from "@tanstack/react-query";
+import { createContext } from "react";
 
 export const operatorStateQueryKey = ["operator-state"] as const;
 const OPERATOR_REPAIR_INTERVAL_MS = 30_000;
+
+export const OperatorAccessContext = createContext(false);
 
 type OperatorState = { isOperator: boolean };
 

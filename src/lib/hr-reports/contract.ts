@@ -13,6 +13,8 @@ export const PROFILE_HR_REPORT_CATEGORIES = [
   "impersonation",
 ] as const;
 
+export const HR_REPORT_STATES = ["open", "dismissed", "removed"] as const;
+
 export const HR_REPORT_NOTIFICATION_CHANNEL_ID = "hr-reports";
 export const HR_REPORT_NOTIFICATION_TYPE = "hr-report.ready";
 export const HR_REPORT_PRIVATE_NOTE_MAX_LENGTH = 1_000;
@@ -31,7 +33,7 @@ export type ProfileHRReportCategory =
 export type HRReportCategory =
   | MessageHRReportCategory
   | ProfileHRReportCategory;
-export type HRReportState = "open" | "dismissed" | "removed";
+export type HRReportState = (typeof HR_REPORT_STATES)[number];
 export type HRReportSubjectType = "message" | "profile";
 export type HRReportOperatorAction = "dismissed";
 export type HRReportDismissalStatus = "dismissed" | "already-dismissed";
@@ -166,16 +168,20 @@ export type DismissHRReportResult = {
   report: HRReportReviewRecord;
 };
 
-export type OperatorActionRecord = {
+type OperatorActionRecordBase = {
   actionId: string;
   operatorId: string;
-  targetType: "hr_report" | "message_removal";
   targetId: string;
-  action: HRReportOperatorAction | "removed";
   privateNote: string | null;
   actedAt: Date;
   createdAt: Date;
 };
+
+export type OperatorActionRecord = OperatorActionRecordBase &
+  (
+    | { targetType: "hr_report"; action: HRReportOperatorAction }
+    | { targetType: "message_removal"; action: "removed" }
+  );
 
 type HRReportNotificationBase = {
   notificationId: string;

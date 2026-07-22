@@ -46,6 +46,7 @@ import {
 } from "@/lib/office-events/contract";
 import {
   invalidateOperatorState,
+  OperatorAccessContext,
   useOperatorState,
 } from "@/lib/operators/client";
 import {
@@ -158,7 +159,6 @@ type ChatSurfaceProps = ReactionProps & {
   readWhenVisible?: boolean;
   channel: OfficeChannel;
   identityId: string;
-  isOperator: boolean;
   messages: readonly unknown[];
   status: ChannelStatus;
   presence?: PortalPresence;
@@ -876,14 +876,12 @@ function MessageHistory({
   onReact,
   profilesById,
   removedMessageIds,
-  isOperator,
 }: ReactionProps & {
   channel: OfficeChannel;
   messages: readonly SafeOfficeChannelMessage[];
   identityId: string;
   profilesById: ReadonlyMap<string, ProfileAttribution>;
   removedMessageIds: ReadonlySet<string>;
-  isOperator: boolean;
 }) {
   if (messages.length === 0) {
     return (
@@ -988,10 +986,7 @@ function MessageHistory({
                   reactions={projection.read(channel.id, message.id)}
                 />
                 <MessageHRReportControls message={message} />
-                <MessageRemovalControls
-                  initialIsOperator={isOperator}
-                  message={message}
-                />
+                <MessageRemovalControls message={message} />
               </div>
             ) : null}
           </li>
@@ -1040,7 +1035,6 @@ function ChatSurface({
   readWhenVisible = true,
   channel,
   identityId,
-  isOperator,
   messages: rawMessages,
   status,
   presence,
@@ -1083,7 +1077,7 @@ function ChatSurface({
     [messages, removedMessageIds],
   );
   const profileQuery = useProfileBatch(profileIds);
-  const profileContentReady =
+  const messageHistoryReady =
     !removalQuery.isPending &&
     !removalQuery.isError &&
     !profileQuery.isPending &&
@@ -1130,7 +1124,6 @@ function ChatSurface({
       <MessageHistory
         channel={channel}
         identityId={identityId}
-        isOperator={isOperator}
         messages={messages}
         onReact={onReact}
         profilesById={profilesById}
@@ -1148,7 +1141,7 @@ function ChatSurface({
   useEffect(() => {
     if (
       !visible ||
-      !profileContentReady ||
+      !messageHistoryReady ||
       !isChatContentReady(status) ||
       messages.length === 0 ||
       !latestMessageId
@@ -1175,7 +1168,7 @@ function ChatSurface({
     channel.id,
     latestMessageId,
     messages.length,
-    profileContentReady,
+    messageHistoryReady,
     status,
     visible,
   ]);
@@ -1184,7 +1177,7 @@ function ChatSurface({
     if (
       !visible ||
       !readWhenVisible ||
-      !profileContentReady ||
+      !messageHistoryReady ||
       !isChatContentReady(status)
     ) {
       return;
@@ -1222,7 +1215,7 @@ function ChatSurface({
   }, [
     latestMessageId,
     messages.length,
-    profileContentReady,
+    messageHistoryReady,
     readWhenVisible,
     status,
     visible,
@@ -1446,7 +1439,7 @@ function OfficeWorkspace({
   }, [activeChannelId, isMobile, mobileNavigationOpen]);
 
   return (
-    <>
+    <OperatorAccessContext.Provider value={hasOperatorAccess}>
       <div
         className="office-body"
         data-mobile-view={mobileNavigationOpen ? "directory" : "conversation"}
@@ -1576,7 +1569,7 @@ function OfficeWorkspace({
         </button>
         <output aria-live="polite">{inboxStatusCopy(inboxStatus)}</output>
       </footer>
-    </>
+    </OperatorAccessContext.Provider>
   );
 }
 
@@ -1584,7 +1577,6 @@ function LiveOfficeChannel({
   visible,
   channel: officeChannel,
   identityId,
-  isOperator,
   onInboxRead,
   onReact,
   reactionEvents,
@@ -1593,7 +1585,6 @@ function LiveOfficeChannel({
   visible: boolean;
   channel: OfficeChannel;
   identityId: string;
-  isOperator: boolean;
   onInboxRead(channelId: string): void;
 }) {
   const channel = useChannel<{ text: string }>({
@@ -1611,7 +1602,6 @@ function LiveOfficeChannel({
       channel={officeChannel}
       hasPrevious={channel.hasPrevious}
       identityId={identityId}
-      isOperator={isOperator}
       isLoadingPrevious={channel.isLoadingPrevious}
       loadPrevious={channel.loadPrevious}
       messages={channel.messages}
@@ -1818,7 +1808,6 @@ function LivePortalWorkspace({
         <LiveOfficeChannel
           channel={channel}
           identityId={identityId}
-          isOperator={isOperator}
           key={channel.id}
           onInboxRead={markInboxRead}
           onReact={updateReaction}
@@ -1865,7 +1854,6 @@ function MockOfficeChannel({
   visible,
   channel,
   identityId,
-  isOperator,
   latestActivityAt,
   onContentVisible,
   onReact,
@@ -1877,7 +1865,6 @@ function MockOfficeChannel({
   visible: boolean;
   channel: OfficeChannel;
   identityId: string;
-  isOperator: boolean;
   latestActivityAt: number;
   onContentVisible(channelId: string): void;
   officeDay: string;
@@ -1990,7 +1977,6 @@ function MockOfficeChannel({
       channel={channel}
       hasPrevious={hasPrevious}
       identityId={identityId}
-      isOperator={isOperator}
       isLoadingPrevious={isLoadingPrevious}
       loadPrevious={loadPrevious}
       messages={messages}
@@ -2085,14 +2071,18 @@ function MockPortalOffice(
           for (const event of events) {
             if (seenMockOfficeEventKeys.current.has(event.eventKey)) continue;
             seenMockOfficeEventKeys.current.add(event.eventKey);
-            if (event.type === "reaction.changed") {
-              setReactionEvents((current) =>
-                appendReactionEvent(current, event),
-              );
-            } else if (event.type === "message-removal.invalidated") {
-              void invalidateMessageRemovals(queryClient);
-            } else if (event.type === "report.invalidated") {
-              void invalidateHRReportQueue(queryClient);
+            switch (event.type) {
+              case "reaction.changed":
+                setReactionEvents((current) =>
+                  appendReactionEvent(current, event),
+                );
+                break;
+              case "message-removal.invalidated":
+                void invalidateMessageRemovals(queryClient);
+                break;
+              case "report.invalidated":
+                void invalidateHRReportQueue(queryClient);
+                break;
             }
           }
           setReactionStatus("ready");
@@ -2166,7 +2156,6 @@ function MockPortalOffice(
         <MockOfficeChannel
           channel={channel}
           identityId={identityId}
-          isOperator={isOperator}
           key={channel.id}
           latestActivityAt={
             inboxRowsByChannelId.get(channel.id)?.preview?.at ?? 0

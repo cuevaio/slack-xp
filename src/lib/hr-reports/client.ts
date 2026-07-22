@@ -7,9 +7,11 @@ import {
 } from "@tanstack/react-query";
 import {
   HR_REPORT_CATEGORIES,
+  HR_REPORT_STATES,
   type HRReportDismissalRequest,
   type HRReportDismissalResponse,
   type HRReportReviewItem,
+  type HRReportState,
   PROFILE_HR_REPORT_CATEGORIES,
 } from "@/lib/hr-reports/contract";
 
@@ -40,23 +42,33 @@ function isResolution(
   );
 }
 
+function isHRReportState(value: unknown): value is HRReportState {
+  return HR_REPORT_STATES.some((state) => state === value);
+}
+
+function hasConsistentResolution(report: Partial<HRReportReviewItem>): boolean {
+  switch (report.state) {
+    case "open":
+    case "removed":
+      return report.resolution === null;
+    case "dismissed":
+      return isResolution(report.resolution);
+    default:
+      return false;
+  }
+}
+
 function isHRReportReviewItem(value: unknown): value is HRReportReviewItem {
   if (typeof value !== "object" || value === null) return false;
   const report = value as Partial<HRReportReviewItem> & Record<string, unknown>;
-  const hasConsistentResolution =
-    (report.state === "open" && report.resolution === null) ||
-    (report.state === "dismissed" && isResolution(report.resolution)) ||
-    (report.state === "removed" && report.resolution === null);
   const common =
     typeof report.reportId === "string" &&
     typeof report.reporterId === "string" &&
     typeof report.href === "string" &&
-    (report.state === "open" ||
-      report.state === "dismissed" ||
-      report.state === "removed") &&
+    isHRReportState(report.state) &&
     isIsoTimestamp(report.createdAt) &&
     isIsoTimestamp(report.updatedAt) &&
-    hasConsistentResolution;
+    hasConsistentResolution(report);
   if (!common) return false;
 
   if (report.subjectType === "message") {

@@ -4,6 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   type FormEvent,
   type KeyboardEvent,
+  useContext,
   useEffect,
   useId,
   useRef,
@@ -18,17 +19,15 @@ import {
   MESSAGE_REMOVAL_PRIVATE_REASON_MAX_LENGTH,
   type SerializedMessageRemovalProjection,
 } from "@/lib/message-removals/contract";
-import { useOperatorState } from "@/lib/operators/client";
+import { OperatorAccessContext } from "@/lib/operators/client";
 import type { SafePortalChatMessage } from "@/lib/portal/chat";
 
 export function MessageRemovalControls({
   message,
-  initialIsOperator,
 }: {
   message: SafePortalChatMessage;
-  initialIsOperator: boolean;
 }) {
-  const operatorState = useOperatorState(initialIsOperator);
+  const hasOperatorAccess = useContext(OperatorAccessContext);
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [privateReason, setPrivateReason] = useState("");
@@ -39,12 +38,13 @@ export function MessageRemovalControls({
   const instanceId = useId();
   const titleId = `message-removal-title-${instanceId}`;
   const descriptionId = `message-removal-description-${instanceId}`;
+  const reasonId = `message-removal-reason-${instanceId}`;
 
   useEffect(() => {
     if (dialogOpen) reasonRef.current?.focus();
   }, [dialogOpen]);
 
-  if (operatorState.isError || operatorState.data?.isOperator !== true) {
+  if (!hasOperatorAccess) {
     return null;
   }
 
@@ -91,10 +91,12 @@ export function MessageRemovalControls({
       });
       queryClient.setQueryData<SerializedMessageRemovalProjection[]>(
         messageRemovalQueryKey(message.channelId),
-        (current = []) =>
-          current.some(({ messageId }) => messageId === removal.messageId)
-            ? current
-            : [...current, removal],
+        (current = []) => {
+          const alreadyCached = current.some(
+            ({ messageId }) => messageId === removal.messageId,
+          );
+          return alreadyCached ? current : [...current, removal];
+        },
       );
       await invalidateHRReportQueue(queryClient);
       setDialogOpen(false);
@@ -136,11 +138,9 @@ export function MessageRemovalControls({
               does not retract or erase the payload from Portal storage, and an
               authorized direct Portal client may still retrieve it.
             </p>
-            <label htmlFor={`message-removal-reason-${instanceId}`}>
-              Private Operator reason
-            </label>
+            <label htmlFor={reasonId}>Private Operator reason</label>
             <textarea
-              id={`message-removal-reason-${instanceId}`}
+              id={reasonId}
               maxLength={MESSAGE_REMOVAL_PRIVATE_REASON_MAX_LENGTH}
               onChange={(event) => setPrivateReason(event.target.value)}
               ref={reasonRef}

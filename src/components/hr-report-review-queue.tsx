@@ -34,6 +34,36 @@ function reportPresentation(report: HRReportReviewItem) {
   };
 }
 
+function HRReportResolution({ report }: { report: HRReportReviewItem }) {
+  switch (report.state) {
+    case "dismissed":
+      return (
+        <div className="hr-review-resolution">
+          <small>
+            Dismissed by {report.resolution?.operatorId ?? "an Operator"}
+          </small>
+          {report.resolution?.privateNote ? (
+            <p>
+              <strong>Private note:</strong> {report.resolution.privateNote}
+            </p>
+          ) : null}
+        </div>
+      );
+    case "removed":
+      return (
+        <div className="hr-review-resolution">
+          <strong>Related message removed</strong>
+          <p>
+            This HR Report was resolved when an Operator created the Removed
+            Message projection.
+          </p>
+        </div>
+      );
+    default:
+      return null;
+  }
+}
+
 function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
   const queryClient = useQueryClient();
   const [privateNote, setPrivateNote] = useState("");
@@ -97,25 +127,8 @@ function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
             <p role="alert">Dismissal failed. Operator access was rechecked.</p>
           ) : null}
         </form>
-      ) : report.state === "dismissed" ? (
-        <div className="hr-review-resolution">
-          <small>
-            Dismissed by {report.resolution?.operatorId ?? "an Operator"}
-          </small>
-          {report.resolution?.privateNote ? (
-            <p>
-              <strong>Private note:</strong> {report.resolution.privateNote}
-            </p>
-          ) : null}
-        </div>
       ) : (
-        <div className="hr-review-resolution">
-          <strong>Related message removed</strong>
-          <p>
-            This HR Report was resolved when an Operator created the Removed
-            Message projection.
-          </p>
-        </div>
+        <HRReportResolution report={report} />
       )}
     </li>
   );

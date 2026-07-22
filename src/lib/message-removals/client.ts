@@ -14,7 +14,7 @@ export function messageRemovalQueryKey(officeChannelId: string) {
   return [MESSAGE_REMOVAL_QUERY_NAMESPACE, officeChannelId] as const;
 }
 
-function isRemoval(
+function isSerializedMessageRemovalProjection(
   value: unknown,
 ): value is SerializedMessageRemovalProjection {
   if (typeof value !== "object" || value === null) return false;
@@ -48,7 +48,7 @@ export async function fetchMessageRemovals(
     payload === null ||
     !("removals" in payload) ||
     !Array.isArray(payload.removals) ||
-    !payload.removals.every(isRemoval)
+    !payload.removals.every(isSerializedMessageRemovalProjection)
   ) {
     throw new Error("Removed Message projections are unavailable.");
   }
@@ -102,7 +102,7 @@ export async function submitMessageRemoval({
     typeof payload !== "object" ||
     payload === null ||
     !("removal" in payload) ||
-    !isRemoval(payload.removal)
+    !isSerializedMessageRemovalProjection(payload.removal)
   ) {
     throw new Error("The message could not be removed.");
   }

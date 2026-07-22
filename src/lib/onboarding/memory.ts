@@ -1,6 +1,7 @@
 import type {
   HRReportCategory,
   HRReportRepository,
+  HRReportResolution,
   HRReportReviewRecord,
   HRReportState,
   HRReportSubjectType,
@@ -117,6 +118,32 @@ type StoredMessageRemovalInvalidation = {
   publishedAt: Date | null;
 };
 
+function toMessageRemovalProjection(
+  removal: StoredMessageRemoval,
+): MessageRemovalProjection {
+  return {
+    removalId: removal.removalId,
+    officeDay: removal.officeDay,
+    officeChannelId: removal.officeChannelId,
+    messageId: removal.messageId,
+    removedAt: new Date(removal.removedAt),
+  };
+}
+
+function toHRReportResolution(
+  action: OperatorActionRecord | undefined,
+): HRReportResolution | null {
+  if (action?.targetType !== "hr_report") return null;
+  return {
+    actionId: action.actionId,
+    operatorId: action.operatorId,
+    action: action.action,
+    privateNote: action.privateNote,
+    actedAt: new Date(action.actedAt),
+    createdAt: new Date(action.createdAt),
+  };
+}
+
 type StoredHRReportNotification = {
   outboxId: string;
   reportId: string;
@@ -168,7 +195,7 @@ export function createInMemoryNeonRepository(
   >();
   const hrReports = new Map<string, StoredHRReport>();
   const hrReportNotifications = new Map<string, StoredHRReportNotification>();
-  const operatorActions = new Map<string, OperatorActionRecord>();
+  const operatorActionsByTarget = new Map<string, OperatorActionRecord>();
   const messageRemovals = new Map<string, StoredMessageRemoval>();
   const messageRemovalInvalidations = new Map<
     string,
@@ -377,7 +404,7 @@ export function createInMemoryNeonRepository(
         .sort(compareHRReportsForReview)
         .slice(0, limit)
         .flatMap((report): HRReportReviewRecord[] => {
-          const resolution = operatorActions.get(
+          const resolution = operatorActionsByTarget.get(
             `hr_report:${report.reportId}`,
           );
           const shared = {
@@ -386,18 +413,7 @@ export function createInMemoryNeonRepository(
             state: report.state,
             createdAt: new Date(report.createdAt),
             updatedAt: new Date(report.updatedAt),
-            resolution:
-              resolution?.targetType === "hr_report" &&
-              resolution.action === "dismissed"
-                ? {
-                    actionId: resolution.actionId,
-                    operatorId: resolution.operatorId,
-                    action: resolution.action,
-                    privateNote: resolution.privateNote,
-                    actedAt: new Date(resolution.actedAt),
-                    createdAt: new Date(resolution.createdAt),
-                  }
-                : null,
+            resolution: toHRReportResolution(resolution),
           };
           if (
             report.subjectType === "message" &&
@@ -443,7 +459,7 @@ export function createInMemoryNeonRepository(
       }
       report.state = "dismissed";
       report.updatedAt = new Date(input.actedAt);
-      operatorActions.set(`hr_report:${report.reportId}`, {
+      operatorActionsByTarget.set(`hr_report:${report.reportId}`, {
         actionId: input.actionId,
         operatorId: input.operatorId,
         targetType: "hr_report",
@@ -468,13 +484,7 @@ export function createInMemoryNeonRepository(
       if (existing) {
         return {
           status: "already-removed",
-          removal: {
-            removalId: existing.removalId,
-            officeDay: existing.officeDay,
-            officeChannelId: existing.officeChannelId,
-            messageId: existing.messageId,
-            removedAt: new Date(existing.removedAt),
-          },
+          removal: toMessageRemovalProjection(existing),
         };
       }
 
@@ -501,7 +511,7 @@ export function createInMemoryNeonRepository(
           report.updatedAt = new Date(removal.removedAt);
         }
       }
-      operatorActions.set(`message_removal:${removal.removalId}`, {
+      operatorActionsByTarget.set(`message_removal:${removal.removalId}`, {
         actionId: input.actionId,
         operatorId: removal.removedBy,
         targetType: "message_removal",
@@ -520,26 +530,14 @@ export function createInMemoryNeonRepository(
       });
       return {
         status: "removed",
-        removal: {
-          removalId: removal.removalId,
-          officeDay: removal.officeDay,
-          officeChannelId: removal.officeChannelId,
-          messageId: removal.messageId,
-          removedAt: new Date(removal.removedAt),
-        },
+        removal: toMessageRemovalProjection(removal),
       };
     },
 
     async listMessageRemovals(officeChannelId) {
       return [...messageRemovals.values()]
         .filter((removal) => removal.officeChannelId === officeChannelId)
-        .map((removal) => ({
-          removalId: removal.removalId,
-          officeDay: removal.officeDay,
-          officeChannelId: removal.officeChannelId,
-          messageId: removal.messageId,
-          removedAt: new Date(removal.removedAt),
-        }));
+        .map(toMessageRemovalProjection);
     },
 
     async pendingMessageRemovalInvalidations(limit) {
@@ -646,7 +644,7 @@ export function createInMemoryNeonRepository(
     },
 
     operatorActionRecords() {
-      return [...operatorActions.values()];
+      return [...operatorActionsByTarget.values()];
     },
 
     messageRemovalRecords() {
@@ -665,7 +663,7 @@ export function createInMemoryNeonRepository(
       systemEventOutbox.clear();
       hrReports.clear();
       hrReportNotifications.clear();
-      operatorActions.clear();
+      operatorActionsByTarget.clear();
       messageRemovals.clear();
       messageRemovalInvalidations.clear();
       projectionWrites = 0;

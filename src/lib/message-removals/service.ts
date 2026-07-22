@@ -1,6 +1,7 @@
 import type {
   CreateMessageRemovalResult,
   MessageRemovalInvalidationPublisher,
+  MessageRemovalProjection,
   MessageRemovalRepository,
   SerializedMessageRemovalProjection,
 } from "@/lib/message-removals/contract";
@@ -11,8 +12,14 @@ import {
 
 const MESSAGE_REMOVAL_OUTBOX_BATCH_SIZE = 50;
 
+type RemoveMessageResult = {
+  status: CreateMessageRemovalResult["status"];
+  removal: SerializedMessageRemovalProjection;
+  invalidationStatus: "sent" | "pending";
+};
+
 function serializeRemoval(
-  removal: CreateMessageRemovalResult["removal"],
+  removal: MessageRemovalProjection,
 ): SerializedMessageRemovalProjection {
   return { ...removal, removedAt: removal.removedAt.toISOString() };
 }
@@ -77,11 +84,7 @@ export async function removeMessage({
   messageId: string;
   privateReason: string;
   now?: Date;
-}): Promise<{
-  status: CreateMessageRemovalResult["status"];
-  removal: SerializedMessageRemovalProjection;
-  invalidationStatus: "sent" | "pending";
-}> {
+}): Promise<RemoveMessageResult> {
   const result = await repository.createMessageRemoval({
     removalId: crypto.randomUUID(),
     actionId: crypto.randomUUID(),
@@ -92,18 +95,16 @@ export async function removeMessage({
     privateReason,
     removedAt: now,
   });
+  let invalidationStatus: RemoveMessageResult["invalidationStatus"];
   try {
     await flushMessageRemovalInvalidations({ repository, publisher });
-    return {
-      status: result.status,
-      removal: serializeRemoval(result.removal),
-      invalidationStatus: "sent",
-    };
+    invalidationStatus = "sent";
   } catch {
-    return {
-      status: result.status,
-      removal: serializeRemoval(result.removal),
-      invalidationStatus: "pending",
-    };
+    invalidationStatus = "pending";
   }
+  return {
+    status: result.status,
+    removal: serializeRemoval(result.removal),
+    invalidationStatus,
+  };
 }

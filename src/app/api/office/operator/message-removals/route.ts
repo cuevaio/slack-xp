@@ -38,10 +38,8 @@ export async function handleOperatorMessageRemovalRequest(
     );
   }
   const payload: unknown = await request.json().catch(() => null);
-  const input = parseMessageRemovalRequest(
-    payload,
-    officeDay(dependencies.now),
-  );
+  const currentOfficeDay = officeDay(dependencies.now);
+  const input = parseMessageRemovalRequest(payload, currentOfficeDay);
   if (!input) {
     return Response.json(
       { error: "invalid_message_removal" },
@@ -52,7 +50,7 @@ export async function handleOperatorMessageRemovalRequest(
     repository: dependencies.repository,
     publisher: dependencies.publisher,
     operatorId: dependencies.requesterId,
-    officeDay: officeDay(dependencies.now),
+    officeDay: currentOfficeDay,
     now: dependencies.now,
     ...input,
   });

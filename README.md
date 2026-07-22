@@ -50,6 +50,37 @@ start when `SERVICE_MODE=mock` is explicit. Missing production credentials are
 allowed through the build so the deployed application can fail closed with the
 Installation Incomplete screen.
 
+## Neon and New Employee Setup
+
+Create a Neon Postgres database, put its pooled connection string in
+`DATABASE_URL`, and apply committed migrations explicitly before starting a
+live deployment:
+
+```bash
+bun run db:migrate
+```
+
+This command is the only migration execution path. Portal Messenger never runs
+migrations during `bun run dev`, application startup, or `bun run build`.
+
+The initial Drizzle migration creates two focused tables. `clerk_profiles`
+projects the current Clerk name and picture under the stable Clerk user ID and
+can later tombstone deleted profiles without retaining public attributes.
+`new_hire_onboarding` owns the stable assigned job title and the confirmation,
+conduct-acceptance, and Clock In timestamps. Neither table stores Portal
+messages or message bodies.
+
+First-time New Hires enter a three-step New Employee Setup Wizard. Profile
+changes are applied to Clerk first and then projected to Neon. The absurd job
+title is selected deterministically from the Clerk user ID and inserted once,
+so refreshes and concurrent requests cannot reroll it. Clock In uses the same
+single onboarding row and preserves its first completion timestamp across
+retries. Completed New Hires go directly to the current Office Day; incomplete
+New Hires resume from the first missing timestamp.
+
+Mock mode provides isolated first-time and returning fixtures and exercises the
+same validation and persistence contract without Clerk or Neon credentials.
+
 ## Clerk Authentication
 
 In live mode, Clerk's hosted Account Portal owns sign-in. Configure the desired
@@ -109,6 +140,12 @@ bunx playwright install chromium
 - `src/lib/adapters/` owns Portal-shaped and Neon-shaped boundaries. It cannot
   determine or override the authenticated identity. Mock data is deterministic
   and cannot be selected in production.
+- `src/lib/db/` contains the Drizzle schema and Neon HTTP client boundary.
+  `src/lib/onboarding/` owns deterministic assignment, onboarding state, and
+  the live and mock persistence implementations.
+- `/api/office/onboarding` authenticates every mutation, updates Clerk before a
+  profile projection, and rejects Clock In until required onboarding state is
+  durable.
 - Browser-facing configuration uses only publishable `NEXT_PUBLIC_*` keys.
   Secret values remain server-only.
 

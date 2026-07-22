@@ -47,6 +47,18 @@ export default function SetupPage() {
               whitespace-separated list of exact Clerk user IDs. This value is
               server-only.
             </p>
+            <h2>Apply the Neon schema</h2>
+            <p>
+              With <code>DATABASE_URL</code> available in the command
+              environment, run <code>bun run db:migrate</code> once for each
+              Neon environment before deploying. Migrations are never run by
+              application startup, development startup, or the Next.js build.
+            </p>
+            <p>
+              The migration creates Clerk profile projections and resumable New
+              Hire onboarding records only. Portal remains the authority for
+              messages and conversation state.
+            </p>
             <Link className="classic-button" href="/office">
               Recheck installation
             </Link>

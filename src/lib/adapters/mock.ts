@@ -1,4 +1,5 @@
 import type { ServiceAdapters } from "@/lib/adapters/types";
+import { createInMemoryOnboardingRepository } from "@/lib/onboarding/memory";
 
 const MOCK_CHANNELS = [
   { id: "mock-day:general", name: "General", unreadCount: 0 },
@@ -6,12 +7,41 @@ const MOCK_CHANNELS = [
   { id: "mock-day:tech-support", name: "Technical Support", unreadCount: 1 },
 ] as const;
 
-const MOCK_NEW_HIRE_USER_IDS: ReadonlySet<string> = new Set([
-  "user_mock_new_hire",
-  "user_mock_operator",
-]);
+const mockRepositoryKey = Symbol.for(
+  "portal-messenger.mock-onboarding-repository",
+);
+
+type MockGlobal = typeof globalThis & {
+  [mockRepositoryKey]?: ReturnType<typeof createInMemoryOnboardingRepository>;
+};
+
+function getMockRepository() {
+  const mockGlobal = globalThis as MockGlobal;
+  mockGlobal[mockRepositoryKey] ??= createInMemoryOnboardingRepository();
+  return mockGlobal[mockRepositoryKey];
+}
+
+export function resetMockOnboarding(): void {
+  getMockRepository().reset();
+}
+
+export async function seedCompletedMockOnboarding(profile: {
+  clerkUserId: string;
+  firstName: string;
+  lastName: string;
+  displayName: string;
+  imageUrl: string | null;
+  sourceVersion: number;
+}): Promise<void> {
+  const repository = getMockRepository();
+  await repository.enterNewHire(profile);
+  await repository.confirmProfile(profile);
+  await repository.acceptConduct(profile.clerkUserId);
+  await repository.clockIn(profile.clerkUserId);
+}
 
 export function createMockAdapters(): ServiceAdapters {
+  const neon = getMockRepository();
   return {
     kind: "mock",
     portal: {
@@ -19,18 +49,6 @@ export function createMockAdapters(): ServiceAdapters {
         return MOCK_CHANNELS;
       },
     },
-    neon: {
-      async getNewHire(clerkUserId) {
-        if (!MOCK_NEW_HIRE_USER_IDS.has(clerkUserId)) {
-          return null;
-        }
-
-        return {
-          clerkUserId,
-          jobTitle: "Senior Synergy Installation Specialist",
-          onboardingComplete: true,
-        };
-      },
-    },
+    neon,
   };
 }

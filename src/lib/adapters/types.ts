@@ -4,19 +4,13 @@ export type PortalChannel = {
   unreadCount: number;
 };
 
-export type NewHireRecord = {
-  clerkUserId: string;
-  jobTitle: string;
-  onboardingComplete: boolean;
-};
+import type { OnboardingRepository } from "@/lib/onboarding/types";
 
 export type PortalAdapter = {
   listChannels(): Promise<readonly PortalChannel[]>;
 };
 
-export type NeonAdapter = {
-  getNewHire(clerkUserId: string): Promise<NewHireRecord | null>;
-};
+export type NeonAdapter = OnboardingRepository;
 
 export type ServiceAdapters = {
   kind: "mock" | "live";

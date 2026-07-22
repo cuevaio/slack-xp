@@ -1,15 +1,17 @@
 import type { ServiceAdapters } from "@/lib/adapters";
 import type { AuthenticatedNewHire } from "@/lib/auth/types";
+import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 
 export async function OfficeFoundation({
   adapters,
   identity,
+  onboarding,
 }: {
   adapters: ServiceAdapters;
   identity: AuthenticatedNewHire;
+  onboarding: OnboardingSnapshot;
 }) {
   const channels = await adapters.portal.listChannels();
-  const newHire = await adapters.neon.getNewHire(identity.id);
 
   return (
     <main className="office-shell">
@@ -24,8 +26,8 @@ export async function OfficeFoundation({
         <div className="office-body">
           <aside className="channel-panel" aria-label="Office Channels">
             <p className="eyebrow">Shared Public Office</p>
-            <h1>Welcome, {identity.fullName}</h1>
-            {newHire ? <p className="job-title">{newHire.jobTitle}</p> : null}
+            <h1>Welcome, {onboarding.displayName}</h1>
+            <p className="job-title">{onboarding.jobTitle}</p>
             {identity.isOperator ? (
               <p className="operator-badge">Operator access</p>
             ) : null}

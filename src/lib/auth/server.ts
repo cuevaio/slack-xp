@@ -45,8 +45,11 @@ export async function authenticateOfficeRequest(
   return {
     id: user.id,
     sessionId: session.sessionId,
+    firstName: user.firstName ?? clerkDisplayName(user),
+    lastName: user.lastName ?? "",
     fullName: clerkDisplayName(user),
     imageUrl: user.imageUrl || null,
+    sourceVersion: user.updatedAt,
     isOperator: isOperatorUserId(user.id),
     authentication: "clerk",
   };

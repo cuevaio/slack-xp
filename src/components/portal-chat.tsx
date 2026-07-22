@@ -36,7 +36,6 @@ import {
 import { fetchProfileAttributions } from "@/lib/profiles/client";
 import type { ProfileAttribution } from "@/lib/profiles/types";
 
-type ChatConnectionStatus = ChannelStatus;
 type PortalPresence = DetailedPresence | AggregatePresence;
 
 type PortalOfficeBaseProps = {
@@ -68,7 +67,7 @@ type ChatSurfaceProps = {
   identityId: string;
   displayName: string;
   messages: readonly unknown[];
-  status: ChatConnectionStatus;
+  status: ChannelStatus;
   presence?: PortalPresence;
   typingUserIds: readonly string[];
   onTyping(): void;
@@ -100,9 +99,20 @@ type MockHistoryPage = {
 };
 
 type ProfileResolution = {
-  key: string;
   status: "loading" | "ready" | "error";
   profiles: readonly ProfileAttribution[];
+};
+
+type ProfileResolutionState = ProfileResolution & {
+  requestKey: string;
+};
+
+type LiveActivityProps = {
+  active: boolean;
+  channel: OfficeChannel;
+  presence?: PortalPresence;
+  status: ChannelStatus;
+  typingUserIds: readonly string[];
 };
 
 function sendButtonCopy(isSending: boolean, hasError: boolean): string {
@@ -177,49 +187,113 @@ function parseMockHistoryPage(value: unknown): MockHistoryPage | null {
 function useResolvedNewHireProfiles(
   profileIds: readonly string[],
   enabled: boolean,
-): Omit<ProfileResolution, "key"> {
-  const key = JSON.stringify(enabled ? profileIds : []);
-  const [resolution, setResolution] = useState<ProfileResolution>({
-    key: "[]",
+): ProfileResolution {
+  const requestKey = JSON.stringify(enabled ? profileIds : []);
+  const [resolution, setResolution] = useState<ProfileResolutionState>({
+    requestKey: "[]",
     status: "ready",
     profiles: [],
   });
 
   useEffect(() => {
-    const requestedIds = JSON.parse(key) as string[];
+    const requestedIds = JSON.parse(requestKey) as string[];
     if (requestedIds.length === 0) {
-      setResolution({ key, status: "ready", profiles: [] });
+      setResolution({ requestKey, status: "ready", profiles: [] });
       return;
     }
 
     const controller = new AbortController();
-    setResolution({ key, status: "loading", profiles: [] });
+    setResolution({ requestKey, status: "loading", profiles: [] });
     void fetchProfileAttributions(requestedIds, (input, init) =>
       fetch(input, { ...init, signal: controller.signal }),
     )
       .then((profiles) => {
         if (!controller.signal.aborted) {
-          setResolution({ key, status: "ready", profiles });
+          setResolution({ requestKey, status: "ready", profiles });
         }
       })
       .catch(() => {
         if (!controller.signal.aborted) {
-          setResolution({ key, status: "error", profiles: [] });
+          setResolution({ requestKey, status: "error", profiles: [] });
         }
       });
 
     return () => controller.abort();
-  }, [key]);
+  }, [requestKey]);
 
-  return resolution.key === key
+  return resolution.requestKey === requestKey
     ? resolution
     : { status: "loading", profiles: [] };
 }
 
 function typingCopy(names: readonly string[]): string {
-  if (names.length === 1) return `${names[0]} is typing…`;
-  if (names.length === 2) return `${names[0]} and ${names[1]} are typing…`;
+  if (names.length === 1) {
+    return `${names[0]} is typing…`;
+  }
+  if (names.length === 2) {
+    return `${names[0]} and ${names[1]} are typing…`;
+  }
   return `${names[0]}, ${names[1]}, and ${names.length - 2} others are typing…`;
+}
+
+function DetailedPresenceContent({
+  channel,
+  detailedPresence,
+  presentIds,
+  profileIds,
+  profilesById,
+  resolutionStatus,
+}: {
+  channel: OfficeChannel;
+  detailedPresence: DetailedPresence | undefined;
+  presentIds: readonly string[];
+  profileIds: readonly string[];
+  profilesById: ReadonlyMap<string, ProfileAttribution>;
+  resolutionStatus: ProfileResolution["status"];
+}) {
+  if (!detailedPresence) {
+    return <span>Loading current presence…</span>;
+  }
+
+  if (resolutionStatus === "loading") {
+    return (
+      <span aria-live="polite">
+        Resolving {profileIds.length.toLocaleString()} New Hire Profile
+        {profileIds.length === 1 ? "" : "s"}…
+      </span>
+    );
+  }
+
+  if (resolutionStatus === "error") {
+    return (
+      <span role="alert">
+        New Hire Profiles are unavailable. The detailed roster is hidden.
+      </span>
+    );
+  }
+
+  if (presentIds.length === 0) {
+    return <span>No New Hires are currently present.</span>;
+  }
+
+  return (
+    <ul aria-label={`${channel.name} current New Hires`}>
+      {presentIds.map((userId) => {
+        const profile = profilesById.get(userId);
+        return (
+          <li data-new-hire-id={userId} key={userId}>
+            <span className="new-hire-presence-dot" aria-hidden="true" />
+            <span>
+              <strong>{profile?.displayName ?? "New Hire"}</strong>
+              {profile?.status === "unavailable" ? (
+                <small>Profile unavailable</small>
+              ) : null}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 function LiveActivity({
@@ -228,13 +302,7 @@ function LiveActivity({
   presence,
   status,
   typingUserIds,
-}: {
-  active: boolean;
-  channel: OfficeChannel;
-  presence?: PortalPresence;
-  status: ChatConnectionStatus;
-  typingUserIds: readonly string[];
-}) {
+}: LiveActivityProps) {
   const detailedPresence =
     channel.mode === "standard" && presence?.kind === "detailed"
       ? presence
@@ -288,37 +356,14 @@ function LiveActivity({
         <strong>New Hires present</strong>
         <span>{presentIds.length.toLocaleString()} connected</span>
       </div>
-      {!detailedPresence ? (
-        <span>Loading current presence…</span>
-      ) : resolution.status === "loading" ? (
-        <span aria-live="polite">
-          Resolving {profileIds.length.toLocaleString()} New Hire Profile
-          {profileIds.length === 1 ? "" : "s"}…
-        </span>
-      ) : resolution.status === "error" ? (
-        <span role="alert">
-          New Hire Profiles are unavailable. The detailed roster is hidden.
-        </span>
-      ) : presentIds.length === 0 ? (
-        <span>No New Hires are currently present.</span>
-      ) : (
-        <ul aria-label={`${channel.name} current New Hires`}>
-          {presentIds.map((userId) => {
-            const profile = profilesById.get(userId);
-            return (
-              <li data-new-hire-id={userId} key={userId}>
-                <span className="new-hire-presence-dot" aria-hidden="true" />
-                <span>
-                  <strong>{profile?.displayName ?? "New Hire"}</strong>
-                  {profile?.status === "unavailable" ? (
-                    <small>Profile unavailable</small>
-                  ) : null}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+      <DetailedPresenceContent
+        channel={channel}
+        detailedPresence={detailedPresence}
+        presentIds={presentIds}
+        profileIds={profileIds}
+        profilesById={profilesById}
+        resolutionStatus={resolution.status}
+      />
       <output className="typing-indicator" aria-live="polite">
         {typingNames.length > 0 ? typingCopy(typingNames) : ""}
       </output>
@@ -806,7 +851,7 @@ function MockOfficeChannel({
   displayName: string;
 }) {
   const [messages, setMessages] = useState<unknown[]>([]);
-  const [status, setStatus] = useState<ChatConnectionStatus>("connecting");
+  const [status, setStatus] = useState<ChannelStatus>("connecting");
   const [hasPrevious, setHasPrevious] = useState(false);
   const [isLoadingPrevious, setIsLoadingPrevious] = useState(false);
 

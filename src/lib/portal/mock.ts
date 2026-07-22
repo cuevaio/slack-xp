@@ -17,6 +17,25 @@ const TYPING_EXPIRY_MS = 5_000;
 
 type MockChannelMode = "standard" | "broadcast";
 
+type MockConnectionState = {
+  channelId: string;
+  userId: string;
+  mode: MockChannelMode;
+  active: boolean;
+  wantsReconnect: boolean;
+};
+
+type MockPresenceEvent = {
+  id: string;
+  action: "join" | "leave";
+  at: number;
+};
+
+type MockTypingActivity = {
+  sentAt: number;
+  expiresAt: number;
+};
+
 export type MockPortalConnection = {
   presence(): DetailedPresence | AggregatePresence | undefined;
   typing(): readonly string[];
@@ -69,24 +88,9 @@ export function createMockPortalAdapter({
     Map<string, PortalMembershipInput["claims"]>
   >();
   const messages = new Map<string, PortalChatMessage[]>();
-  const connections = new Map<
-    string,
-    {
-      channelId: string;
-      userId: string;
-      mode: MockChannelMode;
-      active: boolean;
-      wantsReconnect: boolean;
-    }
-  >();
-  const recentPresence = new Map<
-    string,
-    Array<{ id: string; action: "join" | "leave"; at: number }>
-  >();
-  const typing = new Map<
-    string,
-    Map<string, { sentAt: number; expiresAt: number }>
-  >();
+  const connections = new Map<string, MockConnectionState>();
+  const recentPresence = new Map<string, MockPresenceEvent[]>();
+  const typing = new Map<string, Map<string, MockTypingActivity>>();
   let online = true;
   let rejectNextSend = false;
   let tokenSequence = 0;
@@ -108,22 +112,31 @@ export function createMockPortalAdapter({
     recentPresence.set(channelId, recent.slice(-20));
   }
 
-  function activeConnections(channelId: string) {
-    return [...connections.values()].filter(
-      (connection) => connection.channelId === channelId && connection.active,
-    );
-  }
-
   function activeUserIds(channelId: string): string[] {
-    return [
-      ...new Set(
-        activeConnections(channelId).map((connection) => connection.userId),
-      ),
-    ];
+    const userIds = new Set<string>();
+    for (const connection of connections.values()) {
+      if (connection.channelId === channelId && connection.active) {
+        userIds.add(connection.userId);
+      }
+    }
+    return [...userIds];
   }
 
   function clearTyping(channelId: string, userId: string): void {
     typing.get(channelId)?.delete(userId);
+  }
+
+  function deactivateConnection(
+    connection: MockConnectionState,
+    wantsReconnect: boolean,
+  ): void {
+    if (!connection.active) {
+      return;
+    }
+    connection.active = false;
+    connection.wantsReconnect = wantsReconnect;
+    clearTyping(connection.channelId, connection.userId);
+    recordPresence(connection.channelId, connection.userId, "leave");
   }
 
   function currentTyping(channelId: string, ownUserId: string): string[] {
@@ -255,7 +268,7 @@ export function createMockPortalAdapter({
       if (connections.has(clientId)) {
         throw new TypeError("A controlled Portal client ID must be unique.");
       }
-      const connection = {
+      const connection: MockConnectionState = {
         channelId,
         userId,
         mode,
@@ -289,12 +302,7 @@ export function createMockPortalAdapter({
           typing.set(channelId, channelTyping);
         },
         disconnect() {
-          if (connection.active) {
-            connection.active = false;
-            connection.wantsReconnect = false;
-            clearTyping(channelId, userId);
-            recordPresence(channelId, userId, "leave");
-          }
+          deactivateConnection(connection, false);
         },
         reconnect() {
           requireOnline();
@@ -318,12 +326,7 @@ export function createMockPortalAdapter({
     setOnline(nextOnline) {
       if (online && !nextOnline) {
         for (const connection of connections.values()) {
-          if (connection.active) {
-            connection.active = false;
-            connection.wantsReconnect = true;
-            clearTyping(connection.channelId, connection.userId);
-            recordPresence(connection.channelId, connection.userId, "leave");
-          }
+          deactivateConnection(connection, true);
         }
       }
       online = nextOnline;

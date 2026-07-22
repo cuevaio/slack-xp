@@ -6,13 +6,19 @@ type ProfileFetcher = (
 ) => Promise<Response>;
 
 function isProfileAttribution(value: unknown): value is ProfileAttribution {
-  if (!value || typeof value !== "object") return false;
-  const profile = value as Partial<ProfileAttribution>;
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
   return (
-    typeof profile.clerkUserId === "string" &&
-    typeof profile.displayName === "string" &&
-    (profile.imageUrl === null || typeof profile.imageUrl === "string") &&
-    (profile.status === "current" || profile.status === "unavailable")
+    "clerkUserId" in value &&
+    typeof value.clerkUserId === "string" &&
+    "displayName" in value &&
+    typeof value.displayName === "string" &&
+    "imageUrl" in value &&
+    (value.imageUrl === null || typeof value.imageUrl === "string") &&
+    "status" in value &&
+    (value.status === "current" || value.status === "unavailable")
   );
 }
 
@@ -20,7 +26,9 @@ export async function fetchProfileAttributions(
   clerkUserIds: readonly string[],
   fetcher: ProfileFetcher = fetch,
 ): Promise<ProfileAttribution[]> {
-  if (clerkUserIds.length === 0) return [];
+  if (clerkUserIds.length === 0) {
+    return [];
+  }
 
   const response = await fetcher("/api/office/profiles", {
     method: "POST",

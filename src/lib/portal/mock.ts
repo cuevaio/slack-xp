@@ -66,6 +66,11 @@ export type MockPortalAdapter = PortalAuthority & {
     senderId: string;
     content: unknown;
   }): Promise<PortalChatMessage>;
+  inbox(
+    userId: string,
+    channelIds: readonly string[],
+  ): readonly MockPortalInboxEntry[];
+  markInboxRead(userId: string, channelId: string): void;
   membershipCount(channelId: string): number;
   connect(input: {
     clientId: string;
@@ -76,6 +81,16 @@ export type MockPortalAdapter = PortalAuthority & {
   failNextSend(): void;
   setOnline(online: boolean): void;
   reset(): void;
+};
+
+export type MockPortalInboxEntry = {
+  channelId: string;
+  unread: number;
+  latest: {
+    text: string;
+    senderId: string;
+    at: number;
+  } | null;
 };
 
 export function createMockPortalAdapter({
@@ -91,6 +106,7 @@ export function createMockPortalAdapter({
   const connections = new Map<string, MockConnectionState>();
   const recentPresence = new Map<string, MockPresenceEvent[]>();
   const typing = new Map<string, Map<string, MockTypingActivity>>();
+  const inboxWatermarks = new Map<string, Map<string, number>>();
   let online = true;
   let rejectNextSend = false;
   let tokenSequence = 0;
@@ -176,12 +192,30 @@ export function createMockPortalAdapter({
     };
   }
 
+  function setInboxWatermark(
+    userId: string,
+    channelId: string,
+    messageCount: number,
+  ): void {
+    const userWatermarks = inboxWatermarks.get(userId) ?? new Map();
+    userWatermarks.set(channelId, messageCount);
+    inboxWatermarks.set(userId, userWatermarks);
+  }
+
   return {
     async ensureMembership({ channelId, userId, claims }) {
       requireOnline();
       const channelMembers = members.get(channelId) ?? new Map();
+      const isNewMember = !channelMembers.has(userId);
       channelMembers.set(userId, claims);
       members.set(channelId, channelMembers);
+      if (isNewMember) {
+        setInboxWatermark(
+          userId,
+          channelId,
+          messages.get(channelId)?.length ?? 0,
+        );
+      }
     },
 
     async mintToken({ channelIds, userId }: PortalTokenInput) {
@@ -248,7 +282,40 @@ export function createMockPortalAdapter({
       const channelMessages = messages.get(channelId) ?? [];
       channelMessages.push(message);
       messages.set(channelId, channelMessages);
+      setInboxWatermark(senderId, channelId, channelMessages.length);
       return message;
+    },
+
+    inbox(userId, channelIds) {
+      requireOnline();
+      const userWatermarks = inboxWatermarks.get(userId) ?? new Map();
+      return channelIds.map((channelId) => {
+        const channelMessages = messages.get(channelId) ?? [];
+        const latest = channelMessages.at(-1);
+        return {
+          channelId,
+          unread: Math.max(
+            0,
+            channelMessages.length - (userWatermarks.get(channelId) ?? 0),
+          ),
+          latest: latest
+            ? {
+                text: latest.content.text,
+                senderId: latest.sender.id,
+                at: latest.timestamp,
+              }
+            : null,
+        };
+      });
+    },
+
+    markInboxRead(userId, channelId) {
+      requireOnline();
+      setInboxWatermark(
+        userId,
+        channelId,
+        messages.get(channelId)?.length ?? 0,
+      );
     },
 
     membershipCount(channelId) {
@@ -338,6 +405,7 @@ export function createMockPortalAdapter({
       connections.clear();
       recentPresence.clear();
       typing.clear();
+      inboxWatermarks.clear();
       online = true;
       rejectNextSend = false;
       tokenSequence = 0;

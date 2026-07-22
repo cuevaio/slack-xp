@@ -256,6 +256,8 @@ a {
 .classic-button:focus-visible,
 .channel-panel a:focus-visible,
 .channel-panel button:focus-visible,
+.mobile-directory-trigger:focus-visible,
+.office-taskbar button:focus-visible,
 .observer-desktop button:focus-visible,
 .observer-desktop a:focus-visible,
 .observer-mobile a:focus-visible {
@@ -1089,10 +1091,19 @@ a {
   margin-top: 2rem;
 }
 
+.inbox-status {
+  display: block;
+  margin-top: 0.8rem;
+  color: #4e5969;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.65rem;
+  font-weight: 700;
+}
+
 .channel-panel nav button {
   display: flex;
   width: 100%;
-  min-height: 42px;
+  min-height: 62px;
   align-items: center;
   justify-content: space-between;
   padding: 0.5rem 0.65rem;
@@ -1113,12 +1124,25 @@ a {
 
 .channel-button > .channel-button-copy {
   display: grid;
+  min-width: 0;
   gap: 0.1rem;
 }
 
 .channel-button small {
   font-size: 0.68rem;
   opacity: 0.72;
+}
+
+.channel-preview {
+  overflow: hidden;
+  max-width: 220px;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.channel-preview-sender {
+  font-weight: 800;
 }
 
 .channel-panel nav b {
@@ -1135,6 +1159,39 @@ a {
 .conversation-panel {
   background: var(--paper);
   min-width: 0;
+}
+
+.mobile-directory-trigger {
+  display: none;
+}
+
+.office-taskbar {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.7rem;
+  padding: 3px 8px;
+  border-top: 2px outset #eee;
+  background: var(--silver);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.66rem;
+}
+
+.office-taskbar button {
+  min-height: 28px;
+  padding: 0.25rem 0.7rem;
+  border: 2px inset #eee;
+  background: #efede6;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+}
+
+.office-taskbar output {
+  color: #4e5969;
+  font-weight: 700;
 }
 
 .conversation-heading {
@@ -1808,10 +1865,12 @@ button.classic-button {
   }
 
   .office-body {
-    grid-template-columns: 1fr;
+    display: block;
+    min-height: calc(100svh - 52px);
   }
 
   .channel-panel {
+    min-height: calc(100svh - 52px);
     padding: 0.85rem 1rem;
   }
 
@@ -1822,19 +1881,37 @@ button.classic-button {
   }
 
   .channel-panel nav {
-    grid-auto-columns: minmax(130px, 1fr);
-    grid-auto-flow: column;
-    margin-top: 0;
-    overflow-x: auto;
+    margin-top: 1rem;
   }
 
-  .channel-panel form {
+  .office-body[data-mobile-view="directory"] .conversation-panel,
+  .office-body[data-mobile-view="conversation"] .channel-panel {
+    display: none;
+  }
+
+  .mobile-directory-trigger {
+    display: block;
+    width: 100%;
+    min-height: 42px;
+    padding: 0.55rem 0.8rem;
+    border: 0;
+    border-bottom: 1px solid #888;
+    background: #dbe7fb;
+    color: #173b75;
+    cursor: pointer;
+    font:
+      800 0.75rem var(--font-geist-mono),
+      monospace;
+    text-align: left;
+  }
+
+  .office-taskbar {
     display: none;
   }
 
   .general-chat {
-    height: calc(100svh - 153px);
-    min-height: 520px;
+    height: calc(100svh - 94px);
+    min-height: 480px;
   }
 
   .chat-scroll-region {

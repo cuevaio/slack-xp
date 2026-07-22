@@ -153,6 +153,52 @@ describe("Portal control-plane boundary", () => {
 });
 
 describe("controlled Portal adapter", () => {
+  test("reconciles authoritative per-New-Hire inbox state across reconnects", async () => {
+    const portal = createMockPortalAdapter({
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+    const channelId = "urgent:2026-07-22";
+    for (const [userId, username] of [
+      ["user_reader", "Reader"],
+      ["user_writer", "Writer"],
+    ] as const) {
+      await portal.ensureMembership({
+        channelId,
+        userId,
+        claims: { username, avatar: null },
+      });
+    }
+
+    await portal.sendMessage({
+      channelId,
+      senderId: "user_writer",
+      content: { text: "The printer has entered negotiations." },
+    });
+
+    expect(portal.inbox("user_reader", [channelId])).toEqual([
+      expect.objectContaining({
+        channelId,
+        unread: 1,
+        latest: {
+          text: "The printer has entered negotiations.",
+          senderId: "user_writer",
+          at: 1_784_721_600_000,
+        },
+      }),
+    ]);
+    expect(portal.inbox("user_writer", [channelId])[0]?.unread).toBe(0);
+
+    portal.setOnline(false);
+    expect(() => portal.inbox("user_reader", [channelId])).toThrow(
+      "temporarily unavailable",
+    );
+    portal.setOnline(true);
+    expect(portal.inbox("user_reader", [channelId])[0]?.unread).toBe(1);
+
+    portal.markInboxRead("user_reader", channelId);
+    expect(portal.inbox("user_reader", [channelId])[0]?.unread).toBe(0);
+  });
+
   test("keeps visible and event memberships idempotent", async () => {
     const portal = createMockPortalAdapter({
       now: () => new Date("2026-07-22T12:00:00.000Z"),

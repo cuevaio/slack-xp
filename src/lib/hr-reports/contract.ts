@@ -31,7 +31,7 @@ export type ProfileHRReportCategory =
 export type HRReportCategory =
   | MessageHRReportCategory
   | ProfileHRReportCategory;
-export type HRReportState = "open" | "dismissed";
+export type HRReportState = "open" | "dismissed" | "actioned";
 export type HRReportSubjectType = "message" | "profile";
 export type HRReportOperatorAction = "dismissed";
 export type HRReportDismissalStatus = "dismissed" | "already-dismissed";
@@ -71,6 +71,7 @@ type CreateHRReportBase = {
   reporterId: string;
   reportId: string;
   createdAt: Date;
+  subjectNewHireId?: string | null;
 };
 
 export type CreateMessageHRReportInput = CreateHRReportBase &
@@ -114,6 +115,7 @@ type HRReportReviewRecordBase = {
   createdAt: Date;
   updatedAt: Date;
   resolution: HRReportResolution | null;
+  subjectNewHireId: string | null;
 };
 
 export type HRReportReviewRecord =
@@ -166,16 +168,20 @@ export type DismissHRReportResult = {
   report: HRReportReviewRecord;
 };
 
-export type OperatorActionRecord = {
+type OperatorActionRecordBase = {
   actionId: string;
   operatorId: string;
-  targetType: "hr_report";
   targetId: string;
-  action: HRReportOperatorAction;
   privateNote: string | null;
   actedAt: Date;
   createdAt: Date;
 };
+
+export type OperatorActionRecord = OperatorActionRecordBase &
+  (
+    | { targetType: "hr_report"; action: HRReportOperatorAction }
+    | { targetType: "new_hire"; action: "sent_home" }
+  );
 
 type HRReportNotificationBase = {
   notificationId: string;

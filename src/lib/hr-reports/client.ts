@@ -45,12 +45,17 @@ function isHRReportReviewItem(value: unknown): value is HRReportReviewItem {
   const report = value as Partial<HRReportReviewItem> & Record<string, unknown>;
   const hasConsistentResolution =
     (report.state === "open" && report.resolution === null) ||
-    (report.state === "dismissed" && isResolution(report.resolution));
+    (report.state === "dismissed" && isResolution(report.resolution)) ||
+    (report.state === "actioned" && report.resolution === null);
   const common =
     typeof report.reportId === "string" &&
     typeof report.reporterId === "string" &&
     typeof report.href === "string" &&
-    (report.state === "open" || report.state === "dismissed") &&
+    (report.state === "open" ||
+      report.state === "dismissed" ||
+      report.state === "actioned") &&
+    (report.subjectNewHireId === null ||
+      typeof report.subjectNewHireId === "string") &&
     isIsoTimestamp(report.createdAt) &&
     isIsoTimestamp(report.updatedAt) &&
     hasConsistentResolution;

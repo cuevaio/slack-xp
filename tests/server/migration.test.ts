@@ -8,6 +8,7 @@ import {
   buildOperatorActionInsertQuery,
   buildProfileOutboxQuery,
   buildProfileProjectionQuery,
+  buildSendHomeQueries,
 } from "@/lib/onboarding/neon";
 
 describe("initial Neon migration", () => {
@@ -202,5 +203,41 @@ describe("initial Neon migration", () => {
     expect(audit.sql).toContain("insert into");
     expect(audit.sql).toContain("select");
     expect(audit.sql).toContain("on conflict");
+  });
+
+  test("adds expiring Send Home actions with transactional private audit and effect outbox", async () => {
+    const migration = await Bun.file(
+      new URL("../../drizzle/0006_send_home_new_hire.sql", import.meta.url),
+    ).text();
+    expect(migration).toContain('CREATE TABLE "employment_actions"');
+    expect(migration).toContain('CREATE TABLE "employment_effect_outbox"');
+    expect(migration).toContain(
+      '"expires_at" timestamp with time zone NOT NULL',
+    );
+    expect(migration).toContain("employment_actions_one_send_home_per_day_idx");
+    expect(migration).toContain("public_event_published_at");
+    expect(migration).toContain("invalidation_published_at");
+    expect(migration).toContain("bans_applied_at");
+
+    const queries = buildSendHomeQueries(
+      createDatabase("postgresql://test:test@localhost/test"),
+      {
+        actionId: "action-send-home-sql",
+        requestId: "request-send-home-sql",
+        operatorId: "user-operator",
+        targetNewHireId: "user-target",
+        officeDay: "2026-07-22",
+        expiresAt: new Date("2026-07-23T00:00:00.000Z"),
+        reportId: "report-send-home-sql",
+        privateReason: "Private audit reason.",
+        actedAt: new Date("2026-07-22T20:00:00.000Z"),
+      },
+    );
+    expect(queries).toHaveLength(4);
+    expect(queries[0].toSQL().sql).toContain("on conflict do nothing");
+    expect(queries[1].toSQL().sql).toContain("operator_actions");
+    expect(queries[2].toSQL().sql).toContain("employment_effect_outbox");
+    expect(queries[3].toSQL().sql).toContain('"state" =');
+    expect(queries[2].toSQL().sql).not.toContain("Private audit reason");
   });
 });

@@ -410,6 +410,71 @@ test("New Hire Profile HR Reports follow current canonical profile context", asy
     .filter({ hasText: "Abusive or explicit picture" });
   await expect(queueItem).toContainText("Profile HR Report");
   await expect(queueItem).toContainText("open");
+  await expect(
+    queueItem.getByRole("button", { name: "Send Home" }),
+  ).toBeVisible();
+
+  await expect(
+    reviewProfile.getByRole("button", { name: "Send Home" }),
+  ).toBeVisible();
+  await reviewProfile
+    .getByRole("button", { name: "Close New Hire Profile" })
+    .click();
+  await queueItem.getByRole("button", { name: "Send Home" }).click();
+  const sendHomeDialog = page.getByRole("dialog", {
+    name: "Send Home for this Office Day?",
+  });
+  const confirmSendHome = sendHomeDialog.getByRole("button", {
+    name: "Confirm Send Home",
+  });
+  await expect(confirmSendHome).toBeDisabled();
+  const privateReason = "Reviewed privately; access should end for today.";
+  await sendHomeDialog
+    .getByLabel("Private Operator reason (required)")
+    .fill(privateReason);
+  const sendHomeRequest = page.waitForRequest(
+    (request) =>
+      new URL(request.url()).pathname === "/api/office/operator/send-home" &&
+      request.method() === "POST",
+  );
+  await confirmSendHome.click();
+  const submittedSendHome = await sendHomeRequest;
+  expect(submittedSendHome.postDataJSON()).toMatchObject({
+    targetNewHireId: "user_mock_returning_new_hire",
+    privateReason,
+  });
+  await expect(queueItem).toContainText("actioned");
+
+  const allHands = await page.request.get(
+    "/api/office/portal/mock-chat?channel=all-hands",
+  );
+  const serializedPublicHistory = JSON.stringify(await allHands.json());
+  expect(serializedPublicHistory).toContain("employment.sent-home");
+  expect(serializedPublicHistory).toContain("user_mock_operator");
+  expect(serializedPublicHistory).not.toContain(privateReason);
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+  await expect(
+    page.getByRole("heading", {
+      name: "You were sent home for this Office Day",
+    }),
+  ).toBeVisible();
+  expect((await page.request.post("/api/office/portal/token")).status()).toBe(
+    403,
+  );
+
+  const nextOfficeDay = new Date(Date.now() + 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  await page.setExtraHTTPHeaders({
+    "x-portal-mock-now": `${nextOfficeDay}T00:00:00.000Z`,
+  });
+  await page.reload();
+  await expect(page.getByText("Welcome, Current Profile")).toBeVisible();
 });
 
 test("general chat confirms, reconnects, validates text, and recovers from Portal faults", async ({

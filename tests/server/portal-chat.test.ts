@@ -27,6 +27,11 @@ const completedNewHire = {
   completedAt: "2026-07-22T00:02:00.000Z",
   step: "complete" as const,
 };
+const eligibleEmploymentAccess = {
+  eligible: true as const,
+  reason: null,
+  until: null,
+};
 
 describe("Portal control-plane boundary", () => {
   test("publishes profile invalidations as the reserved sender without profile values", async () => {
@@ -113,6 +118,7 @@ describe("Portal control-plane boundary", () => {
         imageUrl: null,
       },
       onboarding: completedNewHire,
+      employmentAccess: eligibleEmploymentAccess,
       portal,
       now: new Date("2026-07-22T12:00:00.000Z"),
     });
@@ -172,6 +178,7 @@ describe("Portal control-plane boundary", () => {
           completedAt: null,
           step: "clock-in",
         },
+        employmentAccess: eligibleEmploymentAccess,
         portal,
         now: new Date("2026-07-22T12:00:00.000Z"),
       }),
@@ -182,6 +189,28 @@ describe("Portal control-plane boundary", () => {
         officeEventChannelId(new Date("2026-07-22T12:00:00.000Z")),
       ),
     ).toBe(0);
+  });
+
+  test("denies membership repair and token minting while Sent Home", async () => {
+    const portal = createMockPortalAdapter();
+    await expect(
+      issueOfficePortalSession({
+        identity: {
+          id: completedNewHire.clerkUserId,
+          fullName: completedNewHire.displayName,
+          imageUrl: null,
+        },
+        onboarding: completedNewHire,
+        employmentAccess: {
+          eligible: false,
+          reason: "sent-home",
+          until: new Date("2026-07-23T00:00:00.000Z"),
+        },
+        portal,
+        now: new Date("2026-07-22T12:00:00.000Z"),
+      }),
+    ).rejects.toBeInstanceOf(PortalEligibilityError);
+    expect(portal.membershipCount("general:2026-07-22")).toBe(0);
   });
 
   test("reports upstream failures without copying secrets or response details", async () => {
@@ -275,6 +304,7 @@ describe("controlled Portal adapter", () => {
         imageUrl: null,
       },
       onboarding: completedNewHire,
+      employmentAccess: eligibleEmploymentAccess,
       portal,
       now: new Date("2026-07-22T12:00:00.000Z"),
     });
@@ -285,6 +315,7 @@ describe("controlled Portal adapter", () => {
         imageUrl: null,
       },
       onboarding: completedNewHire,
+      employmentAccess: eligibleEmploymentAccess,
       portal,
       now: new Date("2026-07-22T12:00:00.000Z"),
     });

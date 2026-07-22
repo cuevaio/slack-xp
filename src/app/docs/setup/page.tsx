@@ -100,16 +100,17 @@ export default function SetupPage() {
               profile invalidation outbox, resumable New Hire onboarding
               records, Office Days, the scripted System Event outbox, and
               body-free HR Report workflow and notification-outbox records. The
-              latest migration also adds one-way report dismissal fields and
-              uniquely constrained private Operator audit records containing
-              stable actor and target IDs, timestamps, action, and an optional
-              private note. Message and New Hire Profile reports use separate
-              open-report uniqueness rules. Profile reports retain only stable
-              Clerk IDs, so later edits or deletion do not copy or preserve
-              public names and pictures. The outboxes contain stable references,
-              attempt state, and delivery timestamps, never profile values,
-              message bodies, previews, or presence. Portal remains the
-              authority for messages and conversation state.
+              later migrations add one-way report dismissal plus expiring Send
+              Home employment actions and uniquely constrained private Operator
+              audit records. Send Home stores stable actor and target IDs, the
+              UTC Office Day and next-midnight expiry, a required private
+              reason, and retry-safe effect delivery state. Message and New Hire
+              Profile reports use separate open-report uniqueness rules. Profile
+              reports retain only stable Clerk IDs, so later edits or deletion
+              do not copy or preserve public names and pictures. The outboxes
+              contain stable references, attempt state, and delivery timestamps,
+              never profile values, message bodies, previews, or presence.
+              Portal remains the authority for messages and conversation state.
             </p>
             <h2>Prove production readiness</h2>
             <p>

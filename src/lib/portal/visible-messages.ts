@@ -1,3 +1,5 @@
+import type { SafePublicSendHomeSystemEventMessage } from "@/lib/employment/contract";
+import { parsePublicSendHomeSystemEventMessage } from "@/lib/employment/domain";
 import {
   parseScriptedSystemEventMessage,
   type SafeScriptedSystemEventMessage,
@@ -9,18 +11,28 @@ import {
 
 export type SafeOfficeChannelMessage =
   | SafePortalChatMessage
-  | SafeScriptedSystemEventMessage;
+  | SafeScriptedSystemEventMessage
+  | SafePublicSendHomeSystemEventMessage;
 
 export function isScriptedSystemEventMessage(
   message: SafeOfficeChannelMessage,
 ): message is SafeScriptedSystemEventMessage {
-  return "eventKey" in message;
+  return "character" in message;
+}
+
+export function isPublicSendHomeSystemEventMessage(
+  message: SafeOfficeChannelMessage,
+): message is SafePublicSendHomeSystemEventMessage {
+  return "operatorId" in message;
 }
 
 export function isNewHireMessage(
   message: SafeOfficeChannelMessage,
 ): message is SafePortalChatMessage {
-  return !isScriptedSystemEventMessage(message);
+  return (
+    !isScriptedSystemEventMessage(message) &&
+    !isPublicSendHomeSystemEventMessage(message)
+  );
 }
 
 export function parseOfficeChannelMessages(
@@ -43,6 +55,18 @@ export function parseOfficeChannelMessages(
       if (!seenSystemEventKeys.has(systemEvent.eventKey)) {
         seenSystemEventKeys.add(systemEvent.eventKey);
         messages.push(systemEvent);
+      }
+      continue;
+    }
+
+    const sendHomeEvent = parsePublicSendHomeSystemEventMessage(
+      rawMessage,
+      channelId,
+    );
+    if (sendHomeEvent) {
+      if (!seenSystemEventKeys.has(sendHomeEvent.eventKey)) {
+        seenSystemEventKeys.add(sendHomeEvent.eventKey);
+        messages.push(sendHomeEvent);
       }
       continue;
     }

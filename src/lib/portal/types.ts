@@ -1,3 +1,4 @@
+import type { PublicSendHomeSystemEvent } from "@/lib/employment/contract";
 import type { ScriptedSystemEvent } from "@/lib/office-days/contract";
 import type { ReactionOfficeEvent } from "@/lib/office-events/contract";
 import type { PortalChatContent } from "@/lib/portal/chat";
@@ -61,9 +62,17 @@ export type PortalScriptedSystemEventMessage = {
   status: "sent";
 };
 
+export type PortalEmploymentSystemEventMessage = Omit<
+  PortalScriptedSystemEventMessage,
+  "content"
+> & {
+  content: PublicSendHomeSystemEvent;
+};
+
 export type PortalVisibleMessage =
   | PortalChatMessage
-  | PortalScriptedSystemEventMessage;
+  | PortalScriptedSystemEventMessage
+  | PortalEmploymentSystemEventMessage;
 
 export type PortalOfficeEventMessage = {
   id: string;

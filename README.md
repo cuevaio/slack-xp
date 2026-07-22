@@ -120,6 +120,27 @@ optional private note of at most 1,000 characters. Retry and concurrent calls
 return the existing dismissed state without reopening the report or adding a
 second audit.
 
+The Send Home migration adds `employment_actions` and
+`employment_effect_outbox`, extends the private Operator audit to employment
+actions, and lets a related open HR Report transition to `actioned` in the same
+transaction. A Send Home record contains stable actor and target IDs, the UTC
+Office Day, its exact next-midnight expiry, an optional stable report reference,
+and a retry key. The required private reason exists only in the Operator audit;
+the effect outbox contains delivery timestamps but no reason or HR Report
+category. One unique action per New Hire and Office Day plus the retry key makes
+repeated requests converge on the same audit and effects.
+
+After commit, Portal Messenger publishes a privacy-safe all-hands System Event
+and a stable `employment.invalidated` hint, then applies an expiring Portal ban
+to all five visible daily Office Channels and the hidden daily Office Event
+channel. The System Event identifies the Operator, target, action, and expiry,
+but never includes the private reason, report category, reporter, or report ID.
+Portal closes active connections; page entry, token refresh, token minting,
+membership repair, and reconnect also consult canonical Neon employment state
+before granting access. At the next UTC Office Day the Neon action is expired
+and the new channel IDs are eligible without treating stale prior-day Portal
+bans as current policy. Send Home does not create or reverse a Termination.
+
 In the Clerk Dashboard, create a webhook endpoint for
 `https://<deployment>/api/webhooks/clerk`, subscribe it to `user.created` and
 `user.updated`, and put that endpoint's signing secret in
@@ -537,6 +558,9 @@ the server clock.
 - `src/lib/hr-reports/` owns approved categories, stable-reference validation,
   open-report idempotency, safe review links, one-way dismissal, private audit
   records, canonical review-query caching, and notification outbox draining.
+- `src/lib/employment/` owns UTC Send Home policy, required private-reason
+  validation, idempotent employment actions, effect-outbox draining, and the
+  privacy-safe public System Event contract.
 - `/api/office/onboarding` authenticates every mutation, updates Clerk before a
   profile projection, and rejects Clock In until required onboarding state is
   durable.
@@ -550,10 +574,17 @@ the server clock.
   the complete environment allowlist for every read and dismissal. It returns
   private review state only to Operators and atomically records each dismissal
   once with its optional private note.
+- `/api/office/operator/send-home` rechecks Operator access, requires a private
+  reason and retry-stable request ID, records the expiring action and relevant
+  report transition transactionally, and drains the controlled Portal effects.
+- `/api/office/employment` returns only the authenticated New Hire's canonical
+  access decision so an invalidation can move an active client to a truthful
+  access-ended state without exposing the private audit.
 - `/api/office/portal/token` authenticates the New Hire, checks completed
-  onboarding, idempotently grants all five daily Office Channel memberships and
-  the hidden Office Event membership, and mints a 15-minute Portal user token
-  scoped to all six. It never returns the Portal secret.
+  onboarding and employment eligibility before Portal membership work,
+  idempotently grants all five daily Office Channel memberships and the hidden
+  Office Event membership, and mints a 15-minute Portal user token scoped to all
+  six. It never returns the Portal secret.
 - `/api/office/portal/mock-chat` is a guarded non-production adapter route used
   only by the credential-free UI and browser tests. Live chat goes directly
   through the published Portal SDK and hosted APIs.

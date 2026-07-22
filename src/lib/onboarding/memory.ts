@@ -1,3 +1,10 @@
+import {
+  EmploymentActionError,
+  type EmploymentActionRecord,
+  type EmploymentRepository,
+  type PendingEmploymentEffect,
+} from "@/lib/employment/contract";
+import { employmentAccessDecision } from "@/lib/employment/domain";
 import type {
   HRReportCategory,
   HRReportRepository,
@@ -96,6 +103,7 @@ type StoredHRReport = {
   state: HRReportState;
   createdAt: Date;
   updatedAt: Date;
+  subjectNewHireId: string | null;
 };
 
 type StoredHRReportNotification = {
@@ -117,6 +125,7 @@ function compareHRReportsForReview(
 }
 
 export type InMemoryNeonRepository = OnboardingRepository &
+  EmploymentRepository &
   ProfileRepository &
   OfficeDayRepository &
   HRReportRepository & {
@@ -127,6 +136,7 @@ export type InMemoryNeonRepository = OnboardingRepository &
     hrReportRecords(): readonly StoredHRReport[];
     hrReportNotificationRecords(): readonly StoredHRReportNotification[];
     operatorActionRecords(): readonly OperatorActionRecord[];
+    employmentActionRecords(): readonly EmploymentActionRecord[];
     reset(): void;
   };
 
@@ -147,6 +157,10 @@ export function createInMemoryNeonRepository(
   const hrReports = new Map<string, StoredHRReport>();
   const hrReportNotifications = new Map<string, StoredHRReportNotification>();
   const operatorActionsByReportId = new Map<string, OperatorActionRecord>();
+  const employmentActions = new Map<string, EmploymentActionRecord>();
+  const employmentActionsByRequestId = new Map<string, string>();
+  const employmentEffects = new Map<string, PendingEmploymentEffect>();
+  const employmentOperatorActions = new Map<string, OperatorActionRecord>();
   let projectionWrites = 0;
   let profileBatchReads = 0;
 
@@ -285,6 +299,9 @@ export function createInMemoryNeonRepository(
           input.subjectType === "message" ? input.officeChannelId : null,
         messageId: input.subjectType === "message" ? input.messageId : null,
         profileId: input.subjectType === "profile" ? input.profileId : null,
+        subjectNewHireId:
+          input.subjectNewHireId ??
+          (input.subjectType === "profile" ? input.profileId : null),
         category: input.category,
         state: "open",
         createdAt: input.createdAt,
@@ -347,7 +364,9 @@ export function createInMemoryNeonRepository(
         .sort(compareHRReportsForReview)
         .slice(0, limit)
         .flatMap((report): HRReportReviewRecord[] => {
-          const resolution = operatorActionsByReportId.get(report.reportId);
+          const operatorAction = operatorActionsByReportId.get(report.reportId);
+          const resolution =
+            operatorAction?.action === "dismissed" ? operatorAction : null;
           const shared = {
             reportId: report.reportId,
             reporterId: report.reporterId,
@@ -364,6 +383,7 @@ export function createInMemoryNeonRepository(
                   createdAt: new Date(resolution.createdAt),
                 }
               : null,
+            subjectNewHireId: report.subjectNewHireId,
           };
           if (
             report.subjectType === "message" &&
@@ -423,6 +443,145 @@ export function createInMemoryNeonRepository(
         ({ reportId }) => reportId === input.reportId,
       );
       return current ? { status: "dismissed", report: current } : null;
+    },
+
+    async recordSendHome(input) {
+      const target = profiles.get(input.targetNewHireId);
+      if (!target) {
+        throw new EmploymentActionError(
+          "new_hire_not_found",
+          "The requested New Hire does not exist.",
+        );
+      }
+      const requestActionId = employmentActionsByRequestId.get(input.requestId);
+      if (requestActionId) {
+        const requestAction = employmentActions.get(requestActionId);
+        if (
+          !requestAction ||
+          requestAction.targetNewHireId !== input.targetNewHireId
+        ) {
+          throw new EmploymentActionError(
+            "request_conflict",
+            "The Send Home request was already used for another target.",
+          );
+        }
+        return { status: "existing", action: { ...requestAction } };
+      }
+
+      const report = input.reportId ? hrReports.get(input.reportId) : undefined;
+      const reportTarget = report
+        ? (report.subjectNewHireId ??
+          (report.subjectType === "profile" ? report.profileId : null))
+        : null;
+      if (
+        input.reportId &&
+        (!report || reportTarget !== input.targetNewHireId)
+      ) {
+        throw new EmploymentActionError(
+          "report_not_found",
+          "The HR Report does not match the requested New Hire.",
+        );
+      }
+
+      const existing = [...employmentActions.values()].find(
+        (action) =>
+          action.targetNewHireId === input.targetNewHireId &&
+          action.officeDay === input.officeDay,
+      );
+      if (existing) {
+        employmentActionsByRequestId.set(input.requestId, existing.actionId);
+        if (report?.state === "open") {
+          report.state = "actioned";
+          report.updatedAt = new Date(input.actedAt);
+        }
+        return { status: "existing", action: { ...existing } };
+      }
+
+      const action: EmploymentActionRecord = {
+        actionId: input.actionId,
+        requestId: input.requestId,
+        action: "sent_home",
+        operatorId: input.operatorId,
+        targetNewHireId: input.targetNewHireId,
+        officeDay: input.officeDay,
+        expiresAt: new Date(input.expiresAt),
+        reportId: input.reportId,
+        actedAt: new Date(input.actedAt),
+        createdAt: new Date(input.actedAt),
+      };
+      employmentActions.set(action.actionId, action);
+      employmentActionsByRequestId.set(action.requestId, action.actionId);
+      employmentEffects.set(action.actionId, {
+        ...action,
+        bansAppliedAt: null,
+        publicEventPublishedAt: null,
+        invalidationPublishedAt: null,
+      });
+      employmentOperatorActions.set(action.actionId, {
+        actionId: action.actionId,
+        operatorId: action.operatorId,
+        targetType: "new_hire",
+        targetId: action.targetNewHireId,
+        action: "sent_home",
+        privateNote: input.privateReason,
+        actedAt: new Date(action.actedAt),
+        createdAt: new Date(action.createdAt),
+      });
+      if (report?.state === "open") {
+        report.state = "actioned";
+        report.updatedAt = new Date(input.actedAt);
+      }
+      return { status: "created", action: { ...action } };
+    },
+
+    async getEmploymentAccess(newHireId, checkedAt) {
+      const active = [...employmentActions.values()]
+        .filter(
+          (action) =>
+            action.targetNewHireId === newHireId &&
+            action.expiresAt.getTime() > checkedAt.getTime(),
+        )
+        .sort(
+          (left, right) => right.expiresAt.getTime() - left.expiresAt.getTime(),
+        )[0];
+      return employmentAccessDecision({
+        now: checkedAt,
+        sentHomeUntil: active?.expiresAt ?? null,
+        terminatedAt: null,
+        deletedAt: profiles.has(newHireId) ? null : checkedAt,
+      });
+    },
+
+    async pendingEmploymentEffects(limit) {
+      return [...employmentEffects.values()]
+        .filter(
+          (effect) =>
+            !effect.bansAppliedAt ||
+            !effect.publicEventPublishedAt ||
+            !effect.invalidationPublishedAt,
+        )
+        .slice(0, limit)
+        .map((effect) => ({ ...effect }));
+    },
+
+    async markEmploymentBansApplied(actionId, appliedAt) {
+      const effect = employmentEffects.get(actionId);
+      if (effect && !effect.bansAppliedAt)
+        effect.bansAppliedAt = new Date(appliedAt);
+    },
+
+    async markEmploymentPublicEventPublished(actionId, publishedAt) {
+      const effect = employmentEffects.get(actionId);
+      if (effect && !effect.publicEventPublishedAt) {
+        effect.publicEventPublishedAt = new Date(publishedAt);
+      }
+    },
+
+    async markEmploymentInvalidationPublished(actionId, publishedAt) {
+      const effect = employmentEffects.get(actionId);
+      if (effect && !effect.invalidationPublishedAt) {
+        effect.invalidationPublishedAt = new Date(publishedAt);
+      }
     },
 
     async enterNewHire(profile) {
@@ -501,7 +660,14 @@ export function createInMemoryNeonRepository(
     },
 
     operatorActionRecords() {
-      return [...operatorActionsByReportId.values()];
+      return [
+        ...operatorActionsByReportId.values(),
+        ...employmentOperatorActions.values(),
+      ];
+    },
+
+    employmentActionRecords() {
+      return [...employmentActions.values()];
     },
 
     reset() {
@@ -513,6 +679,10 @@ export function createInMemoryNeonRepository(
       hrReports.clear();
       hrReportNotifications.clear();
       operatorActionsByReportId.clear();
+      employmentActions.clear();
+      employmentActionsByRequestId.clear();
+      employmentEffects.clear();
+      employmentOperatorActions.clear();
       projectionWrites = 0;
       profileBatchReads = 0;
     },

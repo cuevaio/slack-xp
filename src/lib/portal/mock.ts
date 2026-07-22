@@ -4,6 +4,11 @@ import type {
   DetailedPresence,
 } from "@portalsdk/core";
 import type {
+  EmploymentInvalidationEvent,
+  EmploymentPortalAuthority,
+  PublicSendHomeSystemEvent,
+} from "@/lib/employment/contract";
+import type {
   HRReportInvalidationEvent,
   HRReportInvalidationPublisher,
   HRReportNotification,
@@ -27,6 +32,7 @@ import { isReservedPortalIdentity } from "@/lib/portal/presence";
 import type {
   PortalAuthority,
   PortalChatMessage,
+  PortalEmploymentSystemEventMessage,
   PortalMembershipInput,
   PortalOfficeEventMessage,
   PortalScriptedSystemEventMessage,
@@ -79,6 +85,7 @@ export class MockPortalUnavailableError extends Error {
 }
 
 export type MockPortalAdapter = PortalAuthority &
+  EmploymentPortalAuthority &
   ProfileInvalidationPublisher &
   HRReportInvalidationPublisher &
   ScriptedSystemEventPublisher &
@@ -118,6 +125,11 @@ export type MockPortalAdapter = PortalAuthority &
     ): () => void;
     unreadCount(channelId: string, userId: string): number;
     membershipCount(channelId: string): number;
+    activeBans(userId: string): readonly {
+      channelId: string;
+      expiresAt: string;
+    }[];
+    publicSendHomeEvents(): readonly PublicSendHomeSystemEvent[];
     connect(input: {
       clientId: string;
       channelId: string;
@@ -169,6 +181,8 @@ export function createMockPortalAdapter({
     string,
     Map<string, MockHRReportNotification>
   >();
+  const bans = new Map<string, Map<string, Date>>();
+  const sendHomeEvents = new Map<string, PublicSendHomeSystemEvent>();
   let online = true;
   let rejectNextSend = false;
   let tokenSequence = 0;
@@ -178,6 +192,16 @@ export function createMockPortalAdapter({
     if (!online) {
       throw new MockPortalUnavailableError();
     }
+  }
+
+  function isBanned(channelId: string, userId: string): boolean {
+    const expiresAt = bans.get(channelId)?.get(userId);
+    if (!expiresAt) return false;
+    if (expiresAt.getTime() <= now().getTime()) {
+      bans.get(channelId)?.delete(userId);
+      return false;
+    }
+    return true;
   }
 
   function recordPresence(
@@ -275,8 +299,28 @@ export function createMockPortalAdapter({
   }
 
   return {
+    async applySendHomeBans({ channelIds, newHireId, expiresAt }) {
+      requireOnline();
+      for (const channelId of channelIds) {
+        const channelBans = bans.get(channelId) ?? new Map();
+        channelBans.set(newHireId, new Date(expiresAt));
+        bans.set(channelId, channelBans);
+        for (const connection of connections.values()) {
+          if (
+            connection.channelId === channelId &&
+            connection.userId === newHireId
+          ) {
+            deactivateConnection(connection, false);
+          }
+        }
+      }
+    },
+
     async ensureMembership({ channelId, userId, claims }) {
       requireOnline();
+      if (isBanned(channelId, userId)) {
+        throw new MockPortalUnavailableError();
+      }
       const channelMembers = members.get(channelId) ?? new Map();
       const isNewMember = !channelMembers.has(userId);
       channelMembers.set(userId, claims);
@@ -297,7 +341,10 @@ export function createMockPortalAdapter({
       requireOnline();
       const hasAllMemberships =
         channelIds.length > 0 &&
-        channelIds.every((channelId) => members.get(channelId)?.has(userId));
+        channelIds.every(
+          (channelId) =>
+            members.get(channelId)?.has(userId) && !isBanned(channelId, userId),
+        );
       if (!hasAllMemberships) {
         throw new MockPortalUnavailableError();
       }
@@ -346,6 +393,54 @@ export function createMockPortalAdapter({
         content: event,
       });
       officeEvents.set(channelId, channelEvents);
+    },
+
+    async publishEmploymentInvalidation(event: EmploymentInvalidationEvent) {
+      requireOnline();
+      const channelId = officeEventChannelId(new Date(event.occurredAt));
+      const channelEvents = officeEvents.get(channelId) ?? [];
+      const message = {
+        id: `mock_office_event_${++messageSequence}`,
+        channelId,
+        sender: { id: OFFICE_EVENT_SENDERS.operations, anon: false as const },
+        timestamp: new Date(event.occurredAt).getTime(),
+        kind: "text" as const,
+        type: OFFICE_EVENT_MESSAGE_TYPE,
+        ephemeral: false as const,
+        retracted: false as const,
+        status: "sent" as const,
+        unread: false as const,
+        content: event,
+      };
+      channelEvents.push(message);
+      officeEvents.set(channelId, channelEvents);
+      for (const listener of officeEventListeners.get(channelId) ?? []) {
+        listener(message as unknown as PortalOfficeEventMessage);
+      }
+    },
+
+    async publishSendHomeSystemEvent(event: PublicSendHomeSystemEvent) {
+      requireOnline();
+      if (sendHomeEvents.has(event.eventKey)) return;
+      sendHomeEvents.set(event.eventKey, event);
+      const channelId = `all-hands:${event.officeDay}`;
+      const message: PortalEmploymentSystemEventMessage = {
+        id: `mock_system_event_${++messageSequence}`,
+        channelId,
+        sender: { id: OFFICE_EVENT_SENDERS.operations, anon: false },
+        timestamp: now().getTime(),
+        retracted: false,
+        ephemeral: false,
+        kind: "text",
+        type: "system.event",
+        content: event,
+        unread: false,
+        status: "sent",
+      };
+      const channelMessages = messages.get(channelId) ?? [];
+      channelMessages.push(message);
+      messages.set(channelId, channelMessages);
+      incrementUnread(channelId, message.sender.id);
     },
 
     async publishScriptedSystemEvent(entry) {
@@ -417,7 +512,8 @@ export function createMockPortalAdapter({
       }
       if (
         isReservedPortalIdentity(senderId) ||
-        !members.get(channelId)?.has(senderId)
+        !members.get(channelId)?.has(senderId) ||
+        isBanned(channelId, senderId)
       ) {
         throw new MockPortalUnavailableError();
       }
@@ -508,7 +604,8 @@ export function createMockPortalAdapter({
       requireOnline();
       if (
         !isOfficeEventChannelId(channelId) ||
-        !members.get(channelId)?.has(senderId)
+        !members.get(channelId)?.has(senderId) ||
+        isBanned(channelId, senderId)
       ) {
         throw new MockPortalUnavailableError();
       }
@@ -548,7 +645,7 @@ export function createMockPortalAdapter({
 
     subscribeOfficeEvents(channelId, userId, listener) {
       requireOnline();
-      if (!members.get(channelId)?.has(userId)) {
+      if (!members.get(channelId)?.has(userId) || isBanned(channelId, userId)) {
         throw new MockPortalUnavailableError();
       }
       const listeners = officeEventListeners.get(channelId) ?? new Set();
@@ -567,6 +664,23 @@ export function createMockPortalAdapter({
       return members.get(channelId)?.size ?? 0;
     },
 
+    activeBans(userId) {
+      const active: { channelId: string; expiresAt: string }[] = [];
+      for (const [channelId, channelBans] of bans) {
+        if (isBanned(channelId, userId)) {
+          const expiresAt = channelBans.get(userId);
+          if (expiresAt) {
+            active.push({ channelId, expiresAt: expiresAt.toISOString() });
+          }
+        }
+      }
+      return active;
+    },
+
+    publicSendHomeEvents() {
+      return [...sendHomeEvents.values()];
+    },
+
     connect({ clientId, channelId, userId, mode }) {
       requireOnline();
       if (isReservedPortalIdentity(userId)) {
@@ -574,7 +688,7 @@ export function createMockPortalAdapter({
           "Office Characters and reserved Portal identities cannot connect to New Hire presence.",
         );
       }
-      if (!members.get(channelId)?.has(userId)) {
+      if (!members.get(channelId)?.has(userId) || isBanned(channelId, userId)) {
         throw new MockPortalUnavailableError();
       }
       if (connections.has(clientId)) {
@@ -618,6 +732,10 @@ export function createMockPortalAdapter({
         },
         reconnect() {
           requireOnline();
+          if (isBanned(channelId, userId)) {
+            deactivateConnection(connection, false);
+            return;
+          }
           if (!connection.active) {
             connection.active = true;
             connection.wantsReconnect = true;
@@ -626,6 +744,7 @@ export function createMockPortalAdapter({
         },
         status() {
           if (connection.active && online) return "ready";
+          if (isBanned(channelId, userId)) return "blocked";
           return connection.wantsReconnect ? "reconnecting" : "idle";
         },
       };
@@ -660,6 +779,8 @@ export function createMockPortalAdapter({
       officeEventListeners.clear();
       unreadCounts.clear();
       hrReportNotifications.clear();
+      bans.clear();
+      sendHomeEvents.clear();
       online = true;
       rejectNextSend = false;
       tokenSequence = 0;

@@ -3,16 +3,20 @@ import {
   asc,
   desc,
   eq,
+  gt,
   inArray,
   isNotNull,
   isNull,
   lte,
+  or,
   sql,
 } from "drizzle-orm";
 import type { NeonAdapter } from "@/lib/adapters/types";
 import type { Database } from "@/lib/db/client";
 import {
   clerkProfiles,
+  employmentActions,
+  employmentEffectOutbox,
   hrReportNotificationOutbox,
   hrReports,
   newHireOnboarding,
@@ -21,6 +25,13 @@ import {
   profileInvalidationOutbox,
   scriptedSystemEventOutbox,
 } from "@/lib/db/schema";
+import {
+  EmploymentActionError,
+  type EmploymentActionRecord,
+  type PendingEmploymentEffect,
+  type RecordSendHomeInput,
+} from "@/lib/employment/contract";
+import { employmentAccessDecision } from "@/lib/employment/domain";
 import type {
   CreateHRReportInput,
   DismissHRReportInput,
@@ -220,6 +231,7 @@ function hrReportSubjectColumns(input: CreateHRReportInput) {
       officeChannelId: null,
       messageId: null,
       profileId: input.profileId,
+      subjectNewHireId: input.subjectNewHireId ?? input.profileId,
     };
   }
 
@@ -228,6 +240,7 @@ function hrReportSubjectColumns(input: CreateHRReportInput) {
     officeChannelId: input.officeChannelId,
     messageId: input.messageId,
     profileId: null,
+    subjectNewHireId: input.subjectNewHireId ?? null,
   };
 }
 
@@ -346,7 +359,84 @@ export function buildOperatorActionInsertQuery(
         operatorActions.targetId,
         operatorActions.action,
       ],
+      where: sql`${operatorActions.targetType} = 'hr_report' and ${operatorActions.action} = 'dismissed'`,
     });
+}
+
+export function buildSendHomeQueries(
+  database: Database,
+  input: RecordSendHomeInput,
+) {
+  const insertAction = database
+    .insert(employmentActions)
+    .values({
+      actionId: input.actionId,
+      requestId: input.requestId,
+      action: "sent_home",
+      operatorId: input.operatorId,
+      targetNewHireId: input.targetNewHireId,
+      officeDay: input.officeDay,
+      expiresAt: input.expiresAt,
+      reportId: input.reportId,
+      actedAt: input.actedAt,
+      createdAt: input.actedAt,
+    })
+    .onConflictDoNothing()
+    .returning({ actionId: employmentActions.actionId });
+  const insertAudit = database
+    .insert(operatorActions)
+    .select(
+      database
+        .select({
+          actionId: employmentActions.actionId,
+          operatorId: employmentActions.operatorId,
+          targetType: sql<string>`'new_hire'`.as("target_type"),
+          targetId: employmentActions.targetNewHireId,
+          action: sql<string>`'sent_home'`.as("action"),
+          privateNote: sql<string>`${input.privateReason}`.as("private_note"),
+          actedAt: employmentActions.actedAt,
+          createdAt: employmentActions.createdAt,
+        })
+        .from(employmentActions)
+        .where(eq(employmentActions.actionId, input.actionId)),
+    )
+    .onConflictDoNothing({ target: operatorActions.actionId });
+  const insertOutbox = database
+    .insert(employmentEffectOutbox)
+    .select(
+      database
+        .select({
+          actionId: employmentActions.actionId,
+          bansAppliedAt: sql<Date | null>`null`.as("bans_applied_at"),
+          publicEventPublishedAt: sql<Date | null>`null`.as(
+            "public_event_published_at",
+          ),
+          invalidationPublishedAt: sql<Date | null>`null`.as(
+            "invalidation_published_at",
+          ),
+          createdAt: employmentActions.createdAt,
+        })
+        .from(employmentActions)
+        .where(eq(employmentActions.actionId, input.actionId)),
+    )
+    .onConflictDoNothing({ target: employmentEffectOutbox.actionId });
+  const transitionReport = database
+    .update(hrReports)
+    .set({ state: "actioned", updatedAt: input.actedAt })
+    .where(
+      and(
+        eq(hrReports.reportId, input.reportId ?? ""),
+        eq(hrReports.state, "open"),
+        or(
+          eq(hrReports.subjectNewHireId, input.targetNewHireId),
+          and(
+            eq(hrReports.subjectType, "profile"),
+            eq(hrReports.profileId, input.targetNewHireId),
+          ),
+        ),
+      ),
+    );
+  return [insertAction, insertAudit, insertOutbox, transitionReport] as const;
 }
 
 async function selectHRReportReviewRows(
@@ -363,6 +453,7 @@ async function selectHRReportReviewRows(
       officeChannelId: hrReports.officeChannelId,
       messageId: hrReports.messageId,
       profileId: hrReports.profileId,
+      subjectNewHireId: hrReports.subjectNewHireId,
       category: hrReports.category,
       state: hrReports.state,
       createdAt: hrReports.createdAt,
@@ -398,7 +489,7 @@ type HRReportReviewRow = Awaited<
 function isHRReportReviewState(
   state: string,
 ): state is HRReportReviewRecord["state"] {
-  return state === "open" || state === "dismissed";
+  return state === "open" || state === "dismissed" || state === "actioned";
 }
 
 function toHRReportResolution(
@@ -441,6 +532,7 @@ function toHRReportReviewRecord(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     resolution: toHRReportResolution(row),
+    subjectNewHireId: row.subjectNewHireId,
   };
 
   if (
@@ -667,6 +759,192 @@ export function createNeonRepository(database: Database): NeonAdapter {
           and(
             eq(profileInvalidationOutbox.eventKey, outboxId),
             isNull(profileInvalidationOutbox.publishedAt),
+          ),
+        );
+    },
+    async recordSendHome(input) {
+      const [target] = await database
+        .select({ deletedAt: clerkProfiles.deletedAt })
+        .from(clerkProfiles)
+        .where(eq(clerkProfiles.clerkUserId, input.targetNewHireId))
+        .limit(1);
+      if (!target || target.deletedAt) {
+        throw new EmploymentActionError(
+          "new_hire_not_found",
+          "The requested New Hire does not exist.",
+        );
+      }
+
+      const [requestAction] = await database
+        .select({ targetNewHireId: employmentActions.targetNewHireId })
+        .from(employmentActions)
+        .where(eq(employmentActions.requestId, input.requestId))
+        .limit(1);
+      if (
+        requestAction &&
+        requestAction.targetNewHireId !== input.targetNewHireId
+      ) {
+        throw new EmploymentActionError(
+          "request_conflict",
+          "The Send Home request was already used for another target.",
+        );
+      }
+
+      if (input.reportId) {
+        const [report] = await database
+          .select({
+            subjectType: hrReports.subjectType,
+            profileId: hrReports.profileId,
+            subjectNewHireId: hrReports.subjectNewHireId,
+          })
+          .from(hrReports)
+          .where(eq(hrReports.reportId, input.reportId))
+          .limit(1);
+        const reportTarget =
+          report?.subjectNewHireId ??
+          (report?.subjectType === "profile" ? report.profileId : null);
+        if (!report || reportTarget !== input.targetNewHireId) {
+          throw new EmploymentActionError(
+            "report_not_found",
+            "The HR Report does not match the requested New Hire.",
+          );
+        }
+      }
+
+      const [createdRows] = await database.batch(
+        buildSendHomeQueries(database, input),
+      );
+      const [row] = await database
+        .select({
+          actionId: employmentActions.actionId,
+          requestId: employmentActions.requestId,
+          operatorId: employmentActions.operatorId,
+          targetNewHireId: employmentActions.targetNewHireId,
+          officeDay: employmentActions.officeDay,
+          expiresAt: employmentActions.expiresAt,
+          reportId: employmentActions.reportId,
+          actedAt: employmentActions.actedAt,
+          createdAt: employmentActions.createdAt,
+        })
+        .from(employmentActions)
+        .where(
+          and(
+            eq(employmentActions.action, "sent_home"),
+            eq(employmentActions.targetNewHireId, input.targetNewHireId),
+            eq(employmentActions.officeDay, input.officeDay),
+          ),
+        )
+        .limit(1);
+      if (!row) {
+        throw new EmploymentActionError(
+          "request_conflict",
+          "The Send Home request could not be resolved.",
+        );
+      }
+      const action: EmploymentActionRecord = {
+        ...row,
+        action: "sent_home",
+      };
+      return {
+        status: createdRows.length > 0 ? "created" : "existing",
+        action,
+      };
+    },
+    async getEmploymentAccess(newHireId, checkedAt) {
+      const [[profile], [active]] = await Promise.all([
+        database
+          .select({ deletedAt: clerkProfiles.deletedAt })
+          .from(clerkProfiles)
+          .where(eq(clerkProfiles.clerkUserId, newHireId))
+          .limit(1),
+        database
+          .select({ expiresAt: employmentActions.expiresAt })
+          .from(employmentActions)
+          .where(
+            and(
+              eq(employmentActions.action, "sent_home"),
+              eq(employmentActions.targetNewHireId, newHireId),
+              gt(employmentActions.expiresAt, checkedAt),
+            ),
+          )
+          .orderBy(desc(employmentActions.expiresAt))
+          .limit(1),
+      ]);
+      return employmentAccessDecision({
+        now: checkedAt,
+        sentHomeUntil: active?.expiresAt ?? null,
+        terminatedAt: null,
+        deletedAt: profile?.deletedAt ?? (profile ? null : checkedAt),
+      });
+    },
+    async pendingEmploymentEffects(limit) {
+      const rows = await database
+        .select({
+          actionId: employmentActions.actionId,
+          requestId: employmentActions.requestId,
+          operatorId: employmentActions.operatorId,
+          targetNewHireId: employmentActions.targetNewHireId,
+          officeDay: employmentActions.officeDay,
+          expiresAt: employmentActions.expiresAt,
+          reportId: employmentActions.reportId,
+          actedAt: employmentActions.actedAt,
+          createdAt: employmentActions.createdAt,
+          bansAppliedAt: employmentEffectOutbox.bansAppliedAt,
+          publicEventPublishedAt: employmentEffectOutbox.publicEventPublishedAt,
+          invalidationPublishedAt:
+            employmentEffectOutbox.invalidationPublishedAt,
+        })
+        .from(employmentEffectOutbox)
+        .innerJoin(
+          employmentActions,
+          eq(employmentEffectOutbox.actionId, employmentActions.actionId),
+        )
+        .where(
+          or(
+            isNull(employmentEffectOutbox.bansAppliedAt),
+            isNull(employmentEffectOutbox.publicEventPublishedAt),
+            isNull(employmentEffectOutbox.invalidationPublishedAt),
+          ),
+        )
+        .orderBy(asc(employmentEffectOutbox.createdAt))
+        .limit(limit);
+      return rows.map(
+        (row): PendingEmploymentEffect => ({
+          ...row,
+          action: "sent_home",
+        }),
+      );
+    },
+    async markEmploymentBansApplied(actionId, appliedAt) {
+      await database
+        .update(employmentEffectOutbox)
+        .set({ bansAppliedAt: appliedAt })
+        .where(
+          and(
+            eq(employmentEffectOutbox.actionId, actionId),
+            isNull(employmentEffectOutbox.bansAppliedAt),
+          ),
+        );
+    },
+    async markEmploymentPublicEventPublished(actionId, publishedAt) {
+      await database
+        .update(employmentEffectOutbox)
+        .set({ publicEventPublishedAt: publishedAt })
+        .where(
+          and(
+            eq(employmentEffectOutbox.actionId, actionId),
+            isNull(employmentEffectOutbox.publicEventPublishedAt),
+          ),
+        );
+    },
+    async markEmploymentInvalidationPublished(actionId, publishedAt) {
+      await database
+        .update(employmentEffectOutbox)
+        .set({ invalidationPublishedAt: publishedAt })
+        .where(
+          and(
+            eq(employmentEffectOutbox.actionId, actionId),
+            isNull(employmentEffectOutbox.invalidationPublishedAt),
           ),
         );
     },

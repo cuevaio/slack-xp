@@ -1,5 +1,6 @@
 import { headers } from "next/headers";
 import { connection } from "next/server";
+import { EmploymentAccessEnded } from "@/components/employment-access-ended";
 import { InstallationIncomplete } from "@/components/installation-incomplete";
 import { OfficeFoundation } from "@/components/office-foundation";
 import { OnboardingWizard } from "@/components/onboarding-wizard";
@@ -33,6 +34,14 @@ export default async function OfficePage() {
         isMock={adapters.kind === "mock"}
       />
     );
+  }
+
+  const employmentAccess = await adapters.neon.getEmploymentAccess(
+    identity.id,
+    now,
+  );
+  if (!employmentAccess.eligible) {
+    return <EmploymentAccessEnded access={employmentAccess} />;
   }
 
   return (

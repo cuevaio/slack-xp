@@ -43,6 +43,13 @@
       "when": 1784754850228,
       "tag": "0005_review_hr_reports_inline",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784757185406,
+      "tag": "0006_send_home_new_hire",
+      "breakpoints": true
     }
   ]
 }

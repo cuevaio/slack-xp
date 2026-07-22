@@ -23,19 +23,68 @@ export type EmployeeRecordResult = {
 };
 
 type FieldErrors = Partial<Record<"firstName" | "lastName" | "image", string>>;
+type EditorState = "idle" | "saving" | "awaiting" | "success" | "error";
+
+const EDITABLE_FIELDS = ["firstName", "lastName", "image"] as const;
+const EMPLOYEE_RECORD_UNAVAILABLE =
+  "Employee Record changes are temporarily unavailable.";
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object";
+}
+
+function isEditableRecord(value: unknown): value is EditableRecord {
+  if (!isObject(value)) {
+    return false;
+  }
+
+  return (
+    typeof value.firstName === "string" &&
+    typeof value.lastName === "string" &&
+    typeof value.displayName === "string" &&
+    (value.imageUrl === null || typeof value.imageUrl === "string")
+  );
+}
+
+function isOnboardingSnapshot(value: unknown): value is OnboardingSnapshot {
+  if (!isObject(value)) {
+    return false;
+  }
+
+  const hasValidStep =
+    value.step === "profile" ||
+    value.step === "conduct" ||
+    value.step === "clock-in" ||
+    value.step === "complete";
+  const hasValidTimestamps =
+    (value.profileConfirmedAt === null ||
+      typeof value.profileConfirmedAt === "string") &&
+    (value.conductAcceptedAt === null ||
+      typeof value.conductAcceptedAt === "string") &&
+    (value.completedAt === null || typeof value.completedAt === "string");
+
+  return (
+    typeof value.clerkUserId === "string" &&
+    typeof value.jobTitle === "string" &&
+    hasValidStep &&
+    hasValidTimestamps &&
+    isEditableRecord(value)
+  );
+}
 
 function isEmployeeRecordResult(value: unknown): value is EmployeeRecordResult {
-  if (!value || typeof value !== "object") return false;
-  const result = value as Partial<EmployeeRecordResult>;
-  const record = result.record as Partial<EditableRecord> | undefined;
+  if (!isObject(value)) {
+    return false;
+  }
+
+  const hasValidConvergence =
+    value.convergence === "awaiting_projection" ||
+    value.convergence === "projected";
+  const hasValidOnboarding =
+    value.onboarding === null || isOnboardingSnapshot(value.onboarding);
+
   return (
-    (result.convergence === "awaiting_projection" ||
-      result.convergence === "projected") &&
-    !!record &&
-    typeof record.firstName === "string" &&
-    typeof record.lastName === "string" &&
-    typeof record.displayName === "string" &&
-    (record.imageUrl === null || typeof record.imageUrl === "string")
+    hasValidConvergence && isEditableRecord(value.record) && hasValidOnboarding
   );
 }
 
@@ -44,36 +93,43 @@ function readFailure(value: unknown): {
   message: string;
   fieldErrors: FieldErrors;
 } {
-  if (!value || typeof value !== "object") {
+  if (!isObject(value)) {
     return {
       code: "unknown",
-      message: "Employee Record changes are temporarily unavailable.",
+      message: EMPLOYEE_RECORD_UNAVAILABLE,
       fieldErrors: {},
     };
   }
-  const failure = value as {
-    error?: unknown;
-    message?: unknown;
-    fieldErrors?: unknown;
-  };
-  const suppliedErrors =
-    failure.fieldErrors && typeof failure.fieldErrors === "object"
-      ? (failure.fieldErrors as Record<string, unknown>)
-      : {};
+
+  const suppliedErrors = isObject(value.fieldErrors) ? value.fieldErrors : {};
   const fieldErrors: FieldErrors = {};
-  for (const field of ["firstName", "lastName", "image"] as const) {
+  for (const field of EDITABLE_FIELDS) {
     if (typeof suppliedErrors[field] === "string") {
       fieldErrors[field] = suppliedErrors[field];
     }
   }
+
   return {
-    code: typeof failure.error === "string" ? failure.error : "unknown",
+    code: typeof value.error === "string" ? value.error : "unknown",
     message:
-      typeof failure.message === "string"
-        ? failure.message
-        : "Employee Record changes are temporarily unavailable.",
+      typeof value.message === "string"
+        ? value.message
+        : EMPLOYEE_RECORD_UNAVAILABLE,
     fieldErrors,
   };
+}
+
+function submitButtonLabel(state: EditorState): string {
+  switch (state) {
+    case "saving":
+      return "Saving with Clerk...";
+    case "error":
+      return "Retry Employee Record";
+    case "idle":
+    case "awaiting":
+    case "success":
+      return "Save Employee Record";
+  }
 }
 
 export function EmployeeRecordEditor({
@@ -90,9 +146,7 @@ export function EmployeeRecordEditor({
   advanceAfterSuccess?: boolean;
 }) {
   const [record, setRecord] = useState(initialRecord);
-  const [state, setState] = useState<
-    "idle" | "saving" | "awaiting" | "success" | "error"
-  >("idle");
+  const [state, setState] = useState<EditorState>("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const firstNameRef = useRef<HTMLInputElement>(null);
@@ -142,11 +196,13 @@ export function EmployeeRecordEditor({
           credentials: "include",
         });
         const payload: unknown = await response.json().catch(() => null);
-        if (response.ok && isEmployeeRecordResult(payload)) {
-          if (payload.convergence === "projected") {
-            announceProjected(payload);
-            return;
-          }
+        if (
+          response.ok &&
+          isEmployeeRecordResult(payload) &&
+          payload.convergence === "projected"
+        ) {
+          announceProjected(payload);
+          return;
         }
       } catch {
         // A later attempt may still observe the verified webhook or repair.
@@ -159,13 +215,14 @@ export function EmployeeRecordEditor({
   }
 
   function focusFirstError(errors: FieldErrors) {
-    const target = errors.firstName
-      ? firstNameRef.current
-      : errors.lastName
-        ? lastNameRef.current
-        : errors.image
-          ? imageRef.current
-          : null;
+    let target: HTMLInputElement | null = null;
+    if (errors.firstName) {
+      target = firstNameRef.current;
+    } else if (errors.lastName) {
+      target = lastNameRef.current;
+    } else if (errors.image) {
+      target = imageRef.current;
+    }
     window.setTimeout(() => target?.focus());
   }
 
@@ -202,10 +259,10 @@ export function EmployeeRecordEditor({
       if (!isEmployeeRecordResult(payload)) {
         throw new Error("Invalid Employee Record response");
       }
-      setRecord(payload.record);
       if (payload.convergence === "projected") {
         announceProjected(payload);
       } else {
+        setRecord(payload.record);
         await checkProjection(12);
       }
     } catch (error) {
@@ -317,11 +374,7 @@ export function EmployeeRecordEditor({
       {footer}
       <div className="employee-record-actions">
         <button className="classic-button" disabled={busy} type="submit">
-          {busy
-            ? "Saving with Clerk..."
-            : state === "error"
-              ? "Retry Employee Record"
-              : "Save Employee Record"}
+          {submitButtonLabel(state)}
         </button>
         {state === "awaiting" ? (
           <button

@@ -1,10 +1,10 @@
-import { handleEmployeeRecordUpdate } from "@/app/api/office/employee-record/route";
 import { createServiceAdapters } from "@/lib/adapters";
 import { authenticateOfficeRequest } from "@/lib/auth/server";
 import { readAppConfiguration } from "@/lib/config";
 import { OnboardingError } from "@/lib/onboarding/domain";
 import { profileFromIdentity } from "@/lib/onboarding/profile-authority";
 import { acceptNewHireConduct } from "@/lib/onboarding/service";
+import { handleEmployeeRecordUpdate } from "@/lib/profiles/employee-record-api";
 
 export const runtime = "nodejs";
 
@@ -29,10 +29,11 @@ export async function POST(request: Request) {
 
     switch (intent) {
       case "confirm-profile": {
-        return handleEmployeeRecordUpdate(
-          new Request(request.url, { method: "POST", body: formData }),
-          { configuration, identity, repository: adapters.neon },
-        );
+        return handleEmployeeRecordUpdate(formData, {
+          configuration,
+          identity,
+          repository: adapters.neon,
+        });
       }
       case "accept-conduct":
         return Response.json(

@@ -1,5 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { handleEmployeeRecordUpdate } from "@/app/api/office/employee-record/route";
 import type { AuthenticatedNewHire } from "@/lib/auth/types";
 import type { ReadyAppConfiguration } from "@/lib/config";
 import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
@@ -9,6 +8,7 @@ import {
   repairEmployeeRecordProjection,
   updateEmployeeRecord,
 } from "@/lib/profiles/edit";
+import { handleEmployeeRecordUpdate } from "@/lib/profiles/employee-record-api";
 
 const originalProfile: NewHireProfile = {
   clerkUserId: "user_employee_record",
@@ -46,13 +46,10 @@ const identity: AuthenticatedNewHire = {
   authentication: "mock",
 };
 
-function updateRequest(fields: Record<string, string>): Request {
+function updateFormData(fields: Record<string, string>): FormData {
   const formData = new FormData();
   for (const [name, value] of Object.entries(fields)) formData.set(name, value);
-  return new Request("http://localhost/api/office/employee-record", {
-    method: "POST",
-    body: formData,
-  });
+  return formData;
 }
 
 describe("Employee Record update service", () => {
@@ -153,7 +150,7 @@ describe("Employee Record server boundary", () => {
     const repository = createInMemoryNeonRepository();
     let authorityCalls = 0;
     const response = await handleEmployeeRecordUpdate(
-      updateRequest({ firstName: "", lastName: "Pending" }),
+      updateFormData({ firstName: "", lastName: "Pending" }),
       {
         configuration: mockConfiguration,
         identity,
@@ -178,7 +175,7 @@ describe("Employee Record server boundary", () => {
   test("maps Clerk rejection to a recoverable response without service details", async () => {
     const repository = createInMemoryNeonRepository();
     const response = await handleEmployeeRecordUpdate(
-      updateRequest({ firstName: "Patricia", lastName: "Pending" }),
+      updateFormData({ firstName: "Patricia", lastName: "Pending" }),
       {
         configuration: mockConfiguration,
         identity,

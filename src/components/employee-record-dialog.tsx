@@ -2,10 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
-import {
-  EmployeeRecordEditor,
-  type EmployeeRecordResult,
-} from "@/components/employee-record-editor";
+import { EmployeeRecordEditor } from "@/components/employee-record-editor";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 
 export function EmployeeRecordDialog({
@@ -18,7 +15,7 @@ export function EmployeeRecordDialog({
   const [saved, setSaved] = useState(false);
   const router = useRouter();
 
-  function open() {
+  function openDialog() {
     setSaved(false);
     dialogRef.current?.showModal();
     window.requestAnimationFrame(() => {
@@ -26,7 +23,7 @@ export function EmployeeRecordDialog({
     });
   }
 
-  function close() {
+  function closeDialog() {
     dialogRef.current?.close();
   }
 
@@ -35,7 +32,7 @@ export function EmployeeRecordDialog({
     triggerRef.current?.focus();
   }
 
-  function handleProjected(_result: EmployeeRecordResult) {
+  function handleProjected() {
     setSaved(true);
   }
 
@@ -43,7 +40,7 @@ export function EmployeeRecordDialog({
     <>
       <button
         className="classic-button employee-record-trigger"
-        onClick={open}
+        onClick={openDialog}
         ref={triggerRef}
         type="button"
       >
@@ -59,7 +56,7 @@ export function EmployeeRecordDialog({
           <span>Employee Record</span>
           <button
             aria-label="Close Employee Record"
-            onClick={close}
+            onClick={closeDialog}
             type="button"
           >
             ×
@@ -72,7 +69,11 @@ export function EmployeeRecordDialog({
             onProjected={handleProjected}
           />
           {saved ? (
-            <button className="classic-button" onClick={close} type="button">
+            <button
+              className="classic-button"
+              onClick={closeDialog}
+              type="button"
+            >
               Done
             </button>
           ) : null}

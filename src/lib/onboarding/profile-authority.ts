@@ -31,7 +31,7 @@ function mockState(): MockProfileAuthorityState {
   return mockGlobal[MOCK_PROFILE_AUTHORITY_KEY];
 }
 
-function clerkFailure(error: unknown): ProfileUpdateError {
+function profileUpdateFailureFromClerk(error: unknown): ProfileUpdateError {
   let status: number | undefined;
   if (error && typeof error === "object" && "status" in error) {
     status = Number(error.status);
@@ -48,52 +48,55 @@ function clerkFailure(error: unknown): ProfileUpdateError {
   );
 }
 
-// Clerk is updated before this function returns a projection for Neon. A Clerk
-// success followed by a Neon failure is safe to retry because authenticated
-// entry repairs the projection from Clerk's current values.
-export async function updateAuthoritativeProfile(
-  configuration: ReadyAppConfiguration,
+async function updateMockProfile(
   identity: AuthenticatedNewHire,
   input: ProfileInput,
 ): Promise<NewHireProfile> {
-  if (configuration.serviceMode === "mock") {
-    const state = mockState();
-    if (state.nextFailure === "reject") {
-      state.nextFailure = null;
-      throw new ProfileUpdateError(
-        "profile_rejected",
-        "Clerk did not accept those profile changes. Review the fields and retry.",
-      );
-    }
-    const current =
-      state.profiles.get(identity.id) ?? profileFromIdentity(identity);
-    let imageUrl = current.imageUrl;
-    const partiallyUpdate = state.nextFailure === "partial";
-    if (input.image && !partiallyUpdate) {
-      const bytes = Buffer.from(await input.image.arrayBuffer());
-      imageUrl = `data:${input.image.type};base64,${bytes.toString("base64")}`;
-    }
-    const profile = {
-      clerkUserId: identity.id,
-      firstName: input.firstName,
-      lastName: input.lastName,
-      displayName: formatDisplayName(input.firstName, input.lastName),
-      imageUrl,
-      sourceVersion: Math.max(Date.now(), current.sourceVersion + 1),
-    };
-    state.profiles.set(identity.id, profile);
-    state.projectionDelays.set(identity.id, state.nextProjectionDelay);
-    state.nextProjectionDelay = 0;
-    if (partiallyUpdate) {
-      state.nextFailure = null;
-      throw new ProfileUpdateError(
-        "profile_partially_updated",
-        "Clerk saved the name, but the picture was not confirmed. Retry to finish the Employee Record.",
-      );
-    }
-    return profile;
+  const state = mockState();
+  if (state.nextFailure === "reject") {
+    state.nextFailure = null;
+    throw new ProfileUpdateError(
+      "profile_rejected",
+      "Clerk did not accept those profile changes. Review the fields and retry.",
+    );
   }
 
+  const current =
+    state.profiles.get(identity.id) ?? profileFromIdentity(identity);
+  const partiallyUpdate = state.nextFailure === "partial";
+  let imageUrl = current.imageUrl;
+  if (input.image && !partiallyUpdate) {
+    const bytes = Buffer.from(await input.image.arrayBuffer());
+    imageUrl = `data:${input.image.type};base64,${bytes.toString("base64")}`;
+  }
+
+  const profile = {
+    clerkUserId: identity.id,
+    firstName: input.firstName,
+    lastName: input.lastName,
+    displayName: formatDisplayName(input.firstName, input.lastName),
+    imageUrl,
+    sourceVersion: Math.max(Date.now(), current.sourceVersion + 1),
+  };
+  state.profiles.set(identity.id, profile);
+  state.projectionDelays.set(identity.id, state.nextProjectionDelay);
+  state.nextProjectionDelay = 0;
+
+  if (partiallyUpdate) {
+    state.nextFailure = null;
+    throw new ProfileUpdateError(
+      "profile_partially_updated",
+      "Clerk saved the name, but the picture was not confirmed. Retry to finish the Employee Record.",
+    );
+  }
+
+  return profile;
+}
+
+async function updateClerkProfile(
+  identity: AuthenticatedNewHire,
+  input: ProfileInput,
+): Promise<NewHireProfile> {
   const client = await clerkClient();
   let user: Awaited<ReturnType<typeof client.users.updateUser>>;
   try {
@@ -102,8 +105,9 @@ export async function updateAuthoritativeProfile(
       lastName: input.lastName,
     });
   } catch (error) {
-    throw clerkFailure(error);
+    throw profileUpdateFailureFromClerk(error);
   }
+
   if (input.image) {
     try {
       user = await client.users.updateUserProfileImage(identity.id, {
@@ -129,13 +133,31 @@ export async function updateAuthoritativeProfile(
   };
 }
 
+// Returning the profile only after Clerk confirms it keeps Neon downstream of
+// the authority. Authenticated entry repairs any later projection failure.
+export function updateAuthoritativeProfile(
+  configuration: ReadyAppConfiguration,
+  identity: AuthenticatedNewHire,
+  input: ProfileInput,
+): Promise<NewHireProfile> {
+  if (configuration.serviceMode === "mock") {
+    return updateMockProfile(identity, input);
+  }
+
+  return updateClerkProfile(identity, input);
+}
+
 export function readAuthoritativeProfile(
   configuration: ReadyAppConfiguration,
   identity: AuthenticatedNewHire,
 ): NewHireProfile {
-  return configuration.serviceMode === "mock"
-    ? (mockState().profiles.get(identity.id) ?? profileFromIdentity(identity))
-    : profileFromIdentity(identity);
+  if (configuration.serviceMode === "mock") {
+    return (
+      mockState().profiles.get(identity.id) ?? profileFromIdentity(identity)
+    );
+  }
+
+  return profileFromIdentity(identity);
 }
 
 export function resetMockProfileAuthority(): void {

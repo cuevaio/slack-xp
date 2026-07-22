@@ -1,3 +1,4 @@
+import { officeEventChannelId } from "@/lib/office-events/contract";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 import { generalChannelId } from "@/lib/portal/chat";
 import type { PortalAuthority, PortalToken } from "@/lib/portal/types";
@@ -15,9 +16,12 @@ type PortalSessionIdentity = {
   imageUrl: string | null;
 };
 
-export type GeneralPortalSession = PortalToken & { channelId: string };
+export type OfficePortalSession = PortalToken & {
+  channelId: string;
+  eventChannelId: string;
+};
 
-export async function issueGeneralPortalSession({
+export async function issueOfficePortalSession({
   identity,
   onboarding,
   portal,
@@ -27,7 +31,7 @@ export async function issueGeneralPortalSession({
   onboarding: OnboardingSnapshot | null;
   portal: PortalAuthority;
   now?: Date;
-}): Promise<GeneralPortalSession> {
+}): Promise<OfficePortalSession> {
   if (
     !onboarding ||
     onboarding.clerkUserId !== identity.id ||
@@ -38,14 +42,25 @@ export async function issueGeneralPortalSession({
   }
 
   const channelId = generalChannelId(now);
-  const input = {
-    channelId,
+  const eventChannelId = officeEventChannelId(now);
+  const identityClaims = {
     userId: identity.id,
     claims: {
       username: identity.fullName,
       avatar: identity.imageUrl,
     },
   };
-  await portal.ensureMembership(input);
-  return { channelId, ...(await portal.mintToken(input)) };
+  await portal.ensureMembership({ channelId, ...identityClaims });
+  await portal.ensureMembership({
+    channelId: eventChannelId,
+    ...identityClaims,
+  });
+  return {
+    channelId,
+    eventChannelId,
+    ...(await portal.mintToken({
+      channelIds: [channelId, eventChannelId],
+      ...identityClaims,
+    })),
+  };
 }

@@ -1,6 +1,6 @@
 import type { OnboardingRepository } from "@/lib/onboarding/types";
-import type { ProfileRepository } from "@/lib/profiles/types";
 import type { PortalAuthority } from "@/lib/portal/types";
+import type { ProfileRepository } from "@/lib/profiles/types";
 
 export type PortalChannel = {
   id: string;

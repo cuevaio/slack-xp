@@ -6,8 +6,8 @@ import { readAppConfiguration } from "@/lib/config";
 import { parseChatContent } from "@/lib/portal/chat";
 import { MockPortalUnavailableError } from "@/lib/portal/mock";
 import {
-  type GeneralPortalSession,
-  issueGeneralPortalSession,
+  issueOfficePortalSession,
+  type OfficePortalSession,
   PortalEligibilityError,
 } from "@/lib/portal/session";
 
@@ -17,7 +17,7 @@ type MockChatContext =
   | { errorResponse: Response }
   | {
       identity: AuthenticatedNewHire;
-      session: GeneralPortalSession;
+      session: OfficePortalSession;
     };
 
 function portalUnavailableResponse(): Response {
@@ -48,7 +48,7 @@ async function getMockChatContext(): Promise<MockChatContext> {
 
   const adapters = createServiceAdapters(configuration);
   try {
-    const session = await issueGeneralPortalSession({
+    const session = await issueOfficePortalSession({
       identity,
       onboarding: await adapters.neon.getNewHire(identity.id),
       portal: adapters.portal,

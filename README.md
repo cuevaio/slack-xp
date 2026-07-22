@@ -105,7 +105,7 @@ New Hires resume from the first missing timestamp.
 Mock mode provides isolated first-time and returning fixtures and exercises the
 same validation and persistence contract without Clerk or Neon credentials.
 
-## Portal General Office Channel
+## Portal Office Channels and Office Events
 
 Portal is the sole authority for live conversation messages and history. Neon
 does not store or duplicate message bodies. The first connected Office Channel is
@@ -131,11 +131,14 @@ bun run portal:deploy
 ```
 
 Authenticated entry calls Portal's hosted control plane to upsert the New Hire's
-daily General membership, then mints a channel-scoped token with a 15-minute
-lifetime. `/api/office/portal/token` performs both operations only after
-server-side authentication and completed onboarding. The browser receives the
-short-lived user token but never `PORTAL_SECRET`; the published Portal SDK calls
-the route again on connection, reconnect, and expiry.
+daily General membership and one `{YYYY-MM-DD}:office-events` membership, then
+mints a token scoped to exactly those two current-Office-Day channels with a
+15-minute lifetime. `/api/office/portal/token` performs these operations only
+after server-side authentication and completed onboarding. Repeated token
+refreshes upsert the same memberships. The hidden Office Event channel is not
+returned by the visible channel adapter. The browser receives the short-lived
+user token but never `PORTAL_SECRET`; the published Portal SDK calls the route
+again on connection, reconnect, and expiry.
 
 The SDK loads persistent history and owns optimistic `pending`, confirmed
 `sent`, and recoverable `failed` delivery states. The app accepts only a runtime-
@@ -148,6 +151,42 @@ Portal connection and publish failures remain visible as offline/retry states.
 Live mode never substitutes mock or browser-local messages. Mock chat uses a
 separate authenticated test-only route and in-memory Portal adapter; that route
 returns 404 outside guarded non-production mock mode.
+
+### Office Event v1 contract
+
+Office Events are persistent Portal messages with Portal message type
+`office.event`; they are not ordinary conversation messages. Their content is an
+exact, runtime-validated object with `version: 1`, a supported `type`, a
+canonical ISO `occurredAt` timestamp, and a deterministic event key shaped as
+`office-event:v1:{type}:{stable-source-id}`. Retrying the same source operation
+must reuse its key; a later operation must use a new source ID. Payloads larger
+than Portal's 2 KiB content limit, extra fields, malformed identifiers or
+timestamps, unknown versions or types, ephemeral/retracted envelopes, and
+wrong-channel envelopes are ignored before dispatch.
+
+The supported v1 events are:
+
+- `reaction.changed`: authoritative add/remove operations containing only the
+  visible Office Channel ID, message ID, actor ID, and one fixed reaction from
+  `👍 ❤️ 😂 😮 😢 🎉`. The verified Portal sender must equal the actor.
+- `profile.invalidated`: a `profileId` reference, accepted only from
+  `office-events:profiles`.
+- `report.invalidated`, `message-removal.invalidated`,
+  `employment.invalidated`, and `operator.invalidated`: one type-appropriate ID
+  reference, accepted only from `office-events:operations`.
+
+Invalidations never carry names, report details, removal state, employment
+state, or Operator state. Consumers refetch the corresponding Neon-owned query;
+only reaction events are folded as canonical Portal-owned state. The typed
+subscriber exposes separate reaction and invalidation callbacks, deduplicates
+retries and reconnect replay by event key, pages through the current Office
+Day's event history to rebuild reaction state, and exposes neither the
+underlying message list nor a generic event-channel send function.
+
+The subscriber advances the event channel read position, durably mutes its
+Portal inbox entry, and clears that entry's independent inbox watermark. Product
+channel lists also exclude the event channel, so Office Events do not render as
+messages, appear as visible channels, or contribute to user-facing attention.
 
 ## Clerk Authentication
 
@@ -217,12 +256,16 @@ bunx playwright install chromium
   `src/lib/onboarding/` owns deterministic assignment, onboarding state, and
   the live and mock persistence implementations. `src/lib/profiles/` owns
   Clerk payload validation, drift repair, and the batch-read contract.
+- `src/lib/office-events/` owns the versioned Office Event runtime contract,
+  reserved-sender checks, reaction projection, replay deduplication, and the
+  narrow browser subscription that isolates event-channel inbox attention.
 - `/api/office/onboarding` authenticates every mutation, updates Clerk before a
   profile projection, and rejects Clock In until required onboarding state is
   durable.
 - `/api/office/portal/token` authenticates the New Hire, checks completed
-  onboarding, idempotently grants daily General membership, and mints a
-  15-minute Portal user token. It never returns the Portal secret.
+  onboarding, idempotently grants daily General and hidden Office Event
+  memberships, and mints a 15-minute Portal user token scoped to both. It never
+  returns the Portal secret.
 - `/api/office/portal/mock-chat` is a guarded non-production adapter route used
   only by the credential-free UI and browser tests. Live chat goes directly
   through the published Portal SDK and hosted APIs.

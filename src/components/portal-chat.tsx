@@ -10,6 +10,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import { useOfficeEventSubscription } from "@/lib/office-events/client";
 import {
   CHAT_TEXT_LIMIT,
   linkifyChatText,
@@ -45,7 +46,9 @@ type LivePortalChatProps = PortalChatBaseProps & {
   publishableKey: string;
 };
 
-type PortalChatProps = MockPortalChatProps | LivePortalChatProps;
+type PortalChatProps = (MockPortalChatProps | LivePortalChatProps) & {
+  eventChannelId: string;
+};
 
 type ChatSurfaceProps = PortalChatBaseProps & {
   messages: readonly unknown[];
@@ -314,10 +317,11 @@ function ChatSurface({
 
 function LiveGeneralChat({
   channelId,
+  eventChannelId,
   identityId,
   displayName,
   publishableKey,
-}: Omit<LivePortalChatProps, "mode">) {
+}: Omit<LivePortalChatProps, "mode"> & { eventChannelId: string }) {
   const [portal] = useState(
     () =>
       new Portal({
@@ -328,6 +332,7 @@ function LiveGeneralChat({
 
   return (
     <PortalProvider client={portal}>
+      <OfficeEventAttentionGuard channelId={eventChannelId} />
       <LiveGeneralChannel
         channelId={channelId}
         displayName={displayName}
@@ -335,6 +340,19 @@ function LiveGeneralChat({
       />
     </PortalProvider>
   );
+}
+
+function ignoreReaction(): void {}
+
+function ignoreInvalidation(): void {}
+
+function OfficeEventAttentionGuard({ channelId }: { channelId: string }) {
+  useOfficeEventSubscription({
+    channelId,
+    onReaction: ignoreReaction,
+    onInvalidation: ignoreInvalidation,
+  });
+  return null;
 }
 
 function LiveGeneralChannel({

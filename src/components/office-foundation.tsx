@@ -1,6 +1,7 @@
 import { PortalChat } from "@/components/portal-chat";
 import type { ServiceAdapters } from "@/lib/adapters";
 import type { AuthenticatedNewHire } from "@/lib/auth/types";
+import { officeEventChannelIdForDay } from "@/lib/office-events/contract";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 
 function requirePortalPublishableKey(value: string | undefined): string {
@@ -26,6 +27,9 @@ export async function OfficeFoundation({
   if (!generalChannel) {
     throw new Error("The General Office Channel is not configured.");
   }
+  const eventChannelId = officeEventChannelIdForDay(
+    generalChannel.id.split(":", 1)[0] ?? "",
+  );
 
   return (
     <main className="office-shell">
@@ -69,6 +73,7 @@ export async function OfficeFoundation({
           <section className="conversation-panel">
             <PortalChat
               channelId={generalChannel.id}
+              eventChannelId={eventChannelId}
               displayName={onboarding.displayName}
               identityId={identity.id}
               {...(adapters.kind === "mock"

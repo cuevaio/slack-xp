@@ -24,6 +24,9 @@ describe("service adapter boundary", () => {
     });
 
     expect(channels.map((channel) => channel.name)).toEqual(["General"]);
+    expect(
+      channels.some((channel) => channel.id.endsWith(":office-events")),
+    ).toBe(false);
     expect(newHire).toMatchObject({ step: "profile" });
   });
 

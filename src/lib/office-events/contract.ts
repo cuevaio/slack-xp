@@ -1,0 +1,385 @@
+export const OFFICE_EVENT_VERSION = 1 as const;
+export const OFFICE_EVENT_MESSAGE_TYPE = "office.event" as const;
+export const OFFICE_EVENT_PAYLOAD_LIMIT = 2_048;
+
+export const OFFICE_EVENT_SENDERS = {
+  profiles: "office-events:profiles",
+  operations: "office-events:operations",
+} as const;
+
+export const OFFICE_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🎉"] as const;
+
+export type OfficeReaction = (typeof OFFICE_REACTIONS)[number];
+export type OfficeEventType =
+  | "reaction.changed"
+  | "profile.invalidated"
+  | "report.invalidated"
+  | "message-removal.invalidated"
+  | "employment.invalidated"
+  | "operator.invalidated";
+
+type OfficeEventBase<TType extends OfficeEventType> = {
+  version: typeof OFFICE_EVENT_VERSION;
+  type: TType;
+  eventKey: string;
+  occurredAt: string;
+};
+
+export type ReactionOfficeEvent = OfficeEventBase<"reaction.changed"> & {
+  officeChannelId: string;
+  messageId: string;
+  actorId: string;
+  reaction: OfficeReaction;
+  operation: "add" | "remove";
+};
+
+export type OfficeInvalidationEvent =
+  | (OfficeEventBase<"profile.invalidated"> & { profileId: string })
+  | (OfficeEventBase<"report.invalidated"> & { reportId: string })
+  | (OfficeEventBase<"message-removal.invalidated"> & { messageId: string })
+  | (OfficeEventBase<"employment.invalidated"> & { newHireId: string })
+  | (OfficeEventBase<"operator.invalidated"> & { operatorId: string });
+
+export type OfficeEvent = ReactionOfficeEvent | OfficeInvalidationEvent;
+
+export type SafeOfficeEventMessage = {
+  id: string;
+  senderId: string;
+  timestamp: number;
+  event: OfficeEvent;
+};
+
+export type OfficeEventDispatchResult =
+  | "ignored"
+  | "duplicate"
+  | "reaction"
+  | "invalidation";
+
+const EVENT_TYPES: readonly OfficeEventType[] = [
+  "reaction.changed",
+  "profile.invalidated",
+  "report.invalidated",
+  "message-removal.invalidated",
+  "employment.invalidated",
+  "operator.invalidated",
+];
+const SOURCE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/u;
+const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,254}$/u;
+const OFFICE_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
+const BASE_KEYS = ["version", "type", "eventKey", "occurredAt"] as const;
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasExactKeys(
+  value: Record<string, unknown>,
+  expectedKeys: readonly string[],
+): boolean {
+  const actualKeys = Object.keys(value);
+  return (
+    actualKeys.length === expectedKeys.length &&
+    expectedKeys.every((key) => Object.hasOwn(value, key))
+  );
+}
+
+function isIdentifier(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length >= 1 &&
+    value.length <= 255 &&
+    value.trim() === value &&
+    IDENTIFIER_PATTERN.test(value)
+  );
+}
+
+function isCanonicalTimestamp(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const timestamp = new Date(value);
+  return (
+    Number.isFinite(timestamp.getTime()) && timestamp.toISOString() === value
+  );
+}
+
+function serializedSize(value: unknown): number | null {
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined
+      ? null
+      : new TextEncoder().encode(serialized).byteLength;
+  } catch {
+    return null;
+  }
+}
+
+function isOfficeEventType(value: unknown): value is OfficeEventType {
+  return EVENT_TYPES.some((type) => type === value);
+}
+
+function hasValidBase(
+  value: Record<string, unknown>,
+  type: OfficeEventType,
+): boolean {
+  return (
+    value.version === OFFICE_EVENT_VERSION &&
+    value.type === type &&
+    isCanonicalTimestamp(value.occurredAt) &&
+    typeof value.eventKey === "string" &&
+    value.eventKey.startsWith(`office-event:v1:${type}:`) &&
+    SOURCE_ID_PATTERN.test(
+      value.eventKey.slice(`office-event:v1:${type}:`.length),
+    )
+  );
+}
+
+function isValidOfficeDay(value: string): boolean {
+  if (!OFFICE_DAY_PATTERN.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return (
+    Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
+  );
+}
+
+export function officeEventChannelId(now: Date = new Date()): string {
+  return `${now.toISOString().slice(0, 10)}:office-events`;
+}
+
+export function officeEventChannelIdForDay(officeDay: string): string {
+  if (!isValidOfficeDay(officeDay)) {
+    throw new TypeError("A valid UTC Office Day is required.");
+  }
+  return `${officeDay}:office-events`;
+}
+
+export function isOfficeEventChannelId(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const [officeDay, channelName, extra] = value.split(":");
+  return (
+    extra === undefined &&
+    channelName === "office-events" &&
+    officeDay !== undefined &&
+    isValidOfficeDay(officeDay)
+  );
+}
+
+export function createOfficeEventKey(
+  type: OfficeEventType,
+  sourceId: string,
+): string {
+  if (!isOfficeEventType(type) || !SOURCE_ID_PATTERN.test(sourceId)) {
+    throw new TypeError(
+      "A valid Office Event type and stable source identifier are required.",
+    );
+  }
+  return `office-event:v1:${type}:${sourceId}`;
+}
+
+export function parseOfficeEvent(value: unknown): OfficeEvent | null {
+  const size = serializedSize(value);
+  if (!isObject(value) || size === null || size > OFFICE_EVENT_PAYLOAD_LIMIT) {
+    return null;
+  }
+
+  switch (value.type) {
+    case "reaction.changed":
+      if (
+        !hasExactKeys(value, [
+          ...BASE_KEYS,
+          "officeChannelId",
+          "messageId",
+          "actorId",
+          "reaction",
+          "operation",
+        ]) ||
+        !hasValidBase(value, "reaction.changed") ||
+        !isIdentifier(value.officeChannelId) ||
+        value.officeChannelId.endsWith(":office-events") ||
+        !isIdentifier(value.messageId) ||
+        !isIdentifier(value.actorId) ||
+        !OFFICE_REACTIONS.some((reaction) => reaction === value.reaction) ||
+        (value.operation !== "add" && value.operation !== "remove")
+      ) {
+        return null;
+      }
+      return value as ReactionOfficeEvent;
+    case "profile.invalidated":
+      return hasExactKeys(value, [...BASE_KEYS, "profileId"]) &&
+        hasValidBase(value, "profile.invalidated") &&
+        isIdentifier(value.profileId)
+        ? (value as OfficeInvalidationEvent)
+        : null;
+    case "report.invalidated":
+      return hasExactKeys(value, [...BASE_KEYS, "reportId"]) &&
+        hasValidBase(value, "report.invalidated") &&
+        isIdentifier(value.reportId)
+        ? (value as OfficeInvalidationEvent)
+        : null;
+    case "message-removal.invalidated":
+      return hasExactKeys(value, [...BASE_KEYS, "messageId"]) &&
+        hasValidBase(value, "message-removal.invalidated") &&
+        isIdentifier(value.messageId)
+        ? (value as OfficeInvalidationEvent)
+        : null;
+    case "employment.invalidated":
+      return hasExactKeys(value, [...BASE_KEYS, "newHireId"]) &&
+        hasValidBase(value, "employment.invalidated") &&
+        isIdentifier(value.newHireId)
+        ? (value as OfficeInvalidationEvent)
+        : null;
+    case "operator.invalidated":
+      return hasExactKeys(value, [...BASE_KEYS, "operatorId"]) &&
+        hasValidBase(value, "operator.invalidated") &&
+        isIdentifier(value.operatorId)
+        ? (value as OfficeInvalidationEvent)
+        : null;
+    default:
+      return null;
+  }
+}
+
+function isTrustedSender(event: OfficeEvent, senderId: string): boolean {
+  if (event.type === "reaction.changed") {
+    return (
+      senderId === event.actorId &&
+      senderId !== OFFICE_EVENT_SENDERS.profiles &&
+      senderId !== OFFICE_EVENT_SENDERS.operations
+    );
+  }
+  if (event.type === "profile.invalidated") {
+    return senderId === OFFICE_EVENT_SENDERS.profiles;
+  }
+  return senderId === OFFICE_EVENT_SENDERS.operations;
+}
+
+export function parseOfficeEventMessage(
+  value: unknown,
+  expectedChannelId: string,
+): SafeOfficeEventMessage | null {
+  if (
+    !isObject(value) ||
+    !isOfficeEventChannelId(expectedChannelId) ||
+    !isIdentifier(value.id) ||
+    value.channelId !== expectedChannelId ||
+    !isObject(value.sender) ||
+    !isIdentifier(value.sender.id) ||
+    value.sender.anon !== false ||
+    typeof value.timestamp !== "number" ||
+    !Number.isSafeInteger(value.timestamp) ||
+    value.timestamp < 0 ||
+    !Number.isFinite(new Date(value.timestamp).getTime()) ||
+    value.kind !== "text" ||
+    value.type !== OFFICE_EVENT_MESSAGE_TYPE ||
+    value.ephemeral !== false ||
+    value.retracted !== false ||
+    value.status !== "sent"
+  ) {
+    return null;
+  }
+
+  const event = parseOfficeEvent(value.content);
+  if (!event || !isTrustedSender(event, value.sender.id)) return null;
+  if (
+    event.type === "reaction.changed" &&
+    !event.officeChannelId.startsWith(`${expectedChannelId.slice(0, 10)}:`)
+  ) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    senderId: value.sender.id,
+    timestamp: value.timestamp,
+    event,
+  };
+}
+
+export function createOfficeEventDispatcher({
+  channelId,
+  onReaction,
+  onInvalidation,
+  dedupeLimit = 2_048,
+}: {
+  channelId: string;
+  onReaction(event: ReactionOfficeEvent): void;
+  onInvalidation(event: OfficeInvalidationEvent): void;
+  dedupeLimit?: number;
+}) {
+  if (!Number.isSafeInteger(dedupeLimit) || dedupeLimit < 1) {
+    throw new TypeError(
+      "The Office Event dedupe limit must be a positive integer.",
+    );
+  }
+  const seenEventKeys = new Set<string>();
+
+  function remember(eventKey: string): boolean {
+    if (seenEventKeys.has(eventKey)) return false;
+    seenEventKeys.add(eventKey);
+    if (seenEventKeys.size > dedupeLimit) {
+      const oldestEventKey = seenEventKeys.values().next().value;
+      if (oldestEventKey !== undefined) seenEventKeys.delete(oldestEventKey);
+    }
+    return true;
+  }
+
+  return {
+    dispatch(message: unknown): OfficeEventDispatchResult {
+      const parsed = parseOfficeEventMessage(message, channelId);
+      if (!parsed) return "ignored";
+      if (!remember(parsed.event.eventKey)) return "duplicate";
+
+      if (parsed.event.type === "reaction.changed") {
+        onReaction(parsed.event);
+        return "reaction";
+      }
+      onInvalidation(parsed.event);
+      return "invalidation";
+    },
+  };
+}
+
+export type ProjectedOfficeReaction = {
+  reaction: OfficeReaction;
+  actorIds: readonly string[];
+};
+
+export function createReactionProjection() {
+  const seenEventKeys = new Set<string>();
+  const reactions = new Map<string, Map<OfficeReaction, Set<string>>>();
+
+  function messageKey(officeChannelId: string, messageId: string): string {
+    return `${officeChannelId}\u0000${messageId}`;
+  }
+
+  return {
+    apply(event: ReactionOfficeEvent): boolean {
+      if (seenEventKeys.has(event.eventKey)) return false;
+      seenEventKeys.add(event.eventKey);
+
+      const key = messageKey(event.officeChannelId, event.messageId);
+      const messageReactions = reactions.get(key) ?? new Map();
+      const actors = messageReactions.get(event.reaction) ?? new Set();
+      if (event.operation === "add") actors.add(event.actorId);
+      else actors.delete(event.actorId);
+
+      if (actors.size > 0) messageReactions.set(event.reaction, actors);
+      else messageReactions.delete(event.reaction);
+      if (messageReactions.size > 0) reactions.set(key, messageReactions);
+      else reactions.delete(key);
+      return true;
+    },
+
+    read(
+      officeChannelId: string,
+      messageId: string,
+    ): readonly ProjectedOfficeReaction[] {
+      const messageReactions = reactions.get(
+        messageKey(officeChannelId, messageId),
+      );
+      if (!messageReactions) return [];
+      return OFFICE_REACTIONS.flatMap((reaction) => {
+        const actors = messageReactions.get(reaction);
+        return actors ? [{ reaction, actorIds: [...actors].sort() }] : [];
+      });
+    },
+  };
+}

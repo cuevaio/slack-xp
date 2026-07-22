@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { officeEventChannelId } from "@/lib/office-events/contract";
 import { createMockPortalAdapter } from "@/lib/portal/mock";
 import { createPortalControlPlane } from "@/lib/portal/server";
 import {
-  issueGeneralPortalSession,
+  issueOfficePortalSession,
   PortalEligibilityError,
 } from "@/lib/portal/session";
 
@@ -41,7 +42,7 @@ describe("Portal control-plane boundary", () => {
       apiUrl: "https://api.useportal.co",
     });
 
-    const session = await issueGeneralPortalSession({
+    const session = await issueOfficePortalSession({
       identity: {
         id: completedNewHire.clerkUserId,
         fullName: completedNewHire.displayName,
@@ -54,22 +55,25 @@ describe("Portal control-plane boundary", () => {
 
     expect(session).toEqual({
       channelId: "2026-07-22:general",
+      eventChannelId: "2026-07-22:office-events",
       token: "portal-user-token",
       expiresAt: "2026-07-22T12:15:00.000Z",
     });
     expect(requests.map(({ url }) => url)).toEqual([
       "https://api.useportal.co/v1/channels/2026-07-22%3Ageneral/members",
+      "https://api.useportal.co/v1/channels/2026-07-22%3Aoffice-events/members",
       "https://api.useportal.co/v1/tokens",
     ]);
     expect(requests[0]?.init?.headers).toEqual({
       Authorization: "Bearer sk_portal_test",
       "Content-Type": "application/json",
     });
-    expect(JSON.parse(String(requests[1]?.init?.body))).toEqual({
+    expect(JSON.parse(String(requests[2]?.init?.body))).toEqual({
       userId: "user_portal_test",
       claims: { username: "Pat Pending", avatar: null },
       channels: {
         "2026-07-22:general": ["connect", "publish"],
+        "2026-07-22:office-events": ["connect", "publish"],
       },
       ttl: "15m",
     });
@@ -79,7 +83,7 @@ describe("Portal control-plane boundary", () => {
     const portal = createMockPortalAdapter();
 
     await expect(
-      issueGeneralPortalSession({
+      issueOfficePortalSession({
         identity: {
           id: completedNewHire.clerkUserId,
           fullName: completedNewHire.displayName,
@@ -95,6 +99,7 @@ describe("Portal control-plane boundary", () => {
       }),
     ).rejects.toBeInstanceOf(PortalEligibilityError);
     expect(portal.membershipCount("2026-07-22:general")).toBe(0);
+    expect(portal.membershipCount(officeEventChannelId())).toBe(0);
   });
 
   test("reports upstream failures without copying secrets or response details", async () => {
@@ -130,6 +135,37 @@ describe("Portal control-plane boundary", () => {
 });
 
 describe("controlled Portal adapter", () => {
+  test("keeps hidden event membership idempotent and out of visible channel attention", async () => {
+    const portal = createMockPortalAdapter({
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+
+    const session = await issueOfficePortalSession({
+      identity: {
+        id: completedNewHire.clerkUserId,
+        fullName: completedNewHire.displayName,
+        imageUrl: null,
+      },
+      onboarding: completedNewHire,
+      portal,
+      now: new Date("2026-07-22T12:00:00.000Z"),
+    });
+    await issueOfficePortalSession({
+      identity: {
+        id: completedNewHire.clerkUserId,
+        fullName: completedNewHire.displayName,
+        imageUrl: null,
+      },
+      onboarding: completedNewHire,
+      portal,
+      now: new Date("2026-07-22T12:00:00.000Z"),
+    });
+
+    expect(session.eventChannelId).toBe("2026-07-22:office-events");
+    expect(portal.membershipCount(session.eventChannelId)).toBe(1);
+    expect(portal.membershipCount(session.channelId)).toBe(1);
+  });
+
   test("keeps membership and confirmed history idempotent across retry and reconnect", async () => {
     const portal = createMockPortalAdapter({
       now: () => new Date("2026-07-22T12:00:00.000Z"),

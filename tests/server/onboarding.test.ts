@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
-import { confirmNewHireProfile } from "@/lib/onboarding/service";
 
 const profile = {
   clerkUserId: "user_first_entry",
@@ -28,7 +27,7 @@ describe("onboarding persistence boundary", () => {
     const repository = createInMemoryNeonRepository();
     await repository.enterNewHire(profile);
 
-    await repository.confirmProfile(profile);
+    await repository.confirmProfile(profile.clerkUserId);
     expect((await repository.enterNewHire(profile)).step).toBe("conduct");
 
     await repository.acceptConduct(profile.clerkUserId);
@@ -53,29 +52,5 @@ describe("onboarding persistence boundary", () => {
         code: "onboarding_incomplete",
       },
     );
-  });
-
-  test("updates Clerk before committing profile confirmation to Neon", async () => {
-    const repository = createInMemoryNeonRepository();
-    await repository.enterNewHire(profile);
-
-    await expect(
-      confirmNewHireProfile(repository, async () => {
-        throw new Error("Clerk unavailable");
-      }),
-    ).rejects.toThrow("Clerk unavailable");
-
-    expect((await repository.getNewHire(profile.clerkUserId))?.step).toBe(
-      "profile",
-    );
-
-    const updated = await confirmNewHireProfile(repository, async () => ({
-      ...profile,
-      firstName: "Patricia",
-      displayName: "Patricia Pending",
-      sourceVersion: 2,
-    }));
-    expect(updated.displayName).toBe("Patricia Pending");
-    expect(updated.step).toBe("conduct");
   });
 });

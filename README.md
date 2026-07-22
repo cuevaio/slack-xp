@@ -95,15 +95,30 @@ new messages resolve to the latest projection instead of retaining historical
 name or picture snapshots.
 
 First-time New Hires enter a three-step New Employee Setup Wizard. Profile
-changes are applied to Clerk first and then projected to Neon. The absurd job
-title is selected deterministically from the Clerk user ID and inserted once,
-so refreshes and concurrent requests cannot reroll it. Clock In uses the same
-single onboarding row and preserves its first completion timestamp across
-retries. Completed New Hires go directly to the current Office Day; incomplete
-New Hires resume from the first missing timestamp.
+changes use the same Employee Record editor available after Clock In. The
+editor validates names and PNG, JPEG, or WebP pictures up to 2 MB, applies the
+change to Clerk first, and preserves entered values across recoverable errors.
+The absurd job title is selected deterministically from the Clerk user ID and
+inserted once, so refreshes and concurrent requests cannot reroll it. Clock In
+uses the same single onboarding row and preserves its first completion
+timestamp across retries. Completed New Hires go directly to the current Office
+Day; incomplete New Hires resume from the first missing timestamp.
+
+Authenticated New Hires can reopen Employee Record from the Office Channel
+panel. `POST /api/office/employee-record` returns either `projected` or
+`awaiting_projection` only after Clerk confirms the authoritative write. While
+awaiting, the editor keeps an honest status visible and polls the authenticated
+`GET` boundary; that boundary runs the same source-ordered repair used during
+session establishment. Webhook delivery or repair therefore updates current
+and historical attribution without writing identity snapshots into Portal.
+Clerk rejection, timeout, partial picture failure, and delayed Neon projection
+have distinct recoverable states and never expose provider response details.
 
 Mock mode provides isolated first-time and returning fixtures and exercises the
-same validation and persistence contract without Clerk or Neon credentials.
+same validation and persistence contract without Clerk or Neon credentials. In
+test mode only, `/api/auth/mock-profile` provides deterministic next-request
+rejection, partial-write, and delayed-projection controls for browser coverage;
+the route returns `404` in every non-test environment.
 
 ## Portal General Office Channel
 
@@ -220,6 +235,9 @@ bunx playwright install chromium
 - `/api/office/onboarding` authenticates every mutation, updates Clerk before a
   profile projection, and rejects Clock In until required onboarding state is
   durable.
+- `/api/office/employee-record` authenticates every read and mutation. Writes
+  update Clerk before confirming onboarding or inspecting Neon; reads repair
+  and report projection convergence without treating Neon as profile authority.
 - `/api/office/portal/token` authenticates the New Hire, checks completed
   onboarding, idempotently grants daily General membership, and mints a
   15-minute Portal user token. It never returns the Portal secret.

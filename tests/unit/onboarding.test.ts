@@ -22,6 +22,13 @@ describe("New Hire onboarding domain", () => {
     ).toThrow("80 characters");
     expect(() =>
       validateProfileInput({
+        firstName: "Pat\u200b",
+        lastName: "Pending",
+        image: null,
+      }),
+    ).toThrow("invisible formatting characters");
+    expect(() =>
+      validateProfileInput({
         firstName: "Pat",
         lastName: "Pending",
         image: new File(["not-an-image"], "notes.txt", {
@@ -29,5 +36,14 @@ describe("New Hire onboarding domain", () => {
         }),
       }),
     ).toThrow("PNG, JPEG, or WebP");
+    expect(() =>
+      validateProfileInput({
+        firstName: "Pat",
+        lastName: "Pending",
+        image: new File([new Uint8Array(2 * 1024 * 1024 + 1)], "huge.png", {
+          type: "image/png",
+        }),
+      }),
+    ).toThrow("2 MB or smaller");
   });
 });

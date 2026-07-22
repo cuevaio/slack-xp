@@ -1,3 +1,4 @@
+import { EmployeeRecordDialog } from "@/components/employee-record-dialog";
 import { PortalChat } from "@/components/portal-chat";
 import type { ServiceAdapters } from "@/lib/adapters";
 import type { AuthenticatedNewHire } from "@/lib/auth/types";
@@ -55,6 +56,7 @@ export async function OfficeFoundation({
                 </a>
               ))}
             </nav>
+            <EmployeeRecordDialog onboarding={onboarding} />
             {identity.authentication === "mock" ? (
               <form action="/api/auth/sign-out" method="post">
                 <button

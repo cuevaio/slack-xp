@@ -144,11 +144,10 @@ export function createInMemoryNeonRepository(
       return toSnapshot(requireProfile(profile.clerkUserId), onboarding);
     },
 
-    async confirmProfile(profile) {
-      const onboarding = requireOnboarding(profile.clerkUserId);
-      applyProfileProjection(profile);
+    async confirmProfile(clerkUserId) {
+      const onboarding = requireOnboarding(clerkUserId);
       onboarding.profileConfirmedAt ??= now().toISOString();
-      return toSnapshot(requireProfile(profile.clerkUserId), onboarding);
+      return toSnapshot(requireProfile(clerkUserId), onboarding);
     },
 
     async acceptConduct(clerkUserId) {

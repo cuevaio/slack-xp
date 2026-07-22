@@ -62,6 +62,13 @@ export default function SetupPage() {
               retain only the stable Clerk user ID; names and pictures are
               resolved from the current Neon projection in batches.
             </p>
+            <p>
+              The Employee Record editor updates Clerk before reporting success.
+              It may briefly show that the Shared Public Office is still
+              updating while the verified webhook or authenticated repair
+              converges in Neon. Keep the webhook enabled so connected clients
+              receive profile changes promptly.
+            </p>
             <h2>Apply the Neon schema</h2>
             <p>
               With <code>DATABASE_URL</code> available in the command

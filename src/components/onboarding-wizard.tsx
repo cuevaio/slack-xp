@@ -1,8 +1,11 @@
 "use client";
 
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { type FormEvent, type FormEventHandler, useState } from "react";
+import {
+  EmployeeRecordEditor,
+  type EmployeeRecordResult,
+} from "@/components/employee-record-editor";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 
 const stepNumber = {
@@ -72,6 +75,9 @@ export function OnboardingWizard({
             <OnboardingStepForm
               error={error}
               onboarding={onboarding}
+              onProfileProjected={(result) => {
+                if (result.onboarding) setOnboarding(result.onboarding);
+              }}
               onSubmit={submit}
               pending={pending}
             />
@@ -87,6 +93,7 @@ type StepFormProps = {
   error: string | null;
   pending: boolean;
   onSubmit: FormEventHandler<HTMLFormElement>;
+  onProfileProjected: (result: EmployeeRecordResult) => void;
 };
 
 function OnboardingStepForm(props: StepFormProps) {
@@ -102,76 +109,15 @@ function OnboardingStepForm(props: StepFormProps) {
   }
 }
 
-function ProfileStepForm({
-  onboarding,
-  error,
-  pending,
-  onSubmit,
-}: StepFormProps) {
+function ProfileStepForm({ onboarding, onProfileProjected }: StepFormProps) {
   return (
-    <form onSubmit={onSubmit}>
-      <input name="intent" type="hidden" value="confirm-profile" />
-      <h1 id="setup-title">Confirm your Employee Record</h1>
-      <p>
-        Your public name and picture live in Clerk. Changes are sent there
-        first, then projected into the Shared Public Office.
-      </p>
-      <div className="profile-preview">
-        {onboarding.imageUrl ? (
-          <Image
-            alt={`${onboarding.displayName}'s current profile`}
-            className="profile-preview-image"
-            height={52}
-            src={onboarding.imageUrl}
-            unoptimized
-            width={52}
-          />
-        ) : (
-          <span aria-hidden="true" className="profile-preview-placeholder">
-            {onboarding.firstName.slice(0, 1)}
-            {onboarding.lastName.slice(0, 1)}
-          </span>
-        )}
-        <p>
-          <strong>{onboarding.displayName}</strong>
-          <small>Current Clerk profile</small>
-        </p>
-      </div>
-      <div className="profile-fields">
-        <label>
-          First name
-          <input
-            autoComplete="given-name"
-            defaultValue={onboarding.firstName}
-            maxLength={80}
-            name="firstName"
-            required
-          />
-        </label>
-        <label>
-          Last name
-          <input
-            autoComplete="family-name"
-            defaultValue={onboarding.lastName}
-            maxLength={80}
-            name="lastName"
-          />
-        </label>
-        <label>
-          Profile picture (optional, 2 MB maximum)
-          <input
-            accept="image/png,image/jpeg,image/webp"
-            name="image"
-            type="file"
-          />
-        </label>
-      </div>
-      <Assignment jobTitle={onboarding.jobTitle} />
-      <WizardError message={error} />
-      <button className="classic-button" disabled={pending} type="submit">
-        {pending ? "Saving..." : "Save Employee Record"}
-      </button>
-    </form>
+    <EmployeeRecordEditor
+      advanceAfterSuccess
+      footer={<Assignment jobTitle={onboarding.jobTitle} />}
+      headingId="setup-title"
+      initialRecord={onboarding}
+      onProjected={onProfileProjected}
+    />
   );
 }
 

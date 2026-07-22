@@ -1,5 +1,6 @@
 import type { ServiceAdapters } from "@/lib/adapters/types";
 import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
+import { resetMockProfileAuthority } from "@/lib/onboarding/profile-authority";
 import type { NewHireProfile } from "@/lib/onboarding/types";
 import { generalChannelId } from "@/lib/portal/chat";
 import {
@@ -32,6 +33,7 @@ export function getMockPortalAdapter(): MockPortalAdapter {
 export function resetMockOnboarding(): void {
   getMockRepository().reset();
   getMockPortalAdapter().reset();
+  resetMockProfileAuthority();
 }
 
 export async function seedCompletedMockOnboarding(
@@ -39,7 +41,7 @@ export async function seedCompletedMockOnboarding(
 ): Promise<void> {
   const repository = getMockRepository();
   await repository.enterNewHire(profile);
-  await repository.confirmProfile(profile);
+  await repository.confirmProfile(profile.clerkUserId);
   await repository.acceptConduct(profile.clerkUserId);
   await repository.clockIn(profile.clerkUserId);
 }

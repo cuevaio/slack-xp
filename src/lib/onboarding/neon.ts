@@ -172,16 +172,15 @@ export function createNeonRepository(database: Database): NeonAdapter {
       return requireOnboarding(profile.clerkUserId);
     },
 
-    async confirmProfile(profile) {
-      await projectProfile(profile);
+    async confirmProfile(clerkUserId) {
       await database
         .update(newHireOnboarding)
         .set({
           profileConfirmedAt: sql`coalesce(${newHireOnboarding.profileConfirmedAt}, now())`,
           updatedAt: new Date(),
         })
-        .where(eq(newHireOnboarding.clerkUserId, profile.clerkUserId));
-      return requireOnboarding(profile.clerkUserId);
+        .where(eq(newHireOnboarding.clerkUserId, clerkUserId));
+      return requireOnboarding(clerkUserId);
     },
 
     async acceptConduct(clerkUserId) {

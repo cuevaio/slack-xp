@@ -1,35 +1,12 @@
+import { handleEmployeeRecordUpdate } from "@/app/api/office/employee-record/route";
 import { createServiceAdapters } from "@/lib/adapters";
 import { authenticateOfficeRequest } from "@/lib/auth/server";
 import { readAppConfiguration } from "@/lib/config";
-import {
-  OnboardingError,
-  type ProfileInput,
-  validateProfileInput,
-} from "@/lib/onboarding/domain";
-import {
-  profileFromIdentity,
-  updateAuthoritativeProfile,
-} from "@/lib/onboarding/profile-authority";
-import {
-  acceptNewHireConduct,
-  confirmNewHireProfile,
-} from "@/lib/onboarding/service";
+import { OnboardingError } from "@/lib/onboarding/domain";
+import { profileFromIdentity } from "@/lib/onboarding/profile-authority";
+import { acceptNewHireConduct } from "@/lib/onboarding/service";
 
 export const runtime = "nodejs";
-
-function readValidatedProfileInput(formData: FormData): ProfileInput {
-  const imageEntry = formData.get("image");
-  const image =
-    imageEntry instanceof File && imageEntry.size > 0 ? imageEntry : null;
-
-  const names = validateProfileInput({
-    firstName: String(formData.get("firstName") ?? ""),
-    lastName: String(formData.get("lastName") ?? ""),
-    image,
-  });
-
-  return { ...names, image };
-}
 
 export async function POST(request: Request) {
   const configuration = readAppConfiguration();
@@ -52,11 +29,9 @@ export async function POST(request: Request) {
 
     switch (intent) {
       case "confirm-profile": {
-        const profileInput = readValidatedProfileInput(formData);
-        return Response.json(
-          await confirmNewHireProfile(adapters.neon, () =>
-            updateAuthoritativeProfile(configuration, identity, profileInput),
-          ),
+        return handleEmployeeRecordUpdate(
+          new Request(request.url, { method: "POST", body: formData }),
+          { configuration, identity, repository: adapters.neon },
         );
       }
       case "accept-conduct":

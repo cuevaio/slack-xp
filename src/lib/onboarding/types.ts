@@ -31,7 +31,7 @@ export type OnboardingSnapshot = {
 
 export type OnboardingRepository = {
   enterNewHire(profile: NewHireProfile): Promise<OnboardingSnapshot>;
-  confirmProfile(profile: NewHireProfile): Promise<OnboardingSnapshot>;
+  confirmProfile(clerkUserId: string): Promise<OnboardingSnapshot>;
   acceptConduct(clerkUserId: string): Promise<OnboardingSnapshot>;
   clockIn(clerkUserId: string): Promise<OnboardingSnapshot>;
   getNewHire(clerkUserId: string): Promise<OnboardingSnapshot | null>;

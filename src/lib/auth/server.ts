@@ -8,6 +8,7 @@ import {
 import { isOperatorUserId } from "@/lib/auth/operator";
 import type { AuthenticatedNewHire } from "@/lib/auth/types";
 import type { ReadyAppConfiguration } from "@/lib/config";
+import { readAuthoritativeProfile } from "@/lib/onboarding/profile-authority";
 
 function clerkDisplayName(user: {
   fullName: string | null;
@@ -29,7 +30,19 @@ export async function authenticateOfficeRequest(
 ): Promise<AuthenticatedNewHire | null> {
   if (configuration.serviceMode === "mock") {
     const cookieStore = await cookies();
-    return readMockSessionToken(cookieStore.get(MOCK_SESSION_COOKIE)?.value);
+    const identity = readMockSessionToken(
+      cookieStore.get(MOCK_SESSION_COOKIE)?.value,
+    );
+    if (!identity) return null;
+    const profile = readAuthoritativeProfile(configuration, identity);
+    return {
+      ...identity,
+      firstName: profile.firstName,
+      lastName: profile.lastName,
+      fullName: profile.displayName,
+      imageUrl: profile.imageUrl,
+      sourceVersion: profile.sourceVersion,
+    };
   }
 
   const session = await auth();

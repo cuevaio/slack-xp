@@ -271,6 +271,89 @@ test("general chat confirms, reconnects, validates text, and recovers from Porta
   await expect(page.getByText("Please retry this memo")).toBeVisible();
 });
 
+test("a New Hire edits an Employee Record with accessible recovery and current attribution", async ({
+  page,
+}) => {
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+
+  const composer = page.getByLabel("Message # General");
+  await composer.fill("This memo should follow my current profile.");
+  await page.getByRole("button", { name: "Send" }).click();
+  const historicalMessage = page.getByRole("listitem").filter({
+    hasText: "This memo should follow my current profile.",
+  });
+  await expect(historicalMessage.getByRole("strong")).toHaveText("Terry Byte");
+
+  const trigger = page.getByRole("button", { name: "Employee Record" });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", {
+    name: "Confirm your Employee Record",
+  });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("First name")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+
+  await trigger.click();
+  await dialog.getByLabel("First name").fill("A".repeat(40));
+  await dialog.getByLabel("Last name").fill("B".repeat(50));
+  await dialog.getByRole("button", { name: "Save Employee Record" }).click();
+  await expect(dialog.locator("#employee-first-name-error")).toContainText(
+    "80 characters or fewer",
+  );
+  await expect(dialog.getByLabel("First name")).toHaveAttribute(
+    "aria-invalid",
+    "true",
+  );
+  await expect(dialog.getByLabel("First name")).toBeFocused();
+  await expect(dialog.getByLabel("Last name")).toHaveValue("B".repeat(50));
+
+  await page.request.post("/api/auth/mock-profile", {
+    form: { intent: "reject-next-update" },
+  });
+  await dialog.getByLabel("First name").fill("Taylor");
+  await dialog.getByLabel("Last name").fill("Byte");
+  const retry = dialog.getByRole("button", { name: "Retry Employee Record" });
+  await retry.click();
+  const errorAlert = dialog.getByRole("alert");
+  await expect(errorAlert).toContainText("Clerk did not accept");
+  await expect(dialog.getByLabel("First name")).toHaveValue("Taylor");
+  await expect(errorAlert).toBeFocused();
+
+  await dialog.getByLabel(/Profile picture/).setInputFiles({
+    name: "taylor.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("deterministic mock image"),
+  });
+  await page.request.post("/api/auth/mock-profile", {
+    form: { intent: "partially-update-next" },
+  });
+  await retry.click();
+  await expect(dialog.getByRole("alert")).toContainText("Clerk saved the name");
+  await expect(dialog.getByLabel("First name")).toHaveValue("Taylor");
+
+  await page.request.post("/api/auth/mock-profile", {
+    form: { intent: "delay-next-projection" },
+  });
+  await dialog.getByRole("button", { name: "Retry Employee Record" }).click();
+  await expect(dialog.getByRole("status")).toContainText(
+    "Clerk saved the changes",
+  );
+  await expect(dialog.getByRole("status")).toContainText(
+    "updated in Clerk and the Shared Public Office",
+  );
+  await dialog.getByRole("button", { name: "Done" }).click();
+  await expect(trigger).toBeFocused();
+
+  await expect(
+    page.getByRole("heading", { name: "Welcome, Taylor Byte" }),
+  ).toBeVisible();
+  await expect(historicalMessage.getByRole("strong")).toHaveText("Taylor Byte");
+});
+
 test("interrupted setup resumes and the returning fixture enters the Office Day", async ({
   page,
 }) => {
@@ -300,7 +383,9 @@ test("completed mock office remains usable at a mobile viewport", async ({
     .getByRole("button", { name: "Sign in as Returning New Hire" })
     .click();
 
-  await expect(page.getByText("Shared Public Office")).toBeVisible();
+  await expect(
+    page.getByText("Shared Public Office", { exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("navigation")).toBeVisible();
   await expect(page.getByLabel("Message # General")).toBeVisible();
 });

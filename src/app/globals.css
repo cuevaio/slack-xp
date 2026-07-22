@@ -902,6 +902,85 @@ a {
   font: inherit;
 }
 
+.employee-record-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.7rem;
+}
+
+.profile-status {
+  max-width: 58ch;
+  margin: 1rem 0 0;
+  padding: 0.75rem;
+  border: 1px solid #2d6770;
+  background: #e4f8fb;
+  color: #16464d;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.field-error {
+  color: #9e1515;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.employee-record-trigger {
+  width: 100%;
+  margin-top: 1rem;
+}
+
+.employee-record-dialog {
+  width: min(680px, calc(100vw - 2rem));
+  max-height: min(820px, calc(100vh - 2rem));
+  padding: 0;
+  overflow: auto;
+  border: 3px outset #ddd;
+  background: var(--paper);
+  box-shadow: 14px 18px 0 rgb(0 0 0 / 22%);
+  color: var(--ink);
+}
+
+.employee-record-dialog::backdrop {
+  background: rgb(4 32 37 / 58%);
+}
+
+.employee-record-dialog .window-titlebar {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+}
+
+.employee-record-dialog .window-titlebar button {
+  display: grid;
+  width: 22px;
+  height: 20px;
+  place-items: center;
+  padding: 0;
+  border: 2px outset #ddd;
+  background: var(--silver);
+  color: #111;
+  font:
+    900 0.9rem / 1 Arial,
+    sans-serif;
+}
+
+.employee-record-dialog-body {
+  padding: clamp(1.2rem, 4vw, 2.2rem);
+}
+
+.employee-record-dialog-body h1 {
+  margin: 0 0 0.7rem;
+  font-family: Georgia, serif;
+  font-size: clamp(1.8rem, 5vw, 2.6rem);
+  line-height: 1;
+}
+
+.employee-record-dialog-body > .classic-button {
+  margin-top: 0.8rem;
+}
+
 .assignment-card {
   display: grid;
   gap: 0.3rem;
@@ -1683,6 +1762,16 @@ button.classic-button {
 
   .profile-fields {
     grid-template-columns: 1fr;
+  }
+
+  .employee-record-dialog {
+    width: 100vw;
+    max-width: none;
+    height: 100svh;
+    max-height: none;
+    border-right: 0;
+    border-left: 0;
+    box-shadow: none;
   }
 
   .installation-content {

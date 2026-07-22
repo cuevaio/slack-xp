@@ -32,6 +32,8 @@ export type ProfileInput = {
   image: File | null;
 };
 
+export type ProfileInputField = "firstName" | "lastName" | "image";
+
 export class OnboardingError extends Error {
   constructor(
     public readonly code:
@@ -39,6 +41,7 @@ export class OnboardingError extends Error {
       | "onboarding_incomplete"
       | "onboarding_not_found",
     message: string,
+    public readonly field?: ProfileInputField,
   ) {
     super(message);
     this.name = "OnboardingError";
@@ -86,12 +89,22 @@ export function validateProfileInput(input: ProfileInput): {
     throw new OnboardingError(
       "invalid_profile",
       "Please enter a first name before continuing.",
+      "firstName",
     );
   }
   if (displayName.length > 80) {
     throw new OnboardingError(
       "invalid_profile",
       "Your public name must be 80 characters or fewer.",
+      "firstName",
+    );
+  }
+
+  if (/\p{Cc}|\p{Cf}/u.test(displayName)) {
+    throw new OnboardingError(
+      "invalid_profile",
+      "Public names cannot contain control or invisible formatting characters.",
+      "firstName",
     );
   }
 
@@ -100,12 +113,14 @@ export function validateProfileInput(input: ProfileInput): {
       throw new OnboardingError(
         "invalid_profile",
         "Profile pictures must be PNG, JPEG, or WebP files.",
+        "image",
       );
     }
     if (input.image.size > MAX_PROFILE_IMAGE_SIZE_BYTES) {
       throw new OnboardingError(
         "invalid_profile",
         "Profile pictures must be 2 MB or smaller.",
+        "image",
       );
     }
   }

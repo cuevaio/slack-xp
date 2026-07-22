@@ -50,4 +50,33 @@ describe("application configuration", () => {
       assertProductionSafety({ APP_ENV: "production", SERVICE_MODE: "mock" }),
     ).toThrow("refuses to build or start");
   });
+
+  test("requires separate Clerk scopes and HTTPS production origin", () => {
+    const shared = {
+      SERVICE_MODE: "live",
+      APP_ORIGIN: "http://production.example.com",
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_public",
+      CLERK_SECRET_KEY: "sk_test_secret",
+      CLERK_WEBHOOK_SECRET: "whsec_signing",
+      NEXT_PUBLIC_PORTAL_KEY: "pk_portal_public",
+      PORTAL_SECRET: "sk_portal_secret",
+      DATABASE_URL: "postgresql://user:password@example.com/database",
+    };
+    const production = readAppConfiguration({
+      ...shared,
+      APP_ENV: "production",
+    });
+
+    expect(production).toMatchObject({ status: "incomplete" });
+    if (production.status === "incomplete") {
+      expect(production.issues).toContainEqual({
+        name: "APP_ORIGIN",
+        reason: "invalid",
+      });
+      expect(production.issues).toContainEqual({
+        name: "CLERK_SECRET_KEY",
+        reason: "invalid",
+      });
+    }
+  });
 });

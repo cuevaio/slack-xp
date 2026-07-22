@@ -8,6 +8,8 @@
     "start": "next start",
     "lint": "biome check",
     "typecheck": "tsc --noEmit",
+    "setup:check": "bun scripts/setup-check.ts",
+    "portal:verify": "bun scripts/setup-check.ts",
     "db:migrate": "drizzle-kit migrate",
     "portal:deploy": "portal deploy",
     "format": "biome format --write",

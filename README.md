@@ -97,14 +97,18 @@ and creation timestamps; fixed message text remains in source control and is
 not copied into Neon. The Office Day row and all five planned outbox rows are
 created in one idempotent Neon transaction.
 
-The HR Report migration adds `hr_reports` and
-`hr_report_notification_outbox`. An HR Report stores only its reporter, Office
-Day, Office Channel and message identifiers, approved category, open workflow
-state, and timestamps. It never stores the message body, preview text,
-presence, unread state, or other Portal conversation data. A partial unique
-index allows one open report per reporter and message, while the report and its
-pending notification row commit together so retries return `already-reported`
-without creating another workflow record.
+The HR Report migrations add `hr_reports` and
+`hr_report_notification_outbox`. Each report identifies a `message` or
+`profile` subject. A message report stores its reporter, Office Day, Office
+Channel and message identifiers; a New Hire Profile report stores its reporter
+and the stable Clerk subject ID. Both store only an approved type-specific
+category, open workflow state, and timestamps. They never copy message bodies,
+profile names, pictures, preview text, presence, unread state, or unrelated
+Clerk data. Separate partial unique indexes allow one open report per reporter
+and message or per reporter and profile. The report and pending notification
+row commit together so retries return `already-reported` without creating
+another workflow record. The profile subject is deliberately not a foreign key:
+a later profile tombstone does not remove or rewrite the private review record.
 
 In the Clerk Dashboard, create a webhook endpoint for
 `https://<deployment>/api/webhooks/clerk`, subscribe it to `user.created` and
@@ -237,16 +241,21 @@ per-fixture watermarks and snapshot polling solely for deterministic browser
 tests; live mode has no polling or application fallback for Portal unread state.
 
 Confirmed messages expose an accessible private HR Report dialog with four
-server-validated categories. `POST /api/office/hr-reports` requires a completed,
-authenticated New Hire and accepts only the current Office Day's curated Office
-Channel plus a stable message ID. After the Neon transaction commits, a hidden
+server-validated message categories. Current names and pictures open a canonical
+New Hire Profile context with three server-validated profile categories.
+`POST /api/office/hr-reports` requires a completed, authenticated New Hire. It
+accepts either the current Office Day's curated Office Channel plus a stable
+message ID, or a currently projected stable Clerk profile ID; mutable names and
+pictures are never accepted. After the Neon transaction commits, a hidden
 `hr-reports` Portal channel sends each configured Operator a targeted inbox item;
-targeted delivery skips public fan-out. Its generic title and deep link contain
-only Office Day, Office Channel, and message coordinates—never the category,
-reporter, message text, or other private detail. Failed notification delivery
-leaves the outbox row pending for a safe retry on a later report submission or
-Portal-token refresh, and Operators can follow the validated same-application
-link directly to the message context.
+targeted delivery skips public fan-out. Each notification identifies the report
+type and links either to message coordinates or `/office?profile=<stable-id>`.
+It never contains the private category, reporter, message text, name, picture,
+or other mutable profile value. Failed notification delivery leaves the outbox
+row pending for a safe retry on a later report submission or Portal-token
+refresh. Profile links resolve the current Neon projection at review time, so
+edits appear immediately and tombstoned profiles render as Former Employee
+without breaking the stable review context.
 
 The Office Day is the pure UTC date of the current instant. A client monitor
 arms for the next UTC boundary and also rechecks at least once per minute and
@@ -511,7 +520,8 @@ the server clock.
   update Clerk before confirming onboarding or inspecting Neon; reads repair
   and report projection convergence without treating Neon as profile authority.
 - `/api/office/hr-reports` authenticates completed New Hires, rejects unknown
-  categories and non-current Office Channels, and never accepts message text.
+  type-specific categories, non-current Office Channels, and unavailable New
+  Hire Profiles, and never accepts message text or mutable profile values.
 - `/api/office/portal/token` authenticates the New Hire, checks completed
   onboarding, idempotently grants all five daily Office Channel memberships and
   the hidden Office Event membership, and mints a 15-minute Portal user token

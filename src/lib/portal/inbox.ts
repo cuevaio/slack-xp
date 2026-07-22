@@ -1,9 +1,10 @@
-import { officeCharacterById } from "@/lib/office-days/contract";
 import {
-  HR_REPORT_NOTIFICATION_TITLE,
   HR_REPORT_NOTIFICATION_TYPE,
+  MESSAGE_HR_REPORT_NOTIFICATION_TITLE,
+  PROFILE_HR_REPORT_NOTIFICATION_TITLE,
 } from "@/lib/hr-reports/contract";
 import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
+import { officeCharacterById } from "@/lib/office-days/contract";
 import type { OfficeChannel } from "@/lib/portal/channels";
 import { parseChatContent } from "@/lib/portal/chat";
 
@@ -23,16 +24,27 @@ export type OfficeInboxRow = {
   preview: OfficeInboxPreview | null;
 };
 
-export type HRReportInboxItem = {
+type HRReportInboxItemBase = {
   id: string;
   title: string;
   href: string;
-  officeDay: string;
-  officeChannelId: string;
-  messageId: string;
   at: number;
   read: boolean;
 };
+
+export type HRReportInboxItem = HRReportInboxItemBase &
+  (
+    | {
+        subjectType: "message";
+        officeDay: string;
+        officeChannelId: string;
+        messageId: string;
+      }
+    | {
+        subjectType: "profile";
+        profileId: string;
+      }
+  );
 
 export type OfficeInboxSnapshot = {
   entries: OfficeInboxEntry[];
@@ -64,27 +76,26 @@ export function parseHRReportInboxItem(
     return null;
   }
   const data = value.data;
-  if (
-    Object.keys(data).some(
-      (key) =>
-        ![
+  if (typeof data.subjectType !== "string") {
+    return null;
+  }
+  const allowedKeys =
+    data.subjectType === "profile"
+      ? ["title", "href", "subjectType", "profileId"]
+      : [
           "title",
           "href",
+          "subjectType",
           "officeDay",
           "officeChannelId",
           "messageId",
-        ].includes(key),
-    )
-  ) {
-    return null;
-  }
+        ];
+  if (Object.keys(data).some((key) => !allowedKeys.includes(key))) return null;
   const title = typeof value.title === "string" ? value.title : data.title;
   if (
-    title !== HR_REPORT_NOTIFICATION_TITLE ||
+    typeof title !== "string" ||
     typeof data.href !== "string" ||
-    typeof data.officeDay !== "string" ||
-    typeof data.officeChannelId !== "string" ||
-    typeof data.messageId !== "string"
+    (data.subjectType !== "message" && data.subjectType !== "profile")
   ) {
     return null;
   }
@@ -98,8 +109,35 @@ export function parseHRReportInboxItem(
     return null;
   }
   const target = parseHRReportReviewTarget(url.search);
+  if (!target || target.subjectType !== data.subjectType) {
+    return null;
+  }
+  const shared = {
+    id: value.id,
+    title,
+    href: `${url.pathname}${url.search}`,
+    at: value.at,
+    read: value.read,
+  };
+  if (target.subjectType === "profile") {
+    if (
+      title !== PROFILE_HR_REPORT_NOTIFICATION_TITLE ||
+      typeof data.profileId !== "string" ||
+      target.profileId !== data.profileId
+    ) {
+      return null;
+    }
+    return {
+      ...shared,
+      subjectType: "profile",
+      profileId: target.profileId,
+    };
+  }
   if (
-    !target ||
+    title !== MESSAGE_HR_REPORT_NOTIFICATION_TITLE ||
+    typeof data.officeDay !== "string" ||
+    typeof data.officeChannelId !== "string" ||
+    typeof data.messageId !== "string" ||
     target.officeDay !== data.officeDay ||
     target.officeChannelId !== data.officeChannelId ||
     target.messageId !== data.messageId
@@ -107,14 +145,11 @@ export function parseHRReportInboxItem(
     return null;
   }
   return {
-    id: value.id,
-    title,
-    href: `${url.pathname}${url.search}`,
-    officeDay: data.officeDay,
-    officeChannelId: data.officeChannelId,
-    messageId: data.messageId,
-    at: value.at,
-    read: value.read,
+    ...shared,
+    subjectType: "message",
+    officeDay: target.officeDay,
+    officeChannelId: target.officeChannelId,
+    messageId: target.messageId,
   };
 }
 

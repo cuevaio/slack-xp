@@ -21,8 +21,9 @@ import {
   useState,
 } from "react";
 import { MessageHRReportControls } from "@/components/message-hr-report-controls";
-import type { SafeScriptedSystemEventMessage } from "@/lib/office-days/contract";
+import { NewHireProfileContext } from "@/components/new-hire-profile-context";
 import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
+import type { SafeScriptedSystemEventMessage } from "@/lib/office-days/contract";
 import { useOfficeEventSubscription } from "@/lib/office-events/client";
 import {
   createReactionOfficeEvent,
@@ -400,17 +401,23 @@ function DetailedPresenceContent({
         const profile = profilesById.get(userId);
         return (
           <li data-new-hire-id={userId} key={userId}>
-            <ProfileAvatar
-              placeholderClassName="new-hire-presence-dot"
-              profile={profile}
-              size={22}
-            />
-            <span>
-              <strong>{profile?.displayName ?? "New Hire"}</strong>
-              {profile?.status === "unavailable" ? (
-                <small>Profile unavailable</small>
-              ) : null}
-            </span>
+            <a
+              aria-label={`Open current New Hire Profile for ${profileDisplayName(profile)}`}
+              className="profile-context-trigger"
+              href={`/office?profile=${encodeURIComponent(userId)}`}
+            >
+              <ProfileAvatar
+                placeholderClassName="new-hire-presence-dot"
+                profile={profile}
+                size={22}
+              />
+              <span>
+                <strong>{profile?.displayName ?? "New Hire"}</strong>
+                {profile?.status === "unavailable" ? (
+                  <small>Profile unavailable</small>
+                ) : null}
+              </span>
+            </a>
           </li>
         );
       })}
@@ -889,13 +896,19 @@ function MessageHistory({
             tabIndex={-1}
           >
             <div className="message-meta">
-              <ProfileAvatar
-                imageClassName="message-avatar"
-                placeholderClassName="message-avatar-placeholder"
-                profile={profile}
-                size={28}
-              />
-              <strong>{profileDisplayName(profile)}</strong>
+              <a
+                aria-label={`Open current New Hire Profile for ${profileDisplayName(profile)}`}
+                className="profile-context-trigger"
+                href={`/office?profile=${encodeURIComponent(message.senderId)}`}
+              >
+                <ProfileAvatar
+                  imageClassName="message-avatar"
+                  placeholderClassName="message-avatar-placeholder"
+                  profile={profile}
+                  size={28}
+                />
+                <strong>{profileDisplayName(profile)}</strong>
+              </a>
               <time dateTime={new Date(message.timestamp).toISOString()}>
                 {formatOfficeTimestamp(message.timestamp)}
               </time>
@@ -1054,7 +1067,12 @@ function ChatSurface({
       return;
     }
     const target = parseHRReportReviewTarget(window.location.search);
-    if (!target || target.officeChannelId !== channel.id) return;
+    if (
+      !target ||
+      target.subjectType !== "message" ||
+      target.officeChannelId !== channel.id
+    )
+      return;
     const element = [
       ...document.querySelectorAll<HTMLElement>(".chat-message"),
     ].find(
@@ -1409,7 +1427,11 @@ function OfficeWorkspace({
                   {reportNotifications.map((notification) => (
                     <li key={notification.id}>
                       <a
-                        aria-label={`${notification.title}, open message context`}
+                        aria-label={`${notification.title}, ${
+                          notification.subjectType === "message"
+                            ? "open message context"
+                            : "open current New Hire Profile"
+                        }`}
                         className={notification.read ? "is-read" : undefined}
                         href={notification.href}
                         onClick={() =>
@@ -1418,7 +1440,9 @@ function OfficeWorkspace({
                       >
                         <strong>{notification.title}</strong>
                         <small>
-                          {notification.officeDay} · Open message context
+                          {notification.subjectType === "message"
+                            ? `${notification.officeDay} · Open message context`
+                            : "Open current New Hire Profile"}
                         </small>
                       </a>
                     </li>
@@ -1449,6 +1473,7 @@ function OfficeWorkspace({
           {children}
         </section>
       </div>
+      <NewHireProfileContext />
       <footer className="office-taskbar">
         <button
           aria-label={`Focus Office Channel directory, ${totalUnread} unread`}
@@ -1563,11 +1588,21 @@ function useActiveOfficeChannel(
 
   useEffect(() => {
     const target = parseHRReportReviewTarget(window.location.search);
-    const targetsCurrentOfficeDay = target?.officeDay === currentOfficeDay;
+    const targetsCurrentOfficeDay =
+      target?.subjectType === "message" &&
+      target.officeDay === currentOfficeDay;
     const targetsKnownChannel = channels.some(
-      ({ id }) => id === target?.officeChannelId,
+      ({ id }) =>
+        id ===
+        (target?.subjectType === "message"
+          ? target.officeChannelId
+          : undefined),
     );
-    if (target && targetsCurrentOfficeDay && targetsKnownChannel) {
+    if (
+      target?.subjectType === "message" &&
+      targetsCurrentOfficeDay &&
+      targetsKnownChannel
+    ) {
       setActiveChannelId(target.officeChannelId);
     }
   }, [channels, currentOfficeDay]);

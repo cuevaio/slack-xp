@@ -248,7 +248,7 @@ test("message HR Reports stay private and deep-link Operators to review context"
   await page.goto("/office");
   await page.getByRole("button", { name: "Sign in as Operator" }).click();
   const notification = page.getByRole("link", {
-    name: "HR Report ready for review, open message context",
+    name: "Message HR Report ready for review, open message context",
   });
   await expect(notification).toBeVisible();
   await notification.click();
@@ -260,6 +260,104 @@ test("message HR Reports stay private and deep-link Operators to review context"
     .filter({ hasText: reportText });
   await expect(reviewMessage).toBeVisible();
   await expect(reviewMessage).toBeFocused();
+});
+
+test("New Hire Profile HR Reports follow current canonical profile context", async ({
+  page,
+}) => {
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+
+  const reportText = "Open my current New Hire Profile.";
+  await page.getByLabel("Message # General").fill(reportText);
+  await page.getByRole("button", { name: "Send" }).click();
+  const message = page.getByRole("listitem").filter({ hasText: reportText });
+  await message
+    .getByRole("link", {
+      name: "Open current New Hire Profile for Terry Byte",
+    })
+    .click();
+  await expect(page).toHaveURL(
+    /\/office\?profile=user_mock_returning_new_hire$/,
+  );
+
+  const profile = page.getByRole("dialog", { name: "New Hire Profile" });
+  await expect(
+    profile.getByRole("heading", { name: "Terry Byte" }),
+  ).toBeVisible();
+  await profile.getByRole("button", { name: "Report to HR" }).click();
+  const reportDialog = page.getByRole("dialog", { name: "Private HR Report" });
+  await expect(reportDialog.getByRole("radio")).toHaveCount(3);
+  await expect(
+    reportDialog.getByRole("radio", { name: "Abusive or hateful name" }),
+  ).toBeFocused();
+  await reportDialog
+    .getByRole("radio", { name: "Abusive or explicit picture" })
+    .check();
+
+  const reportRequest = page.waitForRequest(
+    (request) =>
+      new URL(request.url()).pathname === "/api/office/hr-reports" &&
+      request.method() === "POST",
+  );
+  await reportDialog
+    .getByRole("button", { name: "Submit private report" })
+    .click();
+  const submittedRequest = await reportRequest;
+  expect(submittedRequest.postDataJSON()).toEqual({
+    subjectType: "profile",
+    profileId: "user_mock_returning_new_hire",
+    category: "abusive-or-explicit-picture",
+  });
+  expect(submittedRequest.postData()).not.toContain("Terry Byte");
+  await expect(profile.getByText("Private HR Report submitted.")).toBeVisible();
+
+  const duplicate = await page.request.post("/api/office/hr-reports", {
+    data: submittedRequest.postDataJSON(),
+  });
+  expect(duplicate.status()).toBe(200);
+  expect(await duplicate.json()).toMatchObject({ status: "already-reported" });
+
+  await profile.getByRole("button", { name: "Close New Hire Profile" }).click();
+  await page.getByRole("button", { name: "Employee Record" }).click();
+  const employeeRecord = page.getByRole("dialog", {
+    name: "Confirm your Employee Record",
+  });
+  await employeeRecord.getByLabel("First name").fill("Current");
+  await employeeRecord.getByLabel("Last name").fill("Profile");
+  await employeeRecord
+    .getByRole("button", { name: "Save Employee Record" })
+    .click();
+  await expect(employeeRecord.getByRole("status")).toContainText(
+    "updated in Clerk and the Shared Public Office",
+  );
+  await employeeRecord.getByRole("button", { name: "Done" }).click();
+
+  const publicEvents = await page.request.get("/api/office/portal/mock-events");
+  expect(JSON.stringify(await publicEvents.json())).not.toMatch(
+    /hr-report|abusive-or-explicit-picture|Terry Byte/i,
+  );
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.goto("/office");
+  await page.getByRole("button", { name: "Sign in as Operator" }).click();
+  const notification = page.getByRole("link", {
+    name: "New Hire Profile HR Report ready for review, open current New Hire Profile",
+  });
+  await expect(notification).toBeVisible();
+  await notification.click();
+  await expect(page).toHaveURL(
+    /\/office\?profile=user_mock_returning_new_hire$/,
+  );
+  const reviewProfile = page.getByRole("dialog", {
+    name: "New Hire Profile",
+  });
+  await expect(
+    reviewProfile.getByRole("heading", { name: "Current Profile" }),
+  ).toBeVisible();
+  await expect(reviewProfile.getByText("Terry Byte")).toHaveCount(0);
 });
 
 test("general chat confirms, reconnects, validates text, and recovers from Portal faults", async ({

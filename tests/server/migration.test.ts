@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { createDatabase } from "@/lib/db/client";
 import {
-  buildOfficeDayQueries,
   buildHRReportInsertQuery,
   buildHRReportOutboxQuery,
+  buildOfficeDayQueries,
   buildProfileOutboxQuery,
   buildProfileProjectionQuery,
 } from "@/lib/onboarding/neon";
@@ -125,6 +125,7 @@ describe("initial Neon migration", () => {
       officeDay: "2026-07-22",
       officeChannelId: "general:2026-07-22",
       messageId: "message-17",
+      subjectType: "message" as const,
       category: "harassment-or-bullying" as const,
       createdAt: new Date("2026-07-22T12:00:00.000Z"),
     };
@@ -136,5 +137,35 @@ describe("initial Neon migration", () => {
     expect(outboxQuery.sql).toContain("insert into");
     expect(outboxQuery.sql).toContain("select");
     expect(outboxQuery.sql).toContain("on conflict");
+  });
+
+  test("extends HR Reports with type-safe profile references and distinct open uniqueness", async () => {
+    const migration = await Bun.file(
+      new URL("../../drizzle/0004_report_profiles_to_hr.sql", import.meta.url),
+    ).text();
+    expect(migration).toContain('"subject_type" text');
+    expect(migration).toContain('"profile_id" text');
+    expect(migration).toContain("hr_reports_subject_context_check");
+    expect(migration).toContain("hr_reports_one_open_profile_per_reporter_idx");
+    expect(migration).toContain("hr_reports_one_open_message_per_reporter_idx");
+    expect(migration).not.toMatch(
+      /display_name|image_url|first_name|last_name|picture_url/iu,
+    );
+
+    const query = buildHRReportInsertQuery(
+      createDatabase("postgresql://test:test@localhost/test"),
+      {
+        reportId: "profile-report-sql-contract",
+        reporterId: "user-reporter",
+        subjectType: "profile",
+        profileId: "user-profile-subject",
+        category: "abusive-or-hateful-name",
+        createdAt: new Date("2026-07-22T12:00:00.000Z"),
+      },
+    ).toSQL();
+    expect(query.sql).toContain("on conflict");
+    expect(query.sql).toContain('"profile_id"');
+    expect(query.sql).toContain('"subject_type"');
+    expect(query.sql).toContain('returning "report_id"');
   });
 });

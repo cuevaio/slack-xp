@@ -97,8 +97,11 @@ export default function SetupPage() {
               profile invalidation outbox, resumable New Hire onboarding
               records, Office Days, the scripted System Event outbox, and
               body-free HR Report workflow and notification-outbox records.
-              The outboxes contain stable references, attempt state, and
-              delivery timestamps, never profile values, message bodies,
+              Message and New Hire Profile reports use separate open-report
+              uniqueness rules. Profile reports retain only stable Clerk IDs, so
+              later edits or deletion do not copy or preserve public names and
+              pictures. The outboxes contain stable references, attempt state,
+              and delivery timestamps, never profile values, message bodies,
               previews, or presence. Portal remains the authority for messages
               and conversation state.
             </p>

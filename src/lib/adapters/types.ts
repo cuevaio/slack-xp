@@ -1,11 +1,11 @@
 import type {
-  OfficeDayRepository,
-  ScriptedSystemEventPublisher,
-} from "@/lib/office-days/types";
-import type {
   HRReportNotificationPublisher,
   HRReportRepository,
 } from "@/lib/hr-reports/contract";
+import type {
+  OfficeDayRepository,
+  ScriptedSystemEventPublisher,
+} from "@/lib/office-days/types";
 import type { OnboardingRepository } from "@/lib/onboarding/types";
 import type { OfficeChannel } from "@/lib/portal/channels";
 import type { PortalAuthority } from "@/lib/portal/types";

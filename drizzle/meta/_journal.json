@@ -29,6 +29,13 @@
       "when": 1784752599221,
       "tag": "0003_report_messages_to_hr",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784753172567,
+      "tag": "0004_report_profiles_to_hr",
+      "breakpoints": true
     }
   ]
 }

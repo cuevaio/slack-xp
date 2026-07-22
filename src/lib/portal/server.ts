@@ -1,4 +1,9 @@
 import {
+  HR_REPORT_NOTIFICATION_CHANNEL_ID,
+  type HRReportNotification,
+  type HRReportNotificationPublisher,
+} from "@/lib/hr-reports/contract";
+import {
   resolveScriptedSystemEventPublication,
   SCRIPTED_SYSTEM_EVENT_MESSAGE_TYPE,
 } from "@/lib/office-days/contract";
@@ -6,11 +11,6 @@ import type {
   ScriptedSystemEventOutboxEntry,
   ScriptedSystemEventPublisher,
 } from "@/lib/office-days/types";
-import {
-  HR_REPORT_NOTIFICATION_CHANNEL_ID,
-  type HRReportNotification,
-  type HRReportNotificationPublisher,
-} from "@/lib/hr-reports/contract";
 import {
   OFFICE_EVENT_MESSAGE_TYPE,
   OFFICE_EVENT_SENDERS,
@@ -341,6 +341,22 @@ export function createPortalHRReportNotificationPublisher({
       });
 
       for (const operatorId of operatorIds) {
+        const content =
+          notification.subjectType === "profile"
+            ? {
+                title: notification.title,
+                href: notification.href,
+                subjectType: "profile" as const,
+                profileId: notification.profileId,
+              }
+            : {
+                title: notification.title,
+                href: notification.href,
+                subjectType: "message" as const,
+                officeDay: notification.officeDay,
+                officeChannelId: notification.officeChannelId,
+                messageId: notification.messageId,
+              };
         let response: Response;
         try {
           response = await fetcher(
@@ -355,13 +371,7 @@ export function createPortalHRReportNotificationPublisher({
               body: JSON.stringify({
                 type: notification.type,
                 to: operatorId,
-                content: {
-                  title: notification.title,
-                  href: notification.href,
-                  officeDay: notification.officeDay,
-                  officeChannelId: notification.officeChannelId,
-                  messageId: notification.messageId,
-                },
+                content,
               }),
               cache: "no-store",
             },

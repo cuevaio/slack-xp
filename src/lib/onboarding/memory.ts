@@ -1,13 +1,15 @@
+import type {
+  HRReportCategory,
+  HRReportRepository,
+  HRReportState,
+  HRReportSubjectType,
+  PendingHRReportNotification,
+} from "@/lib/hr-reports/contract";
 import { planOfficeDay } from "@/lib/office-days/contract";
 import type {
   OfficeDayRepository,
   ScriptedSystemEventOutboxEntry,
 } from "@/lib/office-days/types";
-import type {
-  HRReportCategory,
-  HRReportRepository,
-  HRReportState,
-} from "@/lib/hr-reports/contract";
 import {
   assignJobTitle,
   getOnboardingStep,
@@ -81,9 +83,11 @@ function toSnapshot(
 type StoredHRReport = {
   reportId: string;
   reporterId: string;
-  officeDay: string;
-  officeChannelId: string;
-  messageId: string;
+  subjectType: HRReportSubjectType;
+  officeDay: string | null;
+  officeChannelId: string | null;
+  messageId: string | null;
+  profileId: string | null;
   category: HRReportCategory;
   state: HRReportState;
   createdAt: Date;
@@ -241,12 +245,15 @@ export function createInMemoryNeonRepository(
       }
     },
 
-    async createMessageHRReport(input) {
+    async createHRReport(input) {
       const existing = [...hrReports.values()].find(
         (report) =>
           report.reporterId === input.reporterId &&
-          report.officeChannelId === input.officeChannelId &&
-          report.messageId === input.messageId &&
+          report.subjectType === input.subjectType &&
+          (input.subjectType === "message"
+            ? report.officeChannelId === input.officeChannelId &&
+              report.messageId === input.messageId
+            : report.profileId === input.profileId) &&
           report.state === "open",
       );
       if (existing) {
@@ -255,9 +262,12 @@ export function createInMemoryNeonRepository(
       const report: StoredHRReport = {
         reportId: input.reportId,
         reporterId: input.reporterId,
-        officeDay: input.officeDay,
-        officeChannelId: input.officeChannelId,
-        messageId: input.messageId,
+        subjectType: input.subjectType,
+        officeDay: input.subjectType === "message" ? input.officeDay : null,
+        officeChannelId:
+          input.subjectType === "message" ? input.officeChannelId : null,
+        messageId: input.subjectType === "message" ? input.messageId : null,
+        profileId: input.subjectType === "profile" ? input.profileId : null,
         category: input.category,
         state: "open",
         createdAt: input.createdAt,
@@ -275,25 +285,37 @@ export function createInMemoryNeonRepository(
     },
 
     async pendingHRReportNotifications(limit) {
-      return [...hrReportNotifications.values()]
+      const entries = [...hrReportNotifications.values()]
         .filter(({ publishedAt }) => publishedAt === null)
         .sort(
           (left, right) => left.createdAt.getTime() - right.createdAt.getTime(),
         )
-        .slice(0, limit)
-        .flatMap((entry) => {
-          const report = hrReports.get(entry.reportId);
-          return report
-            ? [
-                {
-                  outboxId: entry.outboxId,
-                  officeDay: report.officeDay,
-                  officeChannelId: report.officeChannelId,
-                  messageId: report.messageId,
-                },
-              ]
-            : [];
-        });
+        .slice(0, limit);
+      const pending: PendingHRReportNotification[] = [];
+      for (const entry of entries) {
+        const report = hrReports.get(entry.reportId);
+        if (report?.subjectType === "profile" && report.profileId) {
+          pending.push({
+            outboxId: entry.outboxId,
+            subjectType: "profile",
+            profileId: report.profileId,
+          });
+        } else if (
+          report?.subjectType === "message" &&
+          report.officeDay &&
+          report.officeChannelId &&
+          report.messageId
+        ) {
+          pending.push({
+            outboxId: entry.outboxId,
+            subjectType: "message",
+            officeDay: report.officeDay,
+            officeChannelId: report.officeChannelId,
+            messageId: report.messageId,
+          });
+        }
+      }
+      return pending;
     },
 
     async markHRReportNotificationPublished(outboxId, publishedAt) {

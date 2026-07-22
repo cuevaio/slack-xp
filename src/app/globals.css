@@ -1416,8 +1416,28 @@ a {
   background: white;
 }
 
-.detailed-presence li > span:last-child {
+.detailed-presence .profile-context-trigger > span:last-child {
   display: grid;
+}
+
+.profile-context-trigger {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 0.45rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.profile-context-trigger:hover strong,
+.profile-context-trigger:focus-visible strong {
+  text-decoration: underline;
+}
+
+.profile-context-trigger:focus-visible {
+  border-radius: 2px;
+  outline: 3px solid #315ac8;
+  outline-offset: 2px;
 }
 
 .detailed-presence small {
@@ -1640,6 +1660,11 @@ a {
   text-decoration: underline;
 }
 
+.chat-message .profile-context-trigger {
+  color: inherit;
+  text-decoration: none;
+}
+
 .reaction-controls,
 .reaction-summary,
 .reaction-picker {
@@ -1814,6 +1839,78 @@ a {
   justify-content: flex-end;
   gap: 0.6rem;
   margin-top: 1rem;
+}
+
+.profile-context-backdrop {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(13 23 42 / 62%);
+}
+
+.profile-context-dialog {
+  width: min(100%, 440px);
+  border: 3px outset #eee;
+  background: #ece9d8;
+  box-shadow: 8px 10px 0 rgb(9 25 48 / 38%);
+  color: var(--ink);
+}
+
+.profile-context-dialog .window-titlebar button {
+  display: grid;
+  width: 30px;
+  min-height: 26px;
+  place-items: center;
+  border: 2px outset #eee;
+  background: #ece9d8;
+  color: #17233c;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 900;
+}
+
+.profile-context-content {
+  display: grid;
+  gap: 1rem;
+  padding: 1.2rem;
+}
+
+.profile-context-identity {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.profile-context-identity img,
+.profile-context-avatar {
+  width: 88px;
+  height: 88px;
+  flex: 0 0 auto;
+  border: 2px inset #c5cbd4;
+  object-fit: cover;
+}
+
+.profile-context-avatar {
+  display: grid;
+  place-items: center;
+  background: #ffce61;
+  color: #1b2536;
+  font-size: 2rem;
+  font-weight: 900;
+}
+
+.profile-context-identity h3 {
+  margin: 0.2rem 0 0;
+  color: #442052;
+  font-size: 1.35rem;
+}
+
+.profile-context-content > p {
+  margin: 0;
+  line-height: 1.5;
 }
 
 .portal-outage {

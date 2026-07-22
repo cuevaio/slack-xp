@@ -1,15 +1,47 @@
 import {
-  type CreateMessageHRReportResult,
-  HR_REPORT_NOTIFICATION_TITLE,
+  type CreateHRReportInput,
+  type CreateHRReportResult,
   HR_REPORT_NOTIFICATION_TYPE,
-  type HRReportCategory,
+  type HRReportNotification,
   type HRReportNotificationPublisher,
   type HRReportRepository,
-  type HRReportStableContext,
+  MESSAGE_HR_REPORT_NOTIFICATION_TITLE,
+  type MessageHRReportCategory,
+  PROFILE_HR_REPORT_NOTIFICATION_TITLE,
+  type ProfileHRReportCategory,
 } from "@/lib/hr-reports/contract";
 import { createHRReportDeepLink } from "@/lib/hr-reports/domain";
 
 const HR_REPORT_OUTBOX_BATCH_SIZE = 50;
+
+function toNotification(
+  appOrigin: string,
+  entry: Awaited<
+    ReturnType<HRReportRepository["pendingHRReportNotifications"]>
+  >[number],
+): HRReportNotification {
+  const shared = {
+    notificationId: entry.outboxId,
+    type: HR_REPORT_NOTIFICATION_TYPE,
+    href: createHRReportDeepLink(appOrigin, entry),
+  } as const;
+  if (entry.subjectType === "profile") {
+    return {
+      ...shared,
+      title: PROFILE_HR_REPORT_NOTIFICATION_TITLE,
+      subjectType: "profile",
+      profileId: entry.profileId,
+    };
+  }
+  return {
+    ...shared,
+    title: MESSAGE_HR_REPORT_NOTIFICATION_TITLE,
+    subjectType: "message",
+    officeDay: entry.officeDay,
+    officeChannelId: entry.officeChannelId,
+    messageId: entry.messageId,
+  };
+}
 
 export async function flushHRReportNotifications({
   repository,
@@ -29,15 +61,7 @@ export async function flushHRReportNotifications({
   let published = 0;
   for (const entry of pending) {
     await publisher.publishHRReportNotification(
-      {
-        notificationId: entry.outboxId,
-        type: HR_REPORT_NOTIFICATION_TYPE,
-        title: HR_REPORT_NOTIFICATION_TITLE,
-        officeDay: entry.officeDay,
-        officeChannelId: entry.officeChannelId,
-        messageId: entry.messageId,
-        href: createHRReportDeepLink(appOrigin, entry),
-      },
+      toNotification(appOrigin, entry),
       operatorIds,
     );
     await repository.markHRReportNotificationPublished(
@@ -49,37 +73,20 @@ export async function flushHRReportNotifications({
   return published;
 }
 
-export async function submitMessageHRReport({
+async function submitHRReport({
   repository,
   publisher,
-  reporterId,
-  category,
-  officeDay,
-  officeChannelId,
-  messageId,
+  input,
   operatorIds,
   appOrigin,
-  now = new Date(),
 }: {
   repository: HRReportRepository;
   publisher: HRReportNotificationPublisher;
-  reporterId: string;
-  category: HRReportCategory;
+  input: CreateHRReportInput;
   operatorIds: readonly string[];
   appOrigin: string;
-  now?: Date;
-} & HRReportStableContext): Promise<
-  CreateMessageHRReportResult & { notificationStatus: "sent" | "pending" }
-> {
-  const result = await repository.createMessageHRReport({
-    reportId: crypto.randomUUID(),
-    reporterId,
-    category,
-    officeDay,
-    officeChannelId,
-    messageId,
-    createdAt: now,
-  });
+}): Promise<CreateHRReportResult & { notificationStatus: "sent" | "pending" }> {
+  const result = await repository.createHRReport(input);
   if (operatorIds.length === 0) {
     return { ...result, notificationStatus: "pending" as const };
   }
@@ -94,4 +101,77 @@ export async function submitMessageHRReport({
   } catch {
     return { ...result, notificationStatus: "pending" as const };
   }
+}
+
+type SubmissionDependencies = {
+  repository: HRReportRepository;
+  publisher: HRReportNotificationPublisher;
+  reporterId: string;
+  operatorIds: readonly string[];
+  appOrigin: string;
+  now?: Date;
+};
+
+export async function submitMessageHRReport({
+  repository,
+  publisher,
+  reporterId,
+  category,
+  officeDay,
+  officeChannelId,
+  messageId,
+  operatorIds,
+  appOrigin,
+  now = new Date(),
+}: SubmissionDependencies & {
+  category: MessageHRReportCategory;
+  officeDay: string;
+  officeChannelId: string;
+  messageId: string;
+}) {
+  return submitHRReport({
+    repository,
+    publisher,
+    input: {
+      reportId: crypto.randomUUID(),
+      reporterId,
+      subjectType: "message",
+      category,
+      officeDay,
+      officeChannelId,
+      messageId,
+      createdAt: now,
+    },
+    operatorIds,
+    appOrigin,
+  });
+}
+
+export async function submitProfileHRReport({
+  repository,
+  publisher,
+  reporterId,
+  category,
+  profileId,
+  operatorIds,
+  appOrigin,
+  now = new Date(),
+}: SubmissionDependencies & {
+  category: ProfileHRReportCategory;
+  profileId: string;
+}) {
+  return submitHRReport({
+    repository,
+    publisher,
+    input: {
+      reportId: crypto.randomUUID(),
+      reporterId,
+      subjectType: "profile",
+      category,
+      profileId,
+      createdAt: now,
+    },
+    operatorIds,
+    appOrigin,
+  });
 }

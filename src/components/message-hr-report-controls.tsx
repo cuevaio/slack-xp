@@ -4,14 +4,19 @@ import {
   type FormEvent,
   type KeyboardEvent,
   useEffect,
+  useId,
   useRef,
   useState,
 } from "react";
 import {
   HR_REPORT_CATEGORIES,
   type HRReportCategory,
+  PROFILE_HR_REPORT_CATEGORIES,
 } from "@/lib/hr-reports/contract";
-import { HR_REPORT_CATEGORY_LABELS } from "@/lib/hr-reports/domain";
+import {
+  HR_REPORT_CATEGORY_LABELS,
+  PROFILE_HR_REPORT_CATEGORY_LABELS,
+} from "@/lib/hr-reports/domain";
 import type { SafePortalChatMessage } from "@/lib/portal/chat";
 
 type HRReportSubmissionResult =
@@ -19,6 +24,10 @@ type HRReportSubmissionResult =
   | "already-reported"
   | "created-notification-pending"
   | "error";
+
+type HRReportRequestContext =
+  | { officeChannelId: string; messageId: string }
+  | { subjectType: "profile"; profileId: string };
 
 function parseSubmissionResult(
   value: unknown,
@@ -52,12 +61,13 @@ function isSubmitted(result: HRReportSubmissionResult | null): boolean {
 
 function confirmationMessage(
   result: HRReportSubmissionResult | null,
+  subjectLabel: string,
 ): string | null {
   switch (result) {
     case "created":
       return "Private HR Report submitted.";
     case "already-reported":
-      return "You already have an open report for this message.";
+      return `You already have an open report for this ${subjectLabel}.`;
     case "created-notification-pending":
       return "Private HR Report submitted. Operator notification is queued.";
     default:
@@ -65,20 +75,27 @@ function confirmationMessage(
   }
 }
 
-export function MessageHRReportControls({
-  message,
+function HRReportControls({
+  categories,
+  categoryLabels,
+  context,
+  description,
+  subjectLabel,
 }: {
-  message: SafePortalChatMessage;
+  categories: readonly HRReportCategory[];
+  categoryLabels: Partial<Record<HRReportCategory, string>>;
+  context: HRReportRequestContext;
+  description: string;
+  subjectLabel: string;
 }) {
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [category, setCategory] = useState<HRReportCategory>(
-    HR_REPORT_CATEGORIES[0],
-  );
+  const [category, setCategory] = useState<HRReportCategory>(categories[0]);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<HRReportSubmissionResult | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const firstCategoryRef = useRef<HTMLInputElement>(null);
-  const titleId = `hr-report-title-${message.id}`;
+  const instanceId = useId();
+  const titleId = `hr-report-title-${instanceId}`;
 
   useEffect(() => {
     if (dialogOpen) {
@@ -92,6 +109,7 @@ export function MessageHRReportControls({
   }
 
   function handleDialogKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+    event.stopPropagation();
     if (event.key === "Escape" && !submitting) {
       event.preventDefault();
       closeDialog();
@@ -136,11 +154,7 @@ export function MessageHRReportControls({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          category,
-          officeChannelId: message.channelId,
-          messageId: message.id,
-        }),
+        body: JSON.stringify({ ...context, category }),
       });
       const payload: unknown = await response.json().catch(() => null);
       const submissionResult = parseSubmissionResult(payload);
@@ -158,7 +172,7 @@ export function MessageHRReportControls({
   }
 
   const submitted = isSubmitted(result);
-  const confirmation = confirmationMessage(result);
+  const confirmation = confirmationMessage(result, subjectLabel);
 
   return (
     <div className="hr-report-controls">
@@ -185,23 +199,21 @@ export function MessageHRReportControls({
         >
           <form className="hr-report-dialog" onSubmit={submit}>
             <h2 id={titleId}>Private HR Report</h2>
-            <p>
-              Choose the reason for Operator review. The message stays in
-              Portal; only its stable reference is stored with this report.
-            </p>
+            <p>{description}</p>
             <fieldset>
               <legend>Reason for review</legend>
-              {HR_REPORT_CATEGORIES.map((option, index) => (
+              {categories.map((option, index) => (
                 <label key={option}>
                   <input
                     checked={category === option}
-                    name={`hr-report-category-${message.id}`}
+                    name={`hr-report-category-${instanceId}`}
                     onChange={() => setCategory(option)}
                     ref={index === 0 ? firstCategoryRef : undefined}
+                    required
                     type="radio"
                     value={option}
                   />
-                  {HR_REPORT_CATEGORY_LABELS[option]}
+                  {categoryLabels[option]}
                 </label>
               ))}
             </fieldset>
@@ -232,5 +244,36 @@ export function MessageHRReportControls({
       ) : null}
       {confirmation ? <output>{confirmation}</output> : null}
     </div>
+  );
+}
+
+export function MessageHRReportControls({
+  message,
+}: {
+  message: SafePortalChatMessage;
+}) {
+  return (
+    <HRReportControls
+      categories={HR_REPORT_CATEGORIES}
+      categoryLabels={HR_REPORT_CATEGORY_LABELS}
+      context={{
+        officeChannelId: message.channelId,
+        messageId: message.id,
+      }}
+      description="Choose the reason for Operator review. The message stays in Portal; only its stable reference is stored with this report."
+      subjectLabel="message"
+    />
+  );
+}
+
+export function ProfileHRReportControls({ profileId }: { profileId: string }) {
+  return (
+    <HRReportControls
+      categories={PROFILE_HR_REPORT_CATEGORIES}
+      categoryLabels={PROFILE_HR_REPORT_CATEGORY_LABELS}
+      context={{ subjectType: "profile", profileId }}
+      description="Choose the reason for Operator review. Only this stable New Hire identity is stored; the current name and picture are resolved when an Operator reviews it."
+      subjectLabel="New Hire Profile"
+    />
   );
 }

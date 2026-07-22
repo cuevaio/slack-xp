@@ -119,20 +119,32 @@ export async function GET() {
       .map(toOfficeInboxEntry);
     const notifications = getMockPortalAdapter()
       .hrReportNotifications(context.identity.id)
-      .map((notification) => ({
-        id: notification.notificationId,
-        type: notification.type,
-        title: notification.title,
-        data: {
+      .map((notification) => {
+        const data =
+          notification.subjectType === "profile"
+            ? {
+                title: notification.title,
+                href: notification.href,
+                subjectType: "profile" as const,
+                profileId: notification.profileId,
+              }
+            : {
+                title: notification.title,
+                href: notification.href,
+                subjectType: "message" as const,
+                officeDay: notification.officeDay,
+                officeChannelId: notification.officeChannelId,
+                messageId: notification.messageId,
+              };
+        return {
+          id: notification.notificationId,
+          type: notification.type,
           title: notification.title,
-          href: notification.href,
-          officeDay: notification.officeDay,
-          officeChannelId: notification.officeChannelId,
-          messageId: notification.messageId,
-        },
-        at: notification.at,
-        read: notification.read,
-      }));
+          data,
+          at: notification.at,
+          read: notification.read,
+        };
+      });
     return Response.json({ channels, notifications });
   } catch (error) {
     return handleMockPortalError(error);

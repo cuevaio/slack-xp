@@ -1,6 +1,6 @@
 {
-  "id": "fdd6a09a-4d6c-4c0c-99f4-3e46da5d396c",
-  "prevId": "629e8cf3-f959-4d58-8277-2d5e82013178",
+  "id": "82cb5076-ef6a-4ce2-9316-5476e0e1ed5a",
+  "prevId": "fdd6a09a-4d6c-4c0c-99f4-3e46da5d396c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -174,23 +174,36 @@
           "primaryKey": false,
           "notNull": true
         },
+        "subject_type": {
+          "name": "subject_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'message'"
+        },
         "office_day": {
           "name": "office_day",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "office_channel_id": {
           "name": "office_channel_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "message_id": {
           "name": "message_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
+        },
+        "profile_id": {
+          "name": "profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "category": {
           "name": "category",
@@ -244,7 +257,29 @@
             }
           ],
           "isUnique": true,
-          "where": "\"hr_reports\".\"state\" = 'open'",
+          "where": "\"hr_reports\".\"subject_type\" = 'message' and \"hr_reports\".\"state\" = 'open'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "hr_reports_one_open_profile_per_reporter_idx": {
+          "name": "hr_reports_one_open_profile_per_reporter_idx",
+          "columns": [
+            {
+              "expression": "reporter_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "profile_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"hr_reports\".\"subject_type\" = 'profile' and \"hr_reports\".\"state\" = 'open'",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -275,15 +310,19 @@
         },
         "hr_reports_office_day_check": {
           "name": "hr_reports_office_day_check",
-          "value": "\"hr_reports\".\"office_day\" ~ '^\\d{4}-\\d{2}-\\d{2}$'"
+          "value": "\"hr_reports\".\"office_day\" is null or \"hr_reports\".\"office_day\" ~ '^\\d{4}-\\d{2}-\\d{2}$'"
         },
-        "hr_reports_stable_references_check": {
-          "name": "hr_reports_stable_references_check",
-          "value": "char_length(\"hr_reports\".\"office_channel_id\") between 1 and 255 and char_length(\"hr_reports\".\"message_id\") between 1 and 255"
+        "hr_reports_subject_type_check": {
+          "name": "hr_reports_subject_type_check",
+          "value": "\"hr_reports\".\"subject_type\" in ('message', 'profile')"
+        },
+        "hr_reports_subject_context_check": {
+          "name": "hr_reports_subject_context_check",
+          "value": "(\"hr_reports\".\"subject_type\" = 'message' and \"hr_reports\".\"office_day\" is not null and char_length(\"hr_reports\".\"office_channel_id\") between 1 and 255 and char_length(\"hr_reports\".\"message_id\") between 1 and 255 and \"hr_reports\".\"profile_id\" is null) or (\"hr_reports\".\"subject_type\" = 'profile' and \"hr_reports\".\"office_day\" is null and \"hr_reports\".\"office_channel_id\" is null and \"hr_reports\".\"message_id\" is null and char_length(\"hr_reports\".\"profile_id\") between 1 and 255)"
         },
         "hr_reports_category_check": {
           "name": "hr_reports_category_check",
-          "value": "\"hr_reports\".\"category\" in ('harassment-or-bullying', 'hate-or-discrimination', 'threatening-behavior', 'sexual-content')"
+          "value": "(\"hr_reports\".\"subject_type\" = 'message' and \"hr_reports\".\"category\" in ('harassment-or-bullying', 'hate-or-discrimination', 'threatening-behavior', 'sexual-content')) or (\"hr_reports\".\"subject_type\" = 'profile' and \"hr_reports\".\"category\" in ('abusive-or-hateful-name', 'abusive-or-explicit-picture', 'impersonation'))"
         },
         "hr_reports_state_check": {
           "name": "hr_reports_state_check",

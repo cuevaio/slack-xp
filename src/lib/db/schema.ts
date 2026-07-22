@@ -179,9 +179,11 @@ export const hrReports = pgTable(
     reporterId: text("reporter_id")
       .notNull()
       .references(() => clerkProfiles.clerkUserId, { onDelete: "cascade" }),
-    officeDay: text("office_day").notNull(),
-    officeChannelId: text("office_channel_id").notNull(),
-    messageId: text("message_id").notNull(),
+    subjectType: text("subject_type").default("message").notNull(),
+    officeDay: text("office_day"),
+    officeChannelId: text("office_channel_id"),
+    messageId: text("message_id"),
+    profileId: text("profile_id"),
     category: text("category").notNull(),
     state: text("state").default("open").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -202,15 +204,19 @@ export const hrReports = pgTable(
     ),
     check(
       "hr_reports_office_day_check",
-      sql`${table.officeDay} ~ '^\\d{4}-\\d{2}-\\d{2}$'`,
+      sql`${table.officeDay} is null or ${table.officeDay} ~ '^\\d{4}-\\d{2}-\\d{2}$'`,
     ),
     check(
-      "hr_reports_stable_references_check",
-      sql`char_length(${table.officeChannelId}) between 1 and 255 and char_length(${table.messageId}) between 1 and 255`,
+      "hr_reports_subject_type_check",
+      sql`${table.subjectType} in ('message', 'profile')`,
+    ),
+    check(
+      "hr_reports_subject_context_check",
+      sql`(${table.subjectType} = 'message' and ${table.officeDay} is not null and char_length(${table.officeChannelId}) between 1 and 255 and char_length(${table.messageId}) between 1 and 255 and ${table.profileId} is null) or (${table.subjectType} = 'profile' and ${table.officeDay} is null and ${table.officeChannelId} is null and ${table.messageId} is null and char_length(${table.profileId}) between 1 and 255)`,
     ),
     check(
       "hr_reports_category_check",
-      sql`${table.category} in ('harassment-or-bullying', 'hate-or-discrimination', 'threatening-behavior', 'sexual-content')`,
+      sql`(${table.subjectType} = 'message' and ${table.category} in ('harassment-or-bullying', 'hate-or-discrimination', 'threatening-behavior', 'sexual-content')) or (${table.subjectType} = 'profile' and ${table.category} in ('abusive-or-hateful-name', 'abusive-or-explicit-picture', 'impersonation'))`,
     ),
     check(
       "hr_reports_state_check",
@@ -218,7 +224,10 @@ export const hrReports = pgTable(
     ),
     uniqueIndex("hr_reports_one_open_message_per_reporter_idx")
       .on(table.reporterId, table.officeChannelId, table.messageId)
-      .where(sql`${table.state} = 'open'`),
+      .where(sql`${table.subjectType} = 'message' and ${table.state} = 'open'`),
+    uniqueIndex("hr_reports_one_open_profile_per_reporter_idx")
+      .on(table.reporterId, table.profileId)
+      .where(sql`${table.subjectType} = 'profile' and ${table.state} = 'open'`),
   ],
 );
 

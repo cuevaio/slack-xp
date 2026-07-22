@@ -32,10 +32,11 @@ describe("Office Channel inbox projection", () => {
     const item = {
       id: "notification-17",
       type: "hr-report.ready",
-      title: "HR Report ready for review",
+      title: "Message HR Report ready for review",
       data: {
-        title: "HR Report ready for review",
+        title: "Message HR Report ready for review",
         href: "https://office.example.com/office?officeDay=2026-07-22&channel=general&message=message-17",
+        subjectType: "message",
         officeDay: "2026-07-22",
         officeChannelId: "general:2026-07-22",
         messageId: "message-17",
@@ -45,8 +46,9 @@ describe("Office Channel inbox projection", () => {
     };
     expect(parseHRReportInboxItem(item)).toEqual({
       id: "notification-17",
-      title: "HR Report ready for review",
+      title: "Message HR Report ready for review",
       href: "/office?officeDay=2026-07-22&channel=general&message=message-17",
+      subjectType: "message",
       officeDay: "2026-07-22",
       officeChannelId: "general:2026-07-22",
       messageId: "message-17",
@@ -66,8 +68,9 @@ describe("Office Channel inbox projection", () => {
       reportNotifications: [
         {
           id: "notification-17",
-          title: "HR Report ready for review",
+          title: "Message HR Report ready for review",
           href: "/office?officeDay=2026-07-22&channel=general&message=message-17",
+          subjectType: "message",
           officeDay: "2026-07-22",
           officeChannelId: "general:2026-07-22",
           messageId: "message-17",
@@ -76,6 +79,35 @@ describe("Office Channel inbox projection", () => {
         },
       ],
     });
+
+    const profileItem = {
+      id: "profile-notification-18",
+      type: "hr-report.ready",
+      title: "New Hire Profile HR Report ready for review",
+      data: {
+        title: "New Hire Profile HR Report ready for review",
+        href: "https://office.example.com/office?profile=user_profile_subject",
+        subjectType: "profile",
+        profileId: "user_profile_subject",
+      },
+      at: 1_753_188_000_100,
+      read: false,
+    };
+    expect(parseHRReportInboxItem(profileItem)).toEqual({
+      id: "profile-notification-18",
+      title: "New Hire Profile HR Report ready for review",
+      href: "/office?profile=user_profile_subject",
+      subjectType: "profile",
+      profileId: "user_profile_subject",
+      at: 1_753_188_000_100,
+      read: false,
+    });
+    expect(
+      parseHRReportInboxItem({
+        ...profileItem,
+        data: { ...profileItem.data, displayName: "Leaked Name" },
+      }),
+    ).toBeNull();
   });
 
   test("validates the complete mock inbox response at runtime", () => {

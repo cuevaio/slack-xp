@@ -2,8 +2,14 @@ import { createServiceAdapters } from "@/lib/adapters";
 import { configuredOperatorUserIds } from "@/lib/auth/operator";
 import { authenticateOfficeRequest } from "@/lib/auth/server";
 import { readAppConfiguration } from "@/lib/config";
-import { parseMessageHRReportRequest } from "@/lib/hr-reports/domain";
-import { submitMessageHRReport } from "@/lib/hr-reports/service";
+import {
+  parseMessageHRReportRequest,
+  parseProfileHRReportRequest,
+} from "@/lib/hr-reports/domain";
+import {
+  submitMessageHRReport,
+  submitProfileHRReport,
+} from "@/lib/hr-reports/service";
 import { officeNowForRequest } from "@/lib/portal/request-time";
 
 export const runtime = "nodejs";
@@ -24,10 +30,9 @@ export async function POST(request: Request) {
   }
 
   const now = officeNowForRequest(request.headers, configuration);
-  const input = parseMessageHRReportRequest(
-    await request.json().catch(() => null),
-    now,
-  );
+  const body: unknown = await request.json().catch(() => null);
+  const input =
+    parseProfileHRReportRequest(body) ?? parseMessageHRReportRequest(body, now);
   if (!input) {
     return Response.json({ error: "invalid_hr_report" }, { status: 422 });
   }
@@ -35,15 +40,24 @@ export async function POST(request: Request) {
     configuration.serviceMode === "mock"
       ? ["user_mock_operator"]
       : configuredOperatorUserIds();
-  const result = await submitMessageHRReport({
+  const dependencies = {
     repository: adapters.neon,
     publisher: adapters.portal,
     reporterId: identity.id,
-    ...input,
     operatorIds,
     appOrigin: configuration.values.APP_ORIGIN ?? new URL(request.url).origin,
     now,
-  });
+  };
+  let result: Awaited<ReturnType<typeof submitMessageHRReport>>;
+  if ("subjectType" in input) {
+    const [profile] = await adapters.neon.getProfiles([input.profileId]);
+    if (profile?.status !== "current") {
+      return Response.json({ error: "profile_unavailable" }, { status: 422 });
+    }
+    result = await submitProfileHRReport({ ...dependencies, ...input });
+  } else {
+    result = await submitMessageHRReport({ ...dependencies, ...input });
+  }
   return Response.json(result, {
     status: result.status === "created" ? 201 : 200,
     headers: { "Cache-Control": "no-store, private" },

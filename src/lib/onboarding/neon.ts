@@ -19,12 +19,15 @@ import {
   profileInvalidationOutbox,
   scriptedSystemEventOutbox,
 } from "@/lib/db/schema";
+import type {
+  CreateHRReportInput,
+  PendingHRReportNotification,
+} from "@/lib/hr-reports/contract";
 import {
   type PlannedSystemEvent,
   planOfficeDay,
 } from "@/lib/office-days/contract";
 import type { ScriptedSystemEventOutboxEntry } from "@/lib/office-days/types";
-import type { CreateMessageHRReportInput } from "@/lib/hr-reports/contract";
 import { OFFICE_EVENT_VERSION } from "@/lib/office-events/contract";
 import {
   assignJobTitle,
@@ -205,35 +208,44 @@ function matchesPlannedSystemEvent(
 
 export function buildHRReportInsertQuery(
   database: Database,
-  input: CreateMessageHRReportInput,
+  input: CreateHRReportInput,
 ) {
-  return database
-    .insert(hrReports)
-    .values({
-      reportId: input.reportId,
-      reporterId: input.reporterId,
-      officeDay: input.officeDay,
-      officeChannelId: input.officeChannelId,
-      messageId: input.messageId,
-      category: input.category,
-      state: "open",
-      createdAt: input.createdAt,
-      updatedAt: input.createdAt,
-    })
-    .onConflictDoNothing({
-      target: [
-        hrReports.reporterId,
-        hrReports.officeChannelId,
-        hrReports.messageId,
-      ],
-      where: sql`${hrReports.state} = 'open'`,
-    })
-    .returning({ reportId: hrReports.reportId });
+  const query = database.insert(hrReports).values({
+    reportId: input.reportId,
+    reporterId: input.reporterId,
+    subjectType: input.subjectType,
+    officeDay: input.subjectType === "message" ? input.officeDay : null,
+    officeChannelId:
+      input.subjectType === "message" ? input.officeChannelId : null,
+    messageId: input.subjectType === "message" ? input.messageId : null,
+    profileId: input.subjectType === "profile" ? input.profileId : null,
+    category: input.category,
+    state: "open",
+    createdAt: input.createdAt,
+    updatedAt: input.createdAt,
+  });
+  return input.subjectType === "message"
+    ? query
+        .onConflictDoNothing({
+          target: [
+            hrReports.reporterId,
+            hrReports.officeChannelId,
+            hrReports.messageId,
+          ],
+          where: sql`${hrReports.subjectType} = 'message' and ${hrReports.state} = 'open'`,
+        })
+        .returning({ reportId: hrReports.reportId })
+    : query
+        .onConflictDoNothing({
+          target: [hrReports.reporterId, hrReports.profileId],
+          where: sql`${hrReports.subjectType} = 'profile' and ${hrReports.state} = 'open'`,
+        })
+        .returning({ reportId: hrReports.reportId });
 }
 
 export function buildHRReportOutboxQuery(
   database: Database,
-  input: CreateMessageHRReportInput,
+  input: CreateHRReportInput,
 ) {
   const outboxId = `hr-report-notification:${input.reportId}`;
   return database
@@ -437,7 +449,7 @@ export function createNeonRepository(database: Database): NeonAdapter {
           ),
         );
     },
-    async createMessageHRReport(input) {
+    async createHRReport(input) {
       const [createdRows] = await database.batch([
         buildHRReportInsertQuery(database, input),
         buildHRReportOutboxQuery(database, input),
@@ -446,14 +458,21 @@ export function createNeonRepository(database: Database): NeonAdapter {
       if (created) {
         return { reportId: created.reportId, status: "created" };
       }
+      const identityCondition =
+        input.subjectType === "message"
+          ? and(
+              eq(hrReports.officeChannelId, input.officeChannelId),
+              eq(hrReports.messageId, input.messageId),
+            )
+          : eq(hrReports.profileId, input.profileId);
       const [existing] = await database
         .select({ reportId: hrReports.reportId })
         .from(hrReports)
         .where(
           and(
             eq(hrReports.reporterId, input.reporterId),
-            eq(hrReports.officeChannelId, input.officeChannelId),
-            eq(hrReports.messageId, input.messageId),
+            eq(hrReports.subjectType, input.subjectType),
+            identityCondition,
             eq(hrReports.state, "open"),
           ),
         )
@@ -464,12 +483,14 @@ export function createNeonRepository(database: Database): NeonAdapter {
       return { reportId: existing.reportId, status: "already-reported" };
     },
     async pendingHRReportNotifications(limit) {
-      return database
+      const rows = await database
         .select({
           outboxId: hrReportNotificationOutbox.outboxId,
+          subjectType: hrReports.subjectType,
           officeDay: hrReports.officeDay,
           officeChannelId: hrReports.officeChannelId,
           messageId: hrReports.messageId,
+          profileId: hrReports.profileId,
         })
         .from(hrReportNotificationOutbox)
         .innerJoin(
@@ -479,6 +500,30 @@ export function createNeonRepository(database: Database): NeonAdapter {
         .where(isNull(hrReportNotificationOutbox.publishedAt))
         .orderBy(asc(hrReportNotificationOutbox.createdAt))
         .limit(limit);
+      const pending: PendingHRReportNotification[] = [];
+      for (const row of rows) {
+        if (row.subjectType === "profile" && row.profileId) {
+          pending.push({
+            outboxId: row.outboxId,
+            subjectType: "profile",
+            profileId: row.profileId,
+          });
+        } else if (
+          row.subjectType === "message" &&
+          row.officeDay &&
+          row.officeChannelId &&
+          row.messageId
+        ) {
+          pending.push({
+            outboxId: row.outboxId,
+            subjectType: "message",
+            officeDay: row.officeDay,
+            officeChannelId: row.officeChannelId,
+            messageId: row.messageId,
+          });
+        }
+      }
+      return pending;
     },
     async markHRReportNotificationPublished(outboxId, publishedAt) {
       await database

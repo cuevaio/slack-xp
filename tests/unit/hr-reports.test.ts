@@ -2,8 +2,10 @@ import { describe, expect, test } from "bun:test";
 import {
   createHRReportDeepLink,
   HR_REPORT_CATEGORIES,
+  PROFILE_HR_REPORT_CATEGORIES,
   parseHRReportReviewTarget,
   parseMessageHRReportRequest,
+  parseProfileHRReportRequest,
 } from "@/lib/hr-reports/domain";
 
 describe("message HR Report contract", () => {
@@ -71,6 +73,7 @@ describe("message HR Report contract", () => {
       "https://office.example.com/office?officeDay=2026-07-22&channel=urgent&message=message-urgent-17",
     );
     expect(parseHRReportReviewTarget(new URL(href).search)).toEqual({
+      subjectType: "message",
       officeDay: "2026-07-22",
       officeChannelId: "urgent:2026-07-22",
       messageId: "message-urgent-17",
@@ -81,5 +84,52 @@ describe("message HR Report contract", () => {
         "?officeDay=2026-07-22&channel=unknown&message=message-17",
       ),
     ).toBeNull();
+  });
+
+  test("accepts only approved New Hire Profile categories and stable identities", () => {
+    for (const category of PROFILE_HR_REPORT_CATEGORIES) {
+      expect(
+        parseProfileHRReportRequest({
+          subjectType: "profile",
+          category,
+          profileId: "user_profile_subject",
+        }),
+      ).toEqual({
+        subjectType: "profile",
+        category,
+        profileId: "user_profile_subject",
+      });
+    }
+
+    expect(
+      parseProfileHRReportRequest({
+        subjectType: "profile",
+        category: HR_REPORT_CATEGORIES[0],
+        profileId: "user_profile_subject",
+      }),
+    ).toBeNull();
+    expect(
+      parseProfileHRReportRequest({
+        subjectType: "profile",
+        category: PROFILE_HR_REPORT_CATEGORIES[0],
+        profileId: " mutable profile ",
+      }),
+    ).toBeNull();
+  });
+
+  test("builds a type-specific profile review link containing no mutable values", () => {
+    const href = createHRReportDeepLink("https://office.example.com", {
+      subjectType: "profile",
+      profileId: "user_profile_subject",
+    });
+
+    expect(href).toBe(
+      "https://office.example.com/office?profile=user_profile_subject",
+    );
+    expect(parseHRReportReviewTarget(new URL(href).search)).toEqual({
+      subjectType: "profile",
+      profileId: "user_profile_subject",
+    });
+    expect(href).not.toMatch(/category|reporter|displayName|imageUrl/i);
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { officeEventChannelId } from "@/lib/office-events/contract";
 import { createMockPortalAdapter } from "@/lib/portal/mock";
 import { createPortalControlPlane } from "@/lib/portal/server";
 import {
@@ -60,6 +61,7 @@ describe("Portal control-plane boundary", () => {
         "urgent:2026-07-22",
         "all-hands:2026-07-22",
       ],
+      eventChannelId: "2026-07-22:office-events",
       token: "portal-user-token",
       expiresAt: "2026-07-22T12:15:00.000Z",
     });
@@ -69,6 +71,7 @@ describe("Portal control-plane boundary", () => {
       "https://api.useportal.co/v1/channels/tech-support%3A2026-07-22/members",
       "https://api.useportal.co/v1/channels/urgent%3A2026-07-22/members",
       "https://api.useportal.co/v1/channels/all-hands%3A2026-07-22/members",
+      "https://api.useportal.co/v1/channels/2026-07-22%3Aoffice-events/members",
       "https://api.useportal.co/v1/tokens",
     ]);
     expect(requests[0]?.init?.headers).toEqual({
@@ -84,6 +87,7 @@ describe("Portal control-plane boundary", () => {
         "tech-support:2026-07-22": ["connect", "publish"],
         "urgent:2026-07-22": ["connect", "publish"],
         "all-hands:2026-07-22": ["connect", "publish"],
+        "2026-07-22:office-events": ["connect", "publish"],
       },
       ttl: "15m",
     });
@@ -109,6 +113,11 @@ describe("Portal control-plane boundary", () => {
       }),
     ).rejects.toBeInstanceOf(PortalEligibilityError);
     expect(portal.membershipCount("general:2026-07-22")).toBe(0);
+    expect(
+      portal.membershipCount(
+        officeEventChannelId(new Date("2026-07-22T12:00:00.000Z")),
+      ),
+    ).toBe(0);
   });
 
   test("reports upstream failures without copying secrets or response details", async () => {
@@ -144,6 +153,40 @@ describe("Portal control-plane boundary", () => {
 });
 
 describe("controlled Portal adapter", () => {
+  test("keeps visible and event memberships idempotent", async () => {
+    const portal = createMockPortalAdapter({
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+
+    const session = await issueOfficePortalSession({
+      identity: {
+        id: completedNewHire.clerkUserId,
+        fullName: completedNewHire.displayName,
+        imageUrl: null,
+      },
+      onboarding: completedNewHire,
+      portal,
+      now: new Date("2026-07-22T12:00:00.000Z"),
+    });
+    await issueOfficePortalSession({
+      identity: {
+        id: completedNewHire.clerkUserId,
+        fullName: completedNewHire.displayName,
+        imageUrl: null,
+      },
+      onboarding: completedNewHire,
+      portal,
+      now: new Date("2026-07-22T12:00:00.000Z"),
+    });
+
+    expect(session.channelIds).toHaveLength(5);
+    for (const channelId of session.channelIds) {
+      expect(portal.membershipCount(channelId)).toBe(1);
+    }
+    expect(session.eventChannelId).toBe("2026-07-22:office-events");
+    expect(portal.membershipCount(session.eventChannelId)).toBe(1);
+  });
+
   test("keeps membership and confirmed history idempotent across retry and reconnect", async () => {
     const portal = createMockPortalAdapter({
       now: () => new Date("2026-07-22T12:00:00.000Z"),

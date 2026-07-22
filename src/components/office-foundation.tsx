@@ -2,6 +2,7 @@ import { EmployeeRecordDialog } from "@/components/employee-record-dialog";
 import { PortalChat } from "@/components/portal-chat";
 import type { ServiceAdapters } from "@/lib/adapters";
 import type { AuthenticatedNewHire } from "@/lib/auth/types";
+import { officeEventChannelIdForDay } from "@/lib/office-events/contract";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 import { OFFICE_CHANNEL_DEFINITIONS } from "@/lib/portal/channels";
 
@@ -27,6 +28,12 @@ export async function OfficeFoundation({
   if (channels.length !== OFFICE_CHANNEL_DEFINITIONS.length) {
     throw new Error("The Office Channel directory is incomplete.");
   }
+  const generalChannel = channels.find(({ slug }) => slug === "general");
+  if (!generalChannel) {
+    throw new Error("The General Office Channel is not configured.");
+  }
+  const [, officeDay] = generalChannel.id.split(":");
+  const eventChannelId = officeEventChannelIdForDay(officeDay ?? "");
 
   return (
     <main className="office-shell">
@@ -43,6 +50,7 @@ export async function OfficeFoundation({
           channels={channels}
           displayName={onboarding.displayName}
           employeeRecord={<EmployeeRecordDialog onboarding={onboarding} />}
+          eventChannelId={eventChannelId}
           identityId={identity.id}
           isOperator={identity.isOperator}
           jobTitle={onboarding.jobTitle}

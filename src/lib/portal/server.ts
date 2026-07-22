@@ -89,13 +89,14 @@ export function createPortalControlPlane({
     },
 
     async mintToken({ channelIds, userId, claims }: PortalTokenInput) {
+      const permissionsByChannel = Object.fromEntries(
+        channelIds.map((channelId) => [channelId, ["connect", "publish"]]),
+      );
       const token = parseToken(
         await post("/v1/tokens", {
           userId,
           claims,
-          channels: Object.fromEntries(
-            channelIds.map((channelId) => [channelId, ["connect", "publish"]]),
-          ),
+          channels: permissionsByChannel,
           ttl: "15m",
         }),
       );

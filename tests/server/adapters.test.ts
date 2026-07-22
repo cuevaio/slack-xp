@@ -36,6 +36,9 @@ describe("service adapter boundary", () => {
       { slug: "urgent", name: "Urgent", mode: "standard" },
       { slug: "all-hands", name: "All Hands", mode: "broadcast" },
     ]);
+    expect(
+      channels.some((channel) => channel.id.endsWith(":office-events")),
+    ).toBe(false);
     expect(newHire).toMatchObject({ step: "profile" });
   });
 

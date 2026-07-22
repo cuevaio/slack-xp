@@ -11,6 +11,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { useOfficeEventSubscription } from "@/lib/office-events/client";
 import type { OfficeChannel } from "@/lib/portal/channels";
 import {
   CHAT_TEXT_LIMIT,
@@ -36,6 +37,7 @@ type PortalOfficeBaseProps = {
   identityId: string;
   displayName: string;
   employeeRecord: ReactNode;
+  eventChannelId: string;
   jobTitle: string;
   isOperator: boolean;
   canSignOut: boolean;
@@ -548,12 +550,24 @@ function LiveOfficeChannel({
   );
 }
 
+function ignoreOfficeEvent(): void {}
+
+function OfficeEventAttentionGuard({ channelId }: { channelId: string }) {
+  useOfficeEventSubscription({
+    channelId,
+    onReaction: ignoreOfficeEvent,
+    onInvalidation: ignoreOfficeEvent,
+  });
+  return null;
+}
+
 function LivePortalOffice(props: Omit<LivePortalOfficeProps, "mode">) {
   const {
     channels,
     identityId,
     displayName,
     employeeRecord,
+    eventChannelId,
     jobTitle,
     isOperator,
     canSignOut,
@@ -579,6 +593,7 @@ function LivePortalOffice(props: Omit<LivePortalOfficeProps, "mode">) {
 
   return (
     <PortalProvider client={portal}>
+      <OfficeEventAttentionGuard channelId={eventChannelId} />
       <OfficeWorkspace
         activeChannelId={activeChannelId}
         canSignOut={canSignOut}

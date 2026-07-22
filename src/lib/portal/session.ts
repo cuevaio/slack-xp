@@ -1,3 +1,4 @@
+import { officeEventChannelId } from "@/lib/office-events/contract";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 import { listOfficeChannels } from "@/lib/portal/channels";
 import type { PortalAuthority, PortalToken } from "@/lib/portal/types";
@@ -17,6 +18,7 @@ type PortalSessionIdentity = {
 
 export type OfficePortalSession = PortalToken & {
   channelIds: readonly string[];
+  eventChannelId: string;
 };
 
 export async function issueOfficePortalSession({
@@ -40,6 +42,8 @@ export async function issueOfficePortalSession({
   }
 
   const channelIds = listOfficeChannels(now).map(({ id }) => id);
+  const eventChannelId = officeEventChannelId(now);
+  const membershipChannelIds = [...channelIds, eventChannelId];
   const portalIdentity = {
     userId: identity.id,
     claims: {
@@ -48,12 +52,16 @@ export async function issueOfficePortalSession({
     },
   };
   await Promise.all(
-    channelIds.map((channelId) =>
+    membershipChannelIds.map((channelId) =>
       portal.ensureMembership({ channelId, ...portalIdentity }),
     ),
   );
   return {
     channelIds,
-    ...(await portal.mintToken({ channelIds, ...portalIdentity })),
+    eventChannelId,
+    ...(await portal.mintToken({
+      channelIds: membershipChannelIds,
+      ...portalIdentity,
+    })),
   };
 }

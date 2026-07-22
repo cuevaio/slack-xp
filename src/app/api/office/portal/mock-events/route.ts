@@ -78,9 +78,7 @@ export async function GET() {
 
   try {
     return Response.json(
-      await getMockPortalAdapter().officeEventHistory(
-        context.session.eventChannelId,
-      ),
+      getMockPortalAdapter().officeEvents(context.session.eventChannelId),
     );
   } catch (error) {
     if (error instanceof MockPortalUnavailableError) {

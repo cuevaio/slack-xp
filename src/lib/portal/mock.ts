@@ -645,6 +645,7 @@ export function createMockPortalAdapter({
     },
 
     officeEvents(channelId) {
+      requireOnline();
       return [...(officeEvents.get(channelId) ?? [])];
     },
 

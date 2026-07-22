@@ -5,7 +5,6 @@ import {
   queryOptions,
   useQuery,
 } from "@tanstack/react-query";
-import { useMemo } from "react";
 import type { ProfileAttribution } from "@/lib/profiles/types";
 
 export const PROFILE_REPAIR_INTERVAL_MS = 30_000;
@@ -75,14 +74,16 @@ export function profileBatchQueryOptions(clerkUserIds: readonly string[]) {
 }
 
 export function useProfileBatch(clerkUserIds: readonly string[]) {
-  const stableIds = useMemo(
-    () => stableProfileIds(clerkUserIds),
-    [clerkUserIds],
-  );
-  return useQuery(profileBatchQueryOptions(stableIds));
+  return useQuery(profileBatchQueryOptions(clerkUserIds));
 }
 
-function isProfileBatchQueryKey(value: readonly unknown[]): boolean {
+function isProfileBatchQueryKey(
+  value: readonly unknown[],
+): value is readonly [
+  typeof PROFILE_QUERY_NAMESPACE,
+  readonly string[],
+  ...unknown[],
+] {
   return (
     value[0] === PROFILE_QUERY_NAMESPACE &&
     Array.isArray(value[1]) &&
@@ -97,6 +98,6 @@ export function invalidateProfileBatches(
   return queryClient.invalidateQueries({
     predicate: (query) =>
       isProfileBatchQueryKey(query.queryKey) &&
-      (query.queryKey[1] as readonly string[]).includes(clerkUserId),
+      query.queryKey[1].includes(clerkUserId),
   });
 }

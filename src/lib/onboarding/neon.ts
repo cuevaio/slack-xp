@@ -6,6 +6,7 @@ import {
   newHireOnboarding,
   profileInvalidationOutbox,
 } from "@/lib/db/schema";
+import { OFFICE_EVENT_VERSION } from "@/lib/office-events/contract";
 import {
   assignJobTitle,
   getOnboardingStep,
@@ -17,7 +18,10 @@ import type {
 } from "@/lib/onboarding/types";
 import { toProfileAttribution } from "@/lib/profiles/domain";
 import { createProfileInvalidationOutboxEntry } from "@/lib/profiles/outbox";
-import type { ProfileAttribution } from "@/lib/profiles/types";
+import type {
+  ProfileAttribution,
+  ProfileInvalidationOutboxEntry,
+} from "@/lib/profiles/types";
 
 type OnboardingRow = {
   clerkUserId: string;
@@ -99,13 +103,13 @@ export function buildProfileOutboxQuery(
   profile: NewHireProfile,
   occurredAt: Date,
 ) {
-  const entry = createProfileInvalidationOutboxEntry(profile, occurredAt);
+  const outboxEntry = createProfileInvalidationOutboxEntry(profile, occurredAt);
   return database
     .insert(profileInvalidationOutbox)
     .select(
       database
         .select({
-          eventKey: sql<string>`${entry.event.eventKey}`.as("event_key"),
+          eventKey: sql<string>`${outboxEntry.event.eventKey}`.as("event_key"),
           profileId: clerkProfiles.clerkUserId,
           occurredAt: sql<Date>`${occurredAt}`.as("occurred_at"),
           publishedAt: sql<Date | null>`null`.as("published_at"),
@@ -213,16 +217,18 @@ export function createNeonRepository(database: Database): NeonAdapter {
         .where(isNull(profileInvalidationOutbox.publishedAt))
         .orderBy(asc(profileInvalidationOutbox.createdAt))
         .limit(limit);
-      return rows.map((row) => ({
-        outboxId: row.eventKey,
-        event: {
-          version: 1,
-          type: "profile.invalidated" as const,
-          eventKey: row.eventKey,
-          occurredAt: row.occurredAt.toISOString(),
-          profileId: row.profileId,
-        },
-      }));
+      return rows.map(
+        (row): ProfileInvalidationOutboxEntry => ({
+          outboxId: row.eventKey,
+          event: {
+            version: OFFICE_EVENT_VERSION,
+            type: "profile.invalidated",
+            eventKey: row.eventKey,
+            occurredAt: row.occurredAt.toISOString(),
+            profileId: row.profileId,
+          },
+        }),
+      );
     },
     async markProfileInvalidationPublished(outboxId, publishedAt) {
       await database

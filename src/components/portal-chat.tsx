@@ -100,6 +100,8 @@ type MockHistoryPage = {
   hasPrevious: boolean;
 };
 
+const FALLBACK_PROFILE_NAME = "New Hire";
+
 function connectionStatusCopy(status: ChatConnectionStatus): string {
   switch (status) {
     case "ready":
@@ -223,6 +225,41 @@ function SafeMessageText({ text }: { text: string }) {
   });
 }
 
+function profileDisplayName(profile: ProfileAttribution | undefined): string {
+  return profile?.displayName ?? FALLBACK_PROFILE_NAME;
+}
+
+function ProfileAvatar({
+  profile,
+  size,
+  imageClassName,
+  placeholderClassName,
+}: {
+  profile: ProfileAttribution | undefined;
+  size: number;
+  imageClassName?: string;
+  placeholderClassName: string;
+}) {
+  if (profile?.imageUrl) {
+    return (
+      <Image
+        alt=""
+        className={imageClassName}
+        height={size}
+        src={profile.imageUrl}
+        unoptimized
+        width={size}
+      />
+    );
+  }
+
+  return (
+    <span aria-hidden="true" className={placeholderClassName}>
+      {profileDisplayName(profile).slice(0, 1)}
+    </span>
+  );
+}
+
 function MessageHistory({
   channel,
   messages,
@@ -256,21 +293,13 @@ function MessageHistory({
             key={message.id}
           >
             <div className="message-meta">
-              {profile?.imageUrl ? (
-                <Image
-                  alt=""
-                  className="message-avatar"
-                  height={28}
-                  src={profile.imageUrl}
-                  unoptimized
-                  width={28}
-                />
-              ) : (
-                <span aria-hidden="true" className="message-avatar-placeholder">
-                  {(profile?.displayName ?? "New Hire").slice(0, 1)}
-                </span>
-              )}
-              <strong>{profile?.displayName ?? "New Hire"}</strong>
+              <ProfileAvatar
+                imageClassName="message-avatar"
+                placeholderClassName="message-avatar-placeholder"
+                profile={profile}
+                size={28}
+              />
+              <strong>{profileDisplayName(profile)}</strong>
               <time dateTime={new Date(message.timestamp).toISOString()}>
                 {new Intl.DateTimeFormat(undefined, {
                   hour: "numeric",
@@ -301,7 +330,9 @@ function PresenceRoster({
   presence: DetailedPresence | AggregatePresence | undefined;
   profilesById: ReadonlyMap<string, ProfileAttribution>;
 }) {
-  if (!presence) return null;
+  if (!presence) {
+    return null;
+  }
   if (presence.kind === "aggregate") {
     return (
       <p className="presence-summary">{presence.count} New Hires online</p>
@@ -318,23 +349,12 @@ function PresenceRoster({
             const profile = profilesById.get(id);
             return (
               <li key={id}>
-                {profile?.imageUrl ? (
-                  <Image
-                    alt=""
-                    height={22}
-                    src={profile.imageUrl}
-                    unoptimized
-                    width={22}
-                  />
-                ) : (
-                  <span
-                    aria-hidden="true"
-                    className="presence-avatar-placeholder"
-                  >
-                    {(profile?.displayName ?? "New Hire").slice(0, 1)}
-                  </span>
-                )}
-                <span>{profile?.displayName ?? "New Hire"}</span>
+                <ProfileAvatar
+                  placeholderClassName="presence-avatar-placeholder"
+                  profile={profile}
+                  size={22}
+                />
+                <span>{profileDisplayName(profile)}</span>
               </li>
             );
           })}
@@ -389,6 +409,29 @@ function ChatSurface({
       ),
     [profileQuery.data],
   );
+  let messageHistory: ReactNode;
+  if (profileQuery.isError) {
+    messageHistory = (
+      <div className="portal-outage" role="alert">
+        <strong>New Hire Profiles are unavailable.</strong>
+        <span className="outage-detail">
+          Message history is hidden until canonical profile records return.
+        </span>
+      </div>
+    );
+  } else if (profileQuery.isPending) {
+    messageHistory = (
+      <p className="profile-status">Resolving New Hire Profiles…</p>
+    );
+  } else {
+    messageHistory = (
+      <MessageHistory
+        channel={channel}
+        messages={messages}
+        profilesById={profilesById}
+      />
+    );
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -496,22 +539,7 @@ function ChatSurface({
             {invalidMessageCount === 1 ? " was" : "s were"} hidden.
           </output>
         ) : null}
-        {profileQuery.isError ? (
-          <div className="portal-outage" role="alert">
-            <strong>New Hire Profiles are unavailable.</strong>
-            <span className="outage-detail">
-              Message history is hidden until canonical profile records return.
-            </span>
-          </div>
-        ) : profileQuery.isPending ? (
-          <p className="profile-status">Resolving New Hire Profiles…</p>
-        ) : (
-          <MessageHistory
-            channel={channel}
-            messages={messages}
-            profilesById={profilesById}
-          />
-        )}
+        {messageHistory}
       </div>
 
       <form className="chat-composer" onSubmit={submit}>

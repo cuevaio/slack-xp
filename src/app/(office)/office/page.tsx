@@ -37,6 +37,7 @@ export default async function OfficePage() {
       adapters={adapters}
       identity={identity}
       onboarding={onboarding}
+      portalPublishableKey={configuration.values.NEXT_PUBLIC_PORTAL_KEY}
     />
   );
 }

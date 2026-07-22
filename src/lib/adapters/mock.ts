@@ -1,19 +1,20 @@
 import type { ServiceAdapters } from "@/lib/adapters/types";
 import { createInMemoryOnboardingRepository } from "@/lib/onboarding/memory";
 import type { NewHireProfile } from "@/lib/onboarding/types";
-
-const MOCK_CHANNELS = [
-  { id: "mock-day:general", name: "General", unreadCount: 0 },
-  { id: "mock-day:watercooler", name: "Watercooler", unreadCount: 3 },
-  { id: "mock-day:tech-support", name: "Technical Support", unreadCount: 1 },
-] as const;
+import { generalChannelId } from "@/lib/portal/chat";
+import {
+  createMockPortalAdapter,
+  type MockPortalAdapter,
+} from "@/lib/portal/mock";
 
 const MOCK_REPOSITORY_KEY = Symbol.for(
   "portal-messenger.mock-onboarding-repository",
 );
+const MOCK_PORTAL_KEY = Symbol.for("portal-messenger.mock-portal-adapter");
 
 type MockGlobal = typeof globalThis & {
   [MOCK_REPOSITORY_KEY]?: ReturnType<typeof createInMemoryOnboardingRepository>;
+  [MOCK_PORTAL_KEY]?: MockPortalAdapter;
 };
 
 function getMockRepository() {
@@ -22,8 +23,15 @@ function getMockRepository() {
   return mockGlobal[MOCK_REPOSITORY_KEY];
 }
 
+export function getMockPortalAdapter(): MockPortalAdapter {
+  const mockGlobal = globalThis as MockGlobal;
+  mockGlobal[MOCK_PORTAL_KEY] ??= createMockPortalAdapter();
+  return mockGlobal[MOCK_PORTAL_KEY];
+}
+
 export function resetMockOnboarding(): void {
   getMockRepository().reset();
+  getMockPortalAdapter().reset();
 }
 
 export async function seedCompletedMockOnboarding(
@@ -38,11 +46,13 @@ export async function seedCompletedMockOnboarding(
 
 export function createMockAdapters(): ServiceAdapters {
   const neon = getMockRepository();
+  const portal = getMockPortalAdapter();
   return {
     kind: "mock",
     portal: {
+      ...portal,
       async listChannels() {
-        return MOCK_CHANNELS;
+        return [{ id: generalChannelId(), name: "General", unreadCount: 0 }];
       },
     },
     neon,

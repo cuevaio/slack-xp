@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
+import { assertProductionSafety } from "./src/lib/config";
+
+assertProductionSafety(process.env);
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  reactStrictMode: true,
 };
 
 export default nextConfig;

@@ -1,10 +1,13 @@
+import {
+  type CreateMessageHRReportResult,
+  HR_REPORT_NOTIFICATION_TITLE,
+  HR_REPORT_NOTIFICATION_TYPE,
+  type HRReportCategory,
+  type HRReportNotificationPublisher,
+  type HRReportRepository,
+  type HRReportStableContext,
+} from "@/lib/hr-reports/contract";
 import { createHRReportDeepLink } from "@/lib/hr-reports/domain";
-import type {
-  HRReportCategory,
-  HRReportNotificationPublisher,
-  HRReportRepository,
-  HRReportStableContext,
-} from "@/lib/hr-reports/types";
 
 const HR_REPORT_OUTBOX_BATCH_SIZE = 50;
 
@@ -28,8 +31,8 @@ export async function flushHRReportNotifications({
     await publisher.publishHRReportNotification(
       {
         notificationId: entry.outboxId,
-        type: "hr-report.ready",
-        title: "HR Report ready for review",
+        type: HR_REPORT_NOTIFICATION_TYPE,
+        title: HR_REPORT_NOTIFICATION_TITLE,
         officeDay: entry.officeDay,
         officeChannelId: entry.officeChannelId,
         messageId: entry.messageId,
@@ -65,7 +68,9 @@ export async function submitMessageHRReport({
   operatorIds: readonly string[];
   appOrigin: string;
   now?: Date;
-} & HRReportStableContext) {
+} & HRReportStableContext): Promise<
+  CreateMessageHRReportResult & { notificationStatus: "sent" | "pending" }
+> {
   const result = await repository.createMessageHRReport({
     reportId: crypto.randomUUID(),
     reporterId,

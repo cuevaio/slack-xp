@@ -1,3 +1,7 @@
+import {
+  HR_REPORT_NOTIFICATION_TITLE,
+  HR_REPORT_NOTIFICATION_TYPE,
+} from "@/lib/hr-reports/contract";
 import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import type { OfficeChannel } from "@/lib/portal/channels";
 import { parseChatContent } from "@/lib/portal/chat";
@@ -29,6 +33,11 @@ export type HRReportInboxItem = {
   read: boolean;
 };
 
+export type OfficeInboxSnapshot = {
+  entries: OfficeInboxEntry[];
+  reportNotifications: HRReportInboxItem[];
+};
+
 type OfficeInboxPreview = {
   sender: string;
   text: string;
@@ -45,7 +54,7 @@ export function parseHRReportInboxItem(
   if (
     !isObject(value) ||
     typeof value.id !== "string" ||
-    value.type !== "hr-report.ready" ||
+    value.type !== HR_REPORT_NOTIFICATION_TYPE ||
     typeof value.at !== "number" ||
     !Number.isFinite(value.at) ||
     typeof value.read !== "boolean" ||
@@ -70,7 +79,7 @@ export function parseHRReportInboxItem(
   }
   const title = typeof value.title === "string" ? value.title : data.title;
   if (
-    title !== "HR Report ready for review" ||
+    title !== HR_REPORT_NOTIFICATION_TITLE ||
     typeof data.href !== "string" ||
     typeof data.officeDay !== "string" ||
     typeof data.officeChannelId !== "string" ||
@@ -106,6 +115,22 @@ export function parseHRReportInboxItem(
     at: value.at,
     read: value.read,
   };
+}
+
+function parseHRReportInboxItems(value: unknown): HRReportInboxItem[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const notifications: HRReportInboxItem[] = [];
+  for (const candidate of value) {
+    const notification = parseHRReportInboxItem(candidate);
+    if (!notification) {
+      return null;
+    }
+    notifications.push(notification);
+  }
+  return notifications;
 }
 
 function parseOfficeInboxEntry(value: unknown): OfficeInboxEntry | null {
@@ -161,6 +186,22 @@ export function parseOfficeInboxResponse(
     entries.push(entry);
   }
   return entries;
+}
+
+export function parseOfficeInboxSnapshot(
+  value: unknown,
+): OfficeInboxSnapshot | null {
+  if (!isObject(value) || !("notifications" in value)) {
+    return null;
+  }
+
+  const entries = parseOfficeInboxResponse(value);
+  const reportNotifications = parseHRReportInboxItems(value.notifications);
+  if (!entries || !reportNotifications) {
+    return null;
+  }
+
+  return { entries, reportNotifications };
 }
 
 function createInboxPreview(

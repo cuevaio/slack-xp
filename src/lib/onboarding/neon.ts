@@ -8,7 +8,7 @@ import {
   newHireOnboarding,
   profileInvalidationOutbox,
 } from "@/lib/db/schema";
-import type { CreateMessageHRReportInput } from "@/lib/hr-reports/types";
+import type { CreateMessageHRReportInput } from "@/lib/hr-reports/contract";
 import { OFFICE_EVENT_VERSION } from "@/lib/office-events/contract";
 import {
   assignJobTitle,

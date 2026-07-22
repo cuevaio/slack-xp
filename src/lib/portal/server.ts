@@ -1,7 +1,8 @@
-import type {
-  HRReportNotification,
-  HRReportNotificationPublisher,
-} from "@/lib/hr-reports/types";
+import {
+  HR_REPORT_NOTIFICATION_CHANNEL_ID,
+  type HRReportNotification,
+  type HRReportNotificationPublisher,
+} from "@/lib/hr-reports/contract";
 import {
   OFFICE_EVENT_MESSAGE_TYPE,
   OFFICE_EVENT_SENDERS,
@@ -196,8 +197,6 @@ export function createPortalProfileInvalidationPublisher({
     },
   };
 }
-
-export const HR_REPORT_NOTIFICATION_CHANNEL_ID = "hr-reports";
 
 export function createPortalHRReportNotificationPublisher({
   secret,

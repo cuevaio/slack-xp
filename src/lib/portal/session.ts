@@ -1,7 +1,7 @@
+import { HR_REPORT_NOTIFICATION_CHANNEL_ID } from "@/lib/hr-reports/contract";
 import { officeEventChannelId } from "@/lib/office-events/contract";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 import { listOfficeChannels } from "@/lib/portal/channels";
-import { HR_REPORT_NOTIFICATION_CHANNEL_ID } from "@/lib/portal/server";
 import type { PortalAuthority, PortalToken } from "@/lib/portal/types";
 
 export class PortalEligibilityError extends Error {

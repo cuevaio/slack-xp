@@ -6,7 +6,7 @@ import type {
 import type {
   HRReportNotification,
   HRReportNotificationPublisher,
-} from "@/lib/hr-reports/types";
+} from "@/lib/hr-reports/contract";
 import {
   isOfficeEventChannelId,
   OFFICE_EVENT_MESSAGE_TYPE,

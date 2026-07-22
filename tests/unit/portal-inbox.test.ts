@@ -4,6 +4,7 @@ import { listOfficeChannels } from "@/lib/portal/channels";
 import {
   parseHRReportInboxItem,
   parseOfficeInboxResponse,
+  parseOfficeInboxSnapshot,
   reconcileOfficeInbox,
 } from "@/lib/portal/inbox";
 
@@ -58,6 +59,23 @@ describe("Office Channel inbox projection", () => {
         data: { ...item.data, href: "https://evil.example/steal" },
       }),
     ).toBeNull();
+    expect(
+      parseOfficeInboxSnapshot({ channels: [], notifications: [item] }),
+    ).toEqual({
+      entries: [],
+      reportNotifications: [
+        {
+          id: "notification-17",
+          title: "HR Report ready for review",
+          href: "/office?officeDay=2026-07-22&channel=general&message=message-17",
+          officeDay: "2026-07-22",
+          officeChannelId: "general:2026-07-22",
+          messageId: "message-17",
+          at: 1_753_188_000_000,
+          read: false,
+        },
+      ],
+    });
   });
 
   test("validates the complete mock inbox response at runtime", () => {

@@ -1,4 +1,8 @@
-import type { HRReportRepository, HRReportState } from "@/lib/hr-reports/types";
+import type {
+  HRReportCategory,
+  HRReportRepository,
+  HRReportState,
+} from "@/lib/hr-reports/contract";
 import {
   assignJobTitle,
   getOnboardingStep,
@@ -75,7 +79,7 @@ type StoredHRReport = {
   officeDay: string;
   officeChannelId: string;
   messageId: string;
-  category: string;
+  category: HRReportCategory;
   state: HRReportState;
   createdAt: Date;
   updatedAt: Date;

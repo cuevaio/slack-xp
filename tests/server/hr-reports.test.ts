@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import type {
+  HRReportNotification,
+  HRReportNotificationPublisher,
+} from "@/lib/hr-reports/contract";
 import {
   flushHRReportNotifications,
   submitMessageHRReport,
 } from "@/lib/hr-reports/service";
-import type {
-  HRReportNotification,
-  HRReportNotificationPublisher,
-} from "@/lib/hr-reports/types";
 import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
 
 const now = new Date("2026-07-22T12:00:00.000Z");

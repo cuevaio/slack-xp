@@ -1,20 +1,16 @@
-import type {
-  HRReportCategory,
-  HRReportStableContext,
-  MessageHRReportInput,
-} from "@/lib/hr-reports/types";
+import {
+  HR_REPORT_CATEGORIES,
+  type HRReportCategory,
+  type HRReportStableContext,
+  type MessageHRReportInput,
+} from "@/lib/hr-reports/contract";
 import {
   isOfficeChannelSlug,
   listOfficeChannelsForDay,
 } from "@/lib/portal/channels";
 import { isOfficeDay, officeDay } from "@/lib/portal/office-day";
 
-export const HR_REPORT_CATEGORIES = [
-  "harassment-or-bullying",
-  "hate-or-discrimination",
-  "threatening-behavior",
-  "sexual-content",
-] as const;
+export { HR_REPORT_CATEGORIES } from "@/lib/hr-reports/contract";
 
 export const HR_REPORT_CATEGORY_LABELS: Record<HRReportCategory, string> = {
   "harassment-or-bullying": "Harassment or bullying",

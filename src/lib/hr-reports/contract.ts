@@ -1,4 +1,13 @@
-import type { HR_REPORT_CATEGORIES } from "@/lib/hr-reports/domain";
+export const HR_REPORT_CATEGORIES = [
+  "harassment-or-bullying",
+  "hate-or-discrimination",
+  "threatening-behavior",
+  "sexual-content",
+] as const;
+
+export const HR_REPORT_NOTIFICATION_CHANNEL_ID = "hr-reports";
+export const HR_REPORT_NOTIFICATION_TYPE = "hr-report.ready";
+export const HR_REPORT_NOTIFICATION_TITLE = "HR Report ready for review";
 
 export type HRReportCategory = (typeof HR_REPORT_CATEGORIES)[number];
 export type HRReportState = "open" | "dismissed";
@@ -30,8 +39,8 @@ export type PendingHRReportNotification = HRReportStableContext & {
 
 export type HRReportNotification = HRReportStableContext & {
   notificationId: string;
-  type: "hr-report.ready";
-  title: "HR Report ready for review";
+  type: typeof HR_REPORT_NOTIFICATION_TYPE;
+  title: typeof HR_REPORT_NOTIFICATION_TITLE;
   href: string;
 };
 

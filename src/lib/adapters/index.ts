@@ -1,12 +1,10 @@
 import { createLiveAdapters } from "@/lib/adapters/live";
 import { createMockAdapters } from "@/lib/adapters/mock";
 import type { ServiceAdapters } from "@/lib/adapters/types";
-import type { AppConfiguration } from "@/lib/config";
-
-type ReadyConfiguration = Extract<AppConfiguration, { status: "ready" }>;
+import type { ReadyAppConfiguration } from "@/lib/config";
 
 export function createServiceAdapters(
-  configuration: ReadyConfiguration,
+  configuration: ReadyAppConfiguration,
 ): ServiceAdapters {
   return configuration.serviceMode === "mock"
     ? createMockAdapters()

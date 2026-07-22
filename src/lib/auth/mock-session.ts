@@ -1,7 +1,13 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { AuthenticatedNewHire } from "@/lib/auth/types";
+import type { AppConfiguration } from "@/lib/config";
 
 export const MOCK_SESSION_COOKIE = "portal_mock_session";
+export const MOCK_SESSION_COOKIE_OPTIONS = {
+  httpOnly: true,
+  sameSite: "lax",
+  path: "/",
+} as const;
 
 export const MOCK_AUTH_IDENTITIES = {
   "new-hire": {
@@ -23,6 +29,22 @@ export const MOCK_AUTH_IDENTITIES = {
 } as const satisfies Record<string, AuthenticatedNewHire>;
 
 export type MockIdentityKey = keyof typeof MOCK_AUTH_IDENTITIES;
+
+export function isMockAuthenticationAllowed(
+  configuration: AppConfiguration,
+): boolean {
+  return (
+    configuration.status === "ready" &&
+    configuration.serviceMode === "mock" &&
+    configuration.environment !== "production"
+  );
+}
+
+export function isMockIdentityKey(value: unknown): value is MockIdentityKey {
+  return (
+    typeof value === "string" && Object.hasOwn(MOCK_AUTH_IDENTITIES, value)
+  );
+}
 
 // Mock sessions are deliberately isolated from Clerk and accepted only in
 // non-production mock mode. The signature prevents request headers or raw user
@@ -53,7 +75,7 @@ export function readMockSessionToken(
   }
 
   const [identity, suppliedSignature] = parts;
-  if (!(identity in MOCK_AUTH_IDENTITIES)) {
+  if (!isMockIdentityKey(identity)) {
     return null;
   }
 
@@ -67,5 +89,5 @@ export function readMockSessionToken(
     return null;
   }
 
-  return MOCK_AUTH_IDENTITIES[identity as MockIdentityKey];
+  return MOCK_AUTH_IDENTITIES[identity];
 }

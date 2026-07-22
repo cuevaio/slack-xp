@@ -108,7 +108,6 @@ a {
 
 .primary-action:focus-visible,
 .classic-button:focus-visible,
-.classic-button[type="submit"]:focus-visible,
 .channel-panel a:focus-visible {
   outline: 3px solid #d5ff48;
   outline-offset: 3px;

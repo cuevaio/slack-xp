@@ -24,7 +24,7 @@ export async function OfficeFoundation({
         <div className="office-body">
           <aside className="channel-panel" aria-label="Office Channels">
             <p className="eyebrow">Shared Public Office</p>
-            <h1>{`Welcome, ${identity.fullName}`}</h1>
+            <h1>Welcome, {identity.fullName}</h1>
             {newHire ? <p className="job-title">{newHire.jobTitle}</p> : null}
             {identity.isOperator ? (
               <p className="operator-badge">Operator access</p>

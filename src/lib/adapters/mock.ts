@@ -6,6 +6,11 @@ const MOCK_CHANNELS = [
   { id: "mock-day:tech-support", name: "Technical Support", unreadCount: 1 },
 ] as const;
 
+const MOCK_NEW_HIRE_USER_IDS: ReadonlySet<string> = new Set([
+  "user_mock_new_hire",
+  "user_mock_operator",
+]);
+
 export function createMockAdapters(): ServiceAdapters {
   return {
     kind: "mock",
@@ -16,14 +21,15 @@ export function createMockAdapters(): ServiceAdapters {
     },
     neon: {
       async getNewHire(clerkUserId) {
-        return clerkUserId === "user_mock_new_hire" ||
-          clerkUserId === "user_mock_operator"
-          ? {
-              clerkUserId,
-              jobTitle: "Senior Synergy Installation Specialist",
-              onboardingComplete: true,
-            }
-          : null;
+        if (!MOCK_NEW_HIRE_USER_IDS.has(clerkUserId)) {
+          return null;
+        }
+
+        return {
+          clerkUserId,
+          jobTitle: "Senior Synergy Installation Specialist",
+          onboardingComplete: true,
+        };
       },
     },
   };

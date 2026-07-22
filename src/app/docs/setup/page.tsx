@@ -43,8 +43,8 @@ export default function SetupPage() {
               account records.
             </p>
             <p>
-              Optionally set <code>OPERATOR_CLERK_USER_IDS</code> to a
-              comma-separated list of exact Clerk user IDs. This value is
+              Optionally set <code>OPERATOR_CLERK_USER_IDS</code> to a comma- or
+              whitespace-separated list of exact Clerk user IDs. This value is
               server-only.
             </p>
             <Link className="classic-button" href="/office">

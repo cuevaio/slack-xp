@@ -7,24 +7,25 @@ import {
 } from "@/lib/auth/mock-session";
 import { isOperatorUserId } from "@/lib/auth/operator";
 import type { AuthenticatedNewHire } from "@/lib/auth/types";
-import type { AppConfiguration } from "@/lib/config";
-
-type ReadyConfiguration = Extract<AppConfiguration, { status: "ready" }>;
+import type { ReadyAppConfiguration } from "@/lib/config";
 
 function clerkDisplayName(user: {
   fullName: string | null;
   firstName: string | null;
   lastName: string | null;
 }): string {
-  return (
-    user.fullName ||
-    [user.firstName, user.lastName].filter(Boolean).join(" ") ||
-    "New Hire"
-  );
+  if (user.fullName) {
+    return user.fullName;
+  }
+
+  const nameFromParts = [user.firstName, user.lastName]
+    .filter(Boolean)
+    .join(" ");
+  return nameFromParts || "New Hire";
 }
 
 export async function authenticateOfficeRequest(
-  configuration: ReadyConfiguration,
+  configuration: ReadyAppConfiguration,
 ): Promise<AuthenticatedNewHire | null> {
   if (configuration.serviceMode === "mock") {
     const cookieStore = await cookies();
@@ -52,7 +53,7 @@ export async function authenticateOfficeRequest(
 }
 
 export async function requireOfficeIdentity(
-  configuration: ReadyConfiguration,
+  configuration: ReadyAppConfiguration,
 ): Promise<AuthenticatedNewHire> {
   const identity = await authenticateOfficeRequest(configuration);
   if (identity) {

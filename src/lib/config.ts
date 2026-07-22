@@ -39,6 +39,11 @@ export type AppConfiguration =
       issues: readonly ConfigurationIssue[];
     };
 
+export type ReadyAppConfiguration = Extract<
+  AppConfiguration,
+  { status: "ready" }
+>;
+
 function includes<const T extends readonly string[]>(
   values: T,
   value: string | undefined,

@@ -21,8 +21,8 @@ export function createLiveAdapters(
     kind: "live",
     portal: {
       ...portalControlPlane,
-      async listChannels() {
-        return listOfficeChannels();
+      async listChannels(now) {
+        return listOfficeChannels(now);
       },
     },
     neon: createNeonRepository(createDatabase(databaseUrl)),

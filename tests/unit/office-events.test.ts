@@ -26,7 +26,7 @@ function envelope(
 ) {
   return {
     id: "portal-event-1",
-    channelId: "2026-07-22:office-events",
+    channelId: "office-events:2026-07-22",
     sender: { id: senderId, anon: false },
     timestamp: 1_753_188_000_000,
     kind: "text",
@@ -91,10 +91,10 @@ const supportedEvents: readonly OfficeEvent[] = [
 describe("versioned Office Event contract", () => {
   test("uses one hidden channel for each UTC Office Day", () => {
     expect(officeEventChannelId(new Date("2026-07-22T23:59:59.999Z"))).toBe(
-      "2026-07-22:office-events",
+      "office-events:2026-07-22",
     );
     expect(officeEventChannelId(new Date("2026-07-23T00:00:00.000Z"))).toBe(
-      "2026-07-23:office-events",
+      "office-events:2026-07-23",
     );
   });
 
@@ -149,7 +149,7 @@ describe("versioned Office Event contract", () => {
     expect(
       parseOfficeEventMessage(
         envelope(reaction, "user_impersonator"),
-        "2026-07-22:office-events",
+        "office-events:2026-07-22",
       ),
     ).toBeNull();
 
@@ -165,19 +165,19 @@ describe("versioned Office Event contract", () => {
       expect(
         parseOfficeEventMessage(
           envelope(invalidation, trustedSender),
-          "2026-07-22:office-events",
+          "office-events:2026-07-22",
         ),
       ).toMatchObject({ event: invalidation });
       expect(
         parseOfficeEventMessage(
           envelope(invalidation),
-          "2026-07-22:office-events",
+          "office-events:2026-07-22",
         ),
       ).toBeNull();
       expect(
         parseOfficeEventMessage(
           envelope(invalidation, wrongReservedSender),
-          "2026-07-22:office-events",
+          "office-events:2026-07-22",
         ),
       ).toBeNull();
     }
@@ -195,7 +195,7 @@ describe("versioned Office Event contract", () => {
       expect(
         parseOfficeEventMessage(
           envelope(reaction, "user_reactor", changed),
-          "2026-07-22:office-events",
+          "office-events:2026-07-22",
         ),
       ).toBeNull();
     }
@@ -210,7 +210,7 @@ describe("versioned Office Event contract", () => {
     expect(
       parseOfficeEventMessage(
         envelope({ ...reaction, officeChannelId: "general:2026-07-21" }),
-        "2026-07-22:office-events",
+        "office-events:2026-07-22",
       ),
     ).toBeNull();
   });
@@ -219,7 +219,7 @@ describe("versioned Office Event contract", () => {
     const reactions: OfficeEvent[] = [];
     const invalidations: OfficeEvent[] = [];
     const dispatcher = createOfficeEventDispatcher({
-      channelId: "2026-07-22:office-events",
+      channelId: "office-events:2026-07-22",
       onReaction: (event) => reactions.push(event),
       onInvalidation: (event) => invalidations.push(event),
     });

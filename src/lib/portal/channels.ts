@@ -1,3 +1,5 @@
+import { isOfficeDay, officeDay } from "@/lib/portal/office-day";
+
 export const OFFICE_CHANNEL_DEFINITIONS = [
   {
     slug: "general",
@@ -45,9 +47,7 @@ export type OfficeChannel = {
   mode: OfficeChannelMode;
 };
 
-export function officeDay(now: Date = new Date()): string {
-  return now.toISOString().slice(0, 10);
-}
+export { officeDay } from "@/lib/portal/office-day";
 
 export function officeChannelId(
   slug: OfficeChannelSlug,
@@ -61,6 +61,15 @@ export function listOfficeChannels(now: Date = new Date()): OfficeChannel[] {
     ...channel,
     id: officeChannelId(channel.slug, now),
   }));
+}
+
+export function listOfficeChannelsForDay(
+  currentOfficeDay: string,
+): OfficeChannel[] {
+  if (!isOfficeDay(currentOfficeDay)) {
+    throw new TypeError("A valid UTC Office Day is required.");
+  }
+  return listOfficeChannels(new Date(`${currentOfficeDay}T00:00:00.000Z`));
 }
 
 export function isOfficeChannelSlug(value: string): value is OfficeChannelSlug {

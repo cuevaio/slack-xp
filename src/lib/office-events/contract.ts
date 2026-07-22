@@ -1,3 +1,5 @@
+import { isOfficeDay, officeDay } from "@/lib/portal/office-day";
+
 export const OFFICE_EVENT_VERSION = 1 as const;
 export const OFFICE_EVENT_MESSAGE_TYPE = "office.event" as const;
 export const OFFICE_EVENT_PAYLOAD_LIMIT = 2_048;
@@ -68,7 +70,6 @@ export type OfficeEventDispatcher = {
 
 const SOURCE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/u;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,254}$/u;
-const OFFICE_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
 const BASE_KEYS = ["version", "type", "eventKey", "occurredAt"] as const;
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -151,7 +152,7 @@ function isReactionOfficeEvent(value: unknown): value is ReactionOfficeEvent {
     ]) &&
     hasValidBase(value, "reaction.changed") &&
     isIdentifier(value.officeChannelId) &&
-    !value.officeChannelId.endsWith(":office-events") &&
+    !isOfficeEventChannelId(value.officeChannelId) &&
     isIdentifier(value.messageId) &&
     isIdentifier(value.actorId) &&
     OFFICE_REACTIONS.some((reaction) => reaction === value.reaction) &&
@@ -196,33 +197,25 @@ function isOfficeInvalidationEvent(
   }
 }
 
-function isValidOfficeDay(value: string): boolean {
-  if (!OFFICE_DAY_PATTERN.test(value)) return false;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return (
-    Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value
-  );
-}
-
 export function officeEventChannelId(now: Date = new Date()): string {
-  return `${now.toISOString().slice(0, 10)}:office-events`;
+  return officeEventChannelIdForDay(officeDay(now));
 }
 
-export function officeEventChannelIdForDay(officeDay: string): string {
-  if (!isValidOfficeDay(officeDay)) {
+export function officeEventChannelIdForDay(currentOfficeDay: string): string {
+  if (!isOfficeDay(currentOfficeDay)) {
     throw new TypeError("A valid UTC Office Day is required.");
   }
-  return `${officeDay}:office-events`;
+  return `office-events:${currentOfficeDay}`;
 }
 
 export function isOfficeEventChannelId(value: unknown): value is string {
   if (typeof value !== "string") return false;
-  const [officeDay, channelName, extra] = value.split(":");
+  const [channelName, currentOfficeDay, extra] = value.split(":");
   return (
     extra === undefined &&
     channelName === "office-events" &&
-    officeDay !== undefined &&
-    isValidOfficeDay(officeDay)
+    currentOfficeDay !== undefined &&
+    isOfficeDay(currentOfficeDay)
   );
 }
 
@@ -301,7 +294,7 @@ export function parseOfficeEventMessage(
   if (!event || !isTrustedSender(event, value.sender.id)) return null;
   if (
     event.type === "reaction.changed" &&
-    !event.officeChannelId.endsWith(`:${expectedChannelId.slice(0, 10)}`)
+    !event.officeChannelId.endsWith(`:${expectedChannelId.slice(-10)}`)
   ) {
     return null;
   }

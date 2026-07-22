@@ -18,13 +18,15 @@ export async function OfficeFoundation({
   identity,
   onboarding,
   portalPublishableKey,
+  now = new Date(),
 }: {
   adapters: ServiceAdapters;
   identity: AuthenticatedNewHire;
   onboarding: OnboardingSnapshot;
   portalPublishableKey?: string;
+  now?: Date;
 }) {
-  const channels = await adapters.portal.listChannels();
+  const channels = await adapters.portal.listChannels(now);
   if (channels.length !== OFFICE_CHANNEL_DEFINITIONS.length) {
     throw new Error("The Office Channel directory is incomplete.");
   }
@@ -51,6 +53,7 @@ export async function OfficeFoundation({
           displayName={onboarding.displayName}
           employeeRecord={<EmployeeRecordDialog onboarding={onboarding} />}
           eventChannelId={eventChannelId}
+          officeDay={officeDay ?? ""}
           identityId={identity.id}
           isOperator={identity.isOperator}
           jobTitle={onboarding.jobTitle}

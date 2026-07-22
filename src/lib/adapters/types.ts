@@ -4,7 +4,7 @@ import type { PortalAuthority } from "@/lib/portal/types";
 import type { ProfileRepository } from "@/lib/profiles/types";
 
 export type PortalAdapter = PortalAuthority & {
-  listChannels(): Promise<readonly OfficeChannel[]>;
+  listChannels(now?: Date): Promise<readonly OfficeChannel[]>;
 };
 
 export type NeonAdapter = OnboardingRepository & ProfileRepository;

@@ -426,6 +426,94 @@ test("the complete Office Channel directory switches without losing per-channel 
   await expect(page.getByLabel("Message # All Hands")).toBeEnabled();
 });
 
+test("an open office ends at midnight and reconnects only after a delayed continuation", async ({
+  page,
+}) => {
+  const firstOfficeDay = "2026-07-22";
+  const delayedOfficeDay = "2026-07-25";
+  const recoveredOfficeDay = "2026-07-26";
+  const mockChatRequests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/office/portal/mock-chat") {
+      mockChatRequests.push(request.url());
+    }
+  });
+  await page.setExtraHTTPHeaders({
+    "x-portal-mock-now": `${firstOfficeDay}T12:00:00.000Z`,
+  });
+  await page.clock.install({
+    time: new Date(`${firstOfficeDay}T12:00:00.000Z`),
+  });
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+  await expect(
+    page
+      .getByText("Online — messages are persistent")
+      .filter({ visible: true }),
+  ).toBeVisible();
+
+  const oldComposer = page.getByLabel("Message # General");
+  await oldComposer.fill("This stale draft must be cleared");
+  await page.clock.pauseAt(new Date(`${firstOfficeDay}T23:59:59.999Z`));
+  await page.clock.fastForward(1);
+
+  const shiftEndedDialog = page.getByRole("dialog", {
+    name: "Your shift has ended",
+  });
+  await expect(shiftEndedDialog).toBeVisible();
+  const continueButton = shiftEndedDialog.getByRole("button", {
+    name: "Continue to the new Office Day",
+  });
+  await expect(continueButton).toBeFocused();
+  await expect(page.getByRole("textbox", { name: /Message #/ })).toHaveCount(0);
+
+  const disconnectedRequestCount = mockChatRequests.length;
+  await page.clock.fastForward("01:00");
+  expect(mockChatRequests).toHaveLength(disconnectedRequestCount);
+
+  await page.clock.setSystemTime(new Date(`${delayedOfficeDay}T09:15:00.000Z`));
+  await page.setExtraHTTPHeaders({
+    "x-portal-mock-now": `${delayedOfficeDay}T09:15:00.000Z`,
+  });
+  const nextSessionResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/office/portal/token" &&
+      response.status() === 200,
+  );
+  await continueButton.click();
+  const nextSession = await (await nextSessionResponse).json();
+  expect(nextSession.channelIds).toEqual([
+    `general:${delayedOfficeDay}`,
+    `watercooler:${delayedOfficeDay}`,
+    `tech-support:${delayedOfficeDay}`,
+    `urgent:${delayedOfficeDay}`,
+    `all-hands:${delayedOfficeDay}`,
+  ]);
+  expect(nextSession.eventChannelId).toBe(`office-events:${delayedOfficeDay}`);
+  const freshComposer = page.getByLabel("Message # General");
+  await expect(freshComposer).toBeVisible();
+  await expect(freshComposer).toHaveAttribute(
+    "id",
+    `message-general:${delayedOfficeDay}`,
+  );
+  await expect(freshComposer).toHaveValue("");
+  await expect(freshComposer).toBeFocused();
+
+  await page.clock.setSystemTime(
+    new Date(`${recoveredOfficeDay}T08:00:00.000Z`),
+  );
+  await page.setExtraHTTPHeaders({
+    "x-portal-mock-now": `${recoveredOfficeDay}T08:00:00.000Z`,
+  });
+  await page.evaluate(() => {
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(shiftEndedDialog).toBeVisible();
+  await expect(continueButton).toBeFocused();
+});
+
 test("history paginates backward without duplicates and displays canonical time locally", async ({
   page,
 }) => {

@@ -174,7 +174,7 @@ bun run portal:deploy
 
 Authenticated entry calls Portal's hosted control plane to upsert the New Hire's
 membership in all five daily Office Channels and one
-`{YYYY-MM-DD}:office-events` channel, then mints an office-scoped token with a
+`office-events:{YYYY-MM-DD}` channel, then mints an office-scoped token with a
 15-minute lifetime. `/api/office/portal/token` performs both operations only
 after server-side authentication and completed onboarding. Repeated token
 refreshes upsert the same memberships. The hidden Office Event channel is not
@@ -193,6 +193,24 @@ validated `{ text: string }` payload of 1–1,000 characters. Rendering uses Rea
 text escaping and linkifies only HTTP(S) URLs with a new browsing context and
 `noopener noreferrer`. HTML, rich Markdown, uploads, embeds, media, and URL
 unfurling are not supported.
+
+The Office Day is the pure UTC date of the current instant. A client monitor
+arms for the next UTC boundary and also rechecks at least once per minute and
+after visibility, page-show, focus, and online recovery events, so sleep,
+background timer throttling, network recovery, and wall-clock changes cannot
+leave an open office on an expired day. When the date changes, the Portal
+provider and every visible and hidden channel subscription are unmounted before
+an accessible shift-ended dialog appears. This clears drafts, optimistic sends,
+typing, unread, pagination, and other ephemeral state and prevents any
+reconnection until the New Hire continues. Continuation always calculates the
+latest Office Day rather than assuming only one day elapsed.
+
+Every token response includes the server-selected visible and hidden channel
+IDs. The SDK callback accepts that token only when all IDs match the Office Day
+currently rendered; a refresh or reconnect for another day returns to the
+shift-ended interstitial instead of silently connecting stale UI. Portal retains
+older persistent history, while every timestamp that remains visible is
+formatted from its canonical instant in the browser's local timezone.
 
 Portal connection and publish failures remain visible as offline/retry states.
 Live mode never substitutes mock or browser-local messages. Mock chat uses a
@@ -318,6 +336,11 @@ Install Chromium once before running browser tests locally:
 ```bash
 bunx playwright install chromium
 ```
+
+Browser boundary tests control both clocks with Playwright and the
+`x-portal-mock-now` request header. The server honors that header only when
+`APP_ENV=test` and `SERVICE_MODE=mock`; live and production requests always use
+the server clock.
 
 ## Architecture Boundaries
 

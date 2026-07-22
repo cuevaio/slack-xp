@@ -136,12 +136,42 @@ describe("Office Channel chat contract", () => {
 
   test("uses a fresh server-minted token whenever the SDK callback refreshes", async () => {
     let sequence = 0;
-    const tokenSource = createPortalTokenSource(async () => {
-      sequence += 1;
-      return Response.json({ token: `token-${sequence}` });
+    const tokenSource = createPortalTokenSource({
+      expectedOfficeDay: "2026-07-22",
+      fetcher: async () => {
+        sequence += 1;
+        return Response.json({
+          token: `token-${sequence}`,
+          channelIds: listOfficeChannels(
+            new Date("2026-07-22T12:00:00.000Z"),
+          ).map(({ id }) => id),
+          eventChannelId: "office-events:2026-07-22",
+        });
+      },
     });
 
     expect(await tokenSource()).toBe("token-1");
     expect(await tokenSource()).toBe("token-2");
+  });
+
+  test("rejects a reconnect token for a different Office Day", async () => {
+    let expired = false;
+    const tokenSource = createPortalTokenSource({
+      expectedOfficeDay: "2026-07-22",
+      fetcher: async () =>
+        Response.json({
+          token: "next-day-token",
+          channelIds: listOfficeChannels(
+            new Date("2026-07-23T00:00:00.000Z"),
+          ).map(({ id }) => id),
+          eventChannelId: "office-events:2026-07-23",
+        }),
+      onOfficeDayExpired: () => {
+        expired = true;
+      },
+    });
+
+    await expect(tokenSource()).rejects.toThrow("Office Day has ended");
+    expect(expired).toBe(true);
   });
 });

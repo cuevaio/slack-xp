@@ -43,7 +43,9 @@ the server.
 Configuration is validated before service adapters are created. Invalid or
 partial configuration renders Installation Incomplete and lists only variable
 names and reasons. Values are never returned to that screen. The Observer route
-does not import the adapter boundary and cannot initialize Portal.
+does not import the adapter boundary and cannot initialize Portal. Its office
+entry links also disable route prefetching, so the office boundary is not
+rendered until an Observer explicitly chooses to enter it.
 
 Production (`APP_ENV=production` or `VERCEL_ENV=production`) refuses to build or
 start when `SERVICE_MODE=mock` is explicit. Missing production credentials are
@@ -94,7 +96,8 @@ bunx playwright install chromium
 ## Architecture Boundaries
 
 - `/` is the Observer experience. It uses static fixtures and imports no Clerk,
-  Portal, Neon, configuration, or adapter modules.
+  Portal, Neon, configuration, or adapter modules. Desktop interactions remain
+  local UI state, and small viewports receive a separate non-windowed teaser.
 - `/office` is the office entry point. It reads runtime configuration on the
   server, requires a server-verified New Hire identity, and constructs service
   adapters only after both checks pass.

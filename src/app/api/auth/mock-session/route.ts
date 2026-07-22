@@ -9,6 +9,7 @@ import {
   MOCK_SESSION_COOKIE_OPTIONS,
 } from "@/lib/auth/mock-session";
 import { readAppConfiguration } from "@/lib/config";
+import { profileFromIdentity } from "@/lib/onboarding/profile-authority";
 
 export const runtime = "nodejs";
 
@@ -26,14 +27,7 @@ export async function POST(request: Request) {
 
   if (requestedIdentity !== "new-hire") {
     const identity = MOCK_AUTH_IDENTITIES[requestedIdentity];
-    await seedCompletedMockOnboarding({
-      clerkUserId: identity.id,
-      firstName: identity.firstName,
-      lastName: identity.lastName,
-      displayName: identity.fullName,
-      imageUrl: identity.imageUrl,
-      sourceVersion: identity.sourceVersion,
-    });
+    await seedCompletedMockOnboarding(profileFromIdentity(identity));
   }
 
   // Keep the Location relative so local hosts such as 127.0.0.1 are not

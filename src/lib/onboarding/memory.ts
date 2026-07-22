@@ -16,7 +16,7 @@ type StoredNewHire = NewHireProfile & {
   completedAt: string | null;
 };
 
-function snapshot(record: StoredNewHire): OnboardingSnapshot {
+function toSnapshot(record: StoredNewHire): OnboardingSnapshot {
   return {
     clerkUserId: record.clerkUserId,
     firstName: record.firstName,
@@ -67,7 +67,7 @@ export function createInMemoryOnboardingRepository(
       } else if (profile.sourceVersion > record.sourceVersion) {
         Object.assign(record, profile);
       }
-      return snapshot(record);
+      return toSnapshot(record);
     },
 
     async confirmProfile(profile) {
@@ -75,7 +75,7 @@ export function createInMemoryOnboardingRepository(
       Object.assign(record, profile, {
         profileConfirmedAt: record.profileConfirmedAt ?? now().toISOString(),
       });
-      return snapshot(record);
+      return toSnapshot(record);
     },
 
     async acceptConduct(clerkUserId) {
@@ -87,7 +87,7 @@ export function createInMemoryOnboardingRepository(
         );
       }
       record.conductAcceptedAt ??= now().toISOString();
-      return snapshot(record);
+      return toSnapshot(record);
     },
 
     async clockIn(clerkUserId) {
@@ -99,12 +99,12 @@ export function createInMemoryOnboardingRepository(
         );
       }
       record.completedAt ??= now().toISOString();
-      return snapshot(record);
+      return toSnapshot(record);
     },
 
     async getNewHire(clerkUserId) {
       const record = records.get(clerkUserId);
-      return record ? snapshot(record) : null;
+      return record ? toSnapshot(record) : null;
     },
 
     recordCount() {

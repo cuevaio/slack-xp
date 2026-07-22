@@ -1,12 +1,8 @@
 import { clerkClient } from "@clerk/nextjs/server";
 import type { AuthenticatedNewHire } from "@/lib/auth/types";
 import type { ReadyAppConfiguration } from "@/lib/config";
-import type { ProfileInput } from "@/lib/onboarding/domain";
+import { formatDisplayName, type ProfileInput } from "@/lib/onboarding/domain";
 import type { NewHireProfile } from "@/lib/onboarding/types";
-
-function displayName(firstName: string, lastName: string): string {
-  return [firstName, lastName].filter(Boolean).join(" ");
-}
 
 // Clerk is updated before this function returns a projection for Neon. A Clerk
 // success followed by a Neon failure is safe to retry because authenticated
@@ -14,7 +10,7 @@ function displayName(firstName: string, lastName: string): string {
 export async function updateAuthoritativeProfile(
   configuration: ReadyAppConfiguration,
   identity: AuthenticatedNewHire,
-  input: ProfileInput & { firstName: string; lastName: string },
+  input: ProfileInput,
 ): Promise<NewHireProfile> {
   if (configuration.serviceMode === "mock") {
     let imageUrl = identity.imageUrl;
@@ -26,7 +22,7 @@ export async function updateAuthoritativeProfile(
       clerkUserId: identity.id,
       firstName: input.firstName,
       lastName: input.lastName,
-      displayName: displayName(input.firstName, input.lastName),
+      displayName: formatDisplayName(input.firstName, input.lastName),
       imageUrl,
       sourceVersion: Date.now(),
     };
@@ -49,7 +45,7 @@ export async function updateAuthoritativeProfile(
     clerkUserId: user.id,
     firstName,
     lastName,
-    displayName: user.fullName ?? displayName(firstName, lastName),
+    displayName: user.fullName ?? formatDisplayName(firstName, lastName),
     imageUrl: user.imageUrl || null,
     sourceVersion: user.updatedAt,
   };

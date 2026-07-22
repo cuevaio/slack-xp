@@ -1,5 +1,6 @@
 import type { ServiceAdapters } from "@/lib/adapters/types";
 import { createInMemoryOnboardingRepository } from "@/lib/onboarding/memory";
+import type { NewHireProfile } from "@/lib/onboarding/types";
 
 const MOCK_CHANNELS = [
   { id: "mock-day:general", name: "General", unreadCount: 0 },
@@ -7,32 +8,27 @@ const MOCK_CHANNELS = [
   { id: "mock-day:tech-support", name: "Technical Support", unreadCount: 1 },
 ] as const;
 
-const mockRepositoryKey = Symbol.for(
+const MOCK_REPOSITORY_KEY = Symbol.for(
   "portal-messenger.mock-onboarding-repository",
 );
 
 type MockGlobal = typeof globalThis & {
-  [mockRepositoryKey]?: ReturnType<typeof createInMemoryOnboardingRepository>;
+  [MOCK_REPOSITORY_KEY]?: ReturnType<typeof createInMemoryOnboardingRepository>;
 };
 
 function getMockRepository() {
   const mockGlobal = globalThis as MockGlobal;
-  mockGlobal[mockRepositoryKey] ??= createInMemoryOnboardingRepository();
-  return mockGlobal[mockRepositoryKey];
+  mockGlobal[MOCK_REPOSITORY_KEY] ??= createInMemoryOnboardingRepository();
+  return mockGlobal[MOCK_REPOSITORY_KEY];
 }
 
 export function resetMockOnboarding(): void {
   getMockRepository().reset();
 }
 
-export async function seedCompletedMockOnboarding(profile: {
-  clerkUserId: string;
-  firstName: string;
-  lastName: string;
-  displayName: string;
-  imageUrl: string | null;
-  sourceVersion: number;
-}): Promise<void> {
+export async function seedCompletedMockOnboarding(
+  profile: NewHireProfile,
+): Promise<void> {
   const repository = getMockRepository();
   await repository.enterNewHire(profile);
   await repository.confirmProfile(profile);

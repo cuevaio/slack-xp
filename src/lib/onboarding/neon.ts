@@ -12,7 +12,7 @@ import type {
   OnboardingSnapshot,
 } from "@/lib/onboarding/types";
 
-type SelectedNewHire = {
+type OnboardingRow = {
   clerkUserId: string;
   firstName: string | null;
   lastName: string | null;
@@ -24,21 +24,21 @@ type SelectedNewHire = {
   completedAt: Date | null;
 };
 
-function toIso(value: Date | null): string | null {
+function toIsoString(value: Date | null): string | null {
   return value?.toISOString() ?? null;
 }
 
-function toSnapshot(row: SelectedNewHire): OnboardingSnapshot {
+function toSnapshot(row: OnboardingRow): OnboardingSnapshot {
   if (!row.firstName || row.lastName === null || !row.displayName) {
     throw new OnboardingError(
       "onboarding_incomplete",
       "A tombstoned or invalid Clerk profile cannot enter the Office Day.",
     );
   }
-  const values = {
-    profileConfirmedAt: toIso(row.profileConfirmedAt),
-    conductAcceptedAt: toIso(row.conductAcceptedAt),
-    completedAt: toIso(row.completedAt),
+  const timestamps = {
+    profileConfirmedAt: toIsoString(row.profileConfirmedAt),
+    conductAcceptedAt: toIsoString(row.conductAcceptedAt),
+    completedAt: toIsoString(row.completedAt),
   };
   return {
     clerkUserId: row.clerkUserId,
@@ -47,16 +47,18 @@ function toSnapshot(row: SelectedNewHire): OnboardingSnapshot {
     displayName: row.displayName,
     imageUrl: row.imageUrl,
     jobTitle: row.jobTitle,
-    ...values,
-    step: getOnboardingStep(values),
+    ...timestamps,
+    step: getOnboardingStep(timestamps),
   };
 }
 
 export function createNeonOnboardingRepository(
   database: Database,
 ): OnboardingRepository {
-  async function find(clerkUserId: string): Promise<OnboardingSnapshot | null> {
-    const rows = await database
+  async function findOnboarding(
+    clerkUserId: string,
+  ): Promise<OnboardingSnapshot | null> {
+    const [row] = await database
       .select({
         clerkUserId: clerkProfiles.clerkUserId,
         firstName: clerkProfiles.firstName,
@@ -76,20 +78,20 @@ export function createNeonOnboardingRepository(
       .where(eq(newHireOnboarding.clerkUserId, clerkUserId))
       .limit(1);
 
-    return rows[0] ? toSnapshot(rows[0]) : null;
+    return row ? toSnapshot(row) : null;
   }
 
-  async function requireSnapshot(
+  async function requireOnboarding(
     clerkUserId: string,
   ): Promise<OnboardingSnapshot> {
-    const result = await find(clerkUserId);
-    if (!result) {
+    const onboarding = await findOnboarding(clerkUserId);
+    if (!onboarding) {
       throw new OnboardingError(
         "onboarding_not_found",
         "Start New Employee Setup before continuing.",
       );
     }
-    return result;
+    return onboarding;
   }
 
   async function projectProfile(profile: NewHireProfile): Promise<void> {
@@ -127,7 +129,7 @@ export function createNeonOnboardingRepository(
           jobTitle: assignJobTitle(profile.clerkUserId),
         })
         .onConflictDoNothing({ target: newHireOnboarding.clerkUserId });
-      return requireSnapshot(profile.clerkUserId);
+      return requireOnboarding(profile.clerkUserId);
     },
 
     async confirmProfile(profile) {
@@ -139,7 +141,7 @@ export function createNeonOnboardingRepository(
           updatedAt: new Date(),
         })
         .where(eq(newHireOnboarding.clerkUserId, profile.clerkUserId));
-      return requireSnapshot(profile.clerkUserId);
+      return requireOnboarding(profile.clerkUserId);
     },
 
     async acceptConduct(clerkUserId) {
@@ -155,14 +157,14 @@ export function createNeonOnboardingRepository(
             isNotNull(newHireOnboarding.profileConfirmedAt),
           ),
         );
-      const result = await requireSnapshot(clerkUserId);
-      if (!result.conductAcceptedAt) {
+      const onboarding = await requireOnboarding(clerkUserId);
+      if (!onboarding.conductAcceptedAt) {
         throw new OnboardingError(
           "onboarding_incomplete",
           "Confirm your New Hire Profile before accepting the conduct policy.",
         );
       }
-      return result;
+      return onboarding;
     },
 
     async clockIn(clerkUserId) {
@@ -179,16 +181,16 @@ export function createNeonOnboardingRepository(
             isNotNull(newHireOnboarding.conductAcceptedAt),
           ),
         );
-      const result = await requireSnapshot(clerkUserId);
-      if (!result.completedAt) {
+      const onboarding = await requireOnboarding(clerkUserId);
+      if (!onboarding.completedAt) {
         throw new OnboardingError(
           "onboarding_incomplete",
           "Complete your profile and accept the code of conduct before Clock In.",
         );
       }
-      return result;
+      return onboarding;
     },
 
-    getNewHire: find,
+    getNewHire: findOnboarding,
   };
 }

@@ -19,6 +19,13 @@ const JOB_TITLES = [
   "Distinguished Printer Queue Evangelist",
 ] as const;
 
+const ALLOWED_PROFILE_IMAGE_TYPES: ReadonlySet<string> = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+const MAX_PROFILE_IMAGE_SIZE_BYTES = 2 * 1024 * 1024;
+
 export type ProfileInput = {
   firstName: string;
   lastName: string;
@@ -45,6 +52,10 @@ export function assignJobTitle(clerkUserId: string): string {
   return JOB_TITLES[digest.readUInt32BE(0) % JOB_TITLES.length];
 }
 
+export function formatDisplayName(firstName: string, lastName: string): string {
+  return [firstName, lastName].filter(Boolean).join(" ");
+}
+
 export function getOnboardingStep(
   onboarding: Pick<
     OnboardingSnapshot,
@@ -69,7 +80,7 @@ export function validateProfileInput(input: ProfileInput): {
 } {
   const firstName = input.firstName.trim();
   const lastName = input.lastName.trim();
-  const displayName = [firstName, lastName].filter(Boolean).join(" ");
+  const displayName = formatDisplayName(firstName, lastName);
 
   if (!firstName) {
     throw new OnboardingError(
@@ -85,14 +96,13 @@ export function validateProfileInput(input: ProfileInput): {
   }
 
   if (input.image) {
-    const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
-    if (!allowedTypes.has(input.image.type)) {
+    if (!ALLOWED_PROFILE_IMAGE_TYPES.has(input.image.type)) {
       throw new OnboardingError(
         "invalid_profile",
         "Profile pictures must be PNG, JPEG, or WebP files.",
       );
     }
-    if (input.image.size > 2 * 1024 * 1024) {
+    if (input.image.size > MAX_PROFILE_IMAGE_SIZE_BYTES) {
       throw new OnboardingError(
         "invalid_profile",
         "Profile pictures must be 2 MB or smaller.",

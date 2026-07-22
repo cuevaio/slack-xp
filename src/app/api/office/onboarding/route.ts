@@ -1,7 +1,11 @@
 import { createServiceAdapters } from "@/lib/adapters";
 import { authenticateOfficeRequest } from "@/lib/auth/server";
 import { readAppConfiguration } from "@/lib/config";
-import { OnboardingError, validateProfileInput } from "@/lib/onboarding/domain";
+import {
+  OnboardingError,
+  type ProfileInput,
+  validateProfileInput,
+} from "@/lib/onboarding/domain";
 import {
   profileFromIdentity,
   updateAuthoritativeProfile,
@@ -12,6 +16,20 @@ import {
 } from "@/lib/onboarding/service";
 
 export const runtime = "nodejs";
+
+function readValidatedProfileInput(formData: FormData): ProfileInput {
+  const imageEntry = formData.get("image");
+  const image =
+    imageEntry instanceof File && imageEntry.size > 0 ? imageEntry : null;
+
+  const names = validateProfileInput({
+    firstName: String(formData.get("firstName") ?? ""),
+    lastName: String(formData.get("lastName") ?? ""),
+    image,
+  });
+
+  return { ...names, image };
+}
 
 export async function POST(request: Request) {
   const configuration = readAppConfiguration();
@@ -32,40 +50,28 @@ export async function POST(request: Request) {
     // Ensure direct or retried requests have the same stable onboarding row.
     await adapters.neon.enterNewHire(profileFromIdentity(identity));
 
-    if (intent === "confirm-profile") {
-      const rawImage = formData.get("image");
-      const image =
-        rawImage instanceof File && rawImage.size > 0 ? rawImage : null;
-      const input = validateProfileInput({
-        firstName: String(formData.get("firstName") ?? ""),
-        lastName: String(formData.get("lastName") ?? ""),
-        image,
-      });
-      return Response.json(
-        await confirmNewHireProfile(adapters.neon, () =>
-          updateAuthoritativeProfile(configuration, identity, {
-            ...input,
-            image,
-          }),
-        ),
-      );
+    switch (intent) {
+      case "confirm-profile": {
+        const profileInput = readValidatedProfileInput(formData);
+        return Response.json(
+          await confirmNewHireProfile(adapters.neon, () =>
+            updateAuthoritativeProfile(configuration, identity, profileInput),
+          ),
+        );
+      }
+      case "accept-conduct":
+        return Response.json(
+          await acceptNewHireConduct(
+            adapters.neon,
+            identity.id,
+            formData.get("accepted") === "yes",
+          ),
+        );
+      case "clock-in":
+        return Response.json(await adapters.neon.clockIn(identity.id));
+      default:
+        return Response.json({ error: "invalid_intent" }, { status: 400 });
     }
-
-    if (intent === "accept-conduct") {
-      return Response.json(
-        await acceptNewHireConduct(
-          adapters.neon,
-          identity.id,
-          formData.get("accepted") === "yes",
-        ),
-      );
-    }
-
-    if (intent === "clock-in") {
-      return Response.json(await adapters.neon.clockIn(identity.id));
-    }
-
-    return Response.json({ error: "invalid_intent" }, { status: 400 });
   } catch (error) {
     if (error instanceof OnboardingError) {
       return Response.json(

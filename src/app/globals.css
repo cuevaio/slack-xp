@@ -123,7 +123,8 @@ a {
 
 .preview-window,
 .messenger-window,
-.system-window {
+.system-window,
+.setup-window {
   border: 2px solid #e8e5da;
   border-right-color: #393939;
   border-bottom-color: #393939;
@@ -206,11 +207,6 @@ a {
 
 .setup-window {
   width: min(820px, 100%);
-  border: 2px solid #e8e5da;
-  border-right-color: #393939;
-  border-bottom-color: #393939;
-  background: var(--chrome);
-  box-shadow: 14px 18px 0 rgb(0 45 52 / 45%);
 }
 
 .setup-body {
@@ -224,7 +220,7 @@ a {
   position: relative;
   overflow: hidden;
   padding: 2rem 1.2rem;
-  background: linear-gradient(160deg, #001a70, #087f82);
+  background: linear-gradient(160deg, var(--navy), var(--desktop));
   color: white;
   font-family: var(--font-geist-mono), monospace;
   letter-spacing: 0.12em;
@@ -389,7 +385,7 @@ a {
   padding: 1rem 1.4rem;
   border: 3px outset #eee;
   background: #d5ff48;
-  color: #101424;
+  color: var(--ink);
   cursor: pointer;
   font:
     900 1.1rem var(--font-geist-mono),

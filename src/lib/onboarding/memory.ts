@@ -9,7 +9,9 @@ import type {
   OnboardingSnapshot,
 } from "@/lib/onboarding/types";
 import { toProfileAttribution } from "@/lib/profiles/domain";
+import { createProfileInvalidationOutboxEntry } from "@/lib/profiles/outbox";
 import type {
+  ProfileInvalidationOutboxEntry,
   ProfileProjectionResult,
   ProfileRepository,
 } from "@/lib/profiles/types";
@@ -79,6 +81,10 @@ export function createInMemoryNeonRepository(
 ): InMemoryNeonRepository {
   const profiles = new Map<string, NewHireProfile>();
   const onboardings = new Map<string, StoredOnboarding>();
+  const profileOutbox = new Map<
+    string,
+    ProfileInvalidationOutboxEntry & { publishedAt: Date | null }
+  >();
   let projectionWrites = 0;
   let profileBatchReads = 0;
 
@@ -113,6 +119,11 @@ export function createInMemoryNeonRepository(
     }
 
     profiles.set(profile.clerkUserId, { ...profile });
+    const outboxEntry = createProfileInvalidationOutboxEntry(profile, now());
+    profileOutbox.set(outboxEntry.outboxId, {
+      ...outboxEntry,
+      publishedAt: null,
+    });
     projectionWrites += 1;
     return "applied";
   }
@@ -127,6 +138,20 @@ export function createInMemoryNeonRepository(
       return clerkUserIds.map((clerkUserId) =>
         toProfileAttribution(clerkUserId, profiles.get(clerkUserId)),
       );
+    },
+
+    async pendingProfileInvalidations(limit) {
+      return [...profileOutbox.values()]
+        .filter(({ publishedAt }) => publishedAt === null)
+        .slice(0, limit)
+        .map(({ outboxId, event }) => ({ outboxId, event }));
+    },
+
+    async markProfileInvalidationPublished(outboxId, publishedAt) {
+      const entry = profileOutbox.get(outboxId);
+      if (entry && entry.publishedAt === null) {
+        entry.publishedAt = publishedAt;
+      }
     },
 
     async enterNewHire(profile) {
@@ -195,6 +220,7 @@ export function createInMemoryNeonRepository(
     reset() {
       profiles.clear();
       onboardings.clear();
+      profileOutbox.clear();
       projectionWrites = 0;
       profileBatchReads = 0;
     },

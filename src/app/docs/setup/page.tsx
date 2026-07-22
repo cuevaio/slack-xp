@@ -67,7 +67,9 @@ export default function SetupPage() {
               Profile writes are ordered by Clerk&apos;s source timestamp, and
               authenticated entry repairs missed deliveries. Portal messages
               retain only the stable Clerk user ID; names and pictures are
-              resolved from the current Neon projection in batches.
+              resolved from the current Neon projection in TanStack Query
+              batches. A lightweight reserved-sender Portal event invalidates
+              only batches containing the changed New Hire.
             </p>
             <p>
               The Employee Record editor updates Clerk before reporting success.
@@ -84,9 +86,11 @@ export default function SetupPage() {
               application startup, development startup, or the Next.js build.
             </p>
             <p>
-              The migration creates Clerk profile projections and resumable New
-              Hire onboarding records only. Portal remains the authority for
-              messages and conversation state.
+              The migrations create Clerk profile projections, a retry-safe
+              profile invalidation outbox, and resumable New Hire onboarding
+              records. The outbox contains stable references and delivery
+              timestamps, never profile values or message content. Portal
+              remains the authority for messages and conversation state.
             </p>
             <h2>Prove production readiness</h2>
             <p>

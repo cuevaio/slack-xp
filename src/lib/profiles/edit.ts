@@ -3,8 +3,10 @@ import type {
   OnboardingRepository,
   OnboardingSnapshot,
 } from "@/lib/onboarding/types";
+import { projectAndPropagateProfile } from "@/lib/profiles/propagation";
 import type {
   ProfileAttribution,
+  ProfileInvalidationPublisher,
   ProfileRepository,
 } from "@/lib/profiles/types";
 
@@ -127,8 +129,17 @@ export async function updateEmployeeRecord({
 export async function repairEmployeeRecordProjection(
   repository: ProfileRepository & Pick<OnboardingRepository, "getNewHire">,
   authoritativeProfile: NewHireProfile,
+  publisher?: ProfileInvalidationPublisher,
 ): Promise<EmployeeRecordUpdate> {
-  await repository.projectProfile(authoritativeProfile);
+  if (publisher) {
+    await projectAndPropagateProfile({
+      repository,
+      publisher,
+      profile: authoritativeProfile,
+    });
+  } else {
+    await repository.projectProfile(authoritativeProfile);
+  }
   return {
     record: authoritativeProfile,
     convergence: await readConvergence(repository, authoritativeProfile),

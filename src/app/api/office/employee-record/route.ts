@@ -20,10 +20,12 @@ async function authenticatedDependencies(): Promise<
   if (!identity) {
     return Response.json({ error: "authentication_required" }, { status: 401 });
   }
+  const adapters = createServiceAdapters(configuration);
   return {
     configuration,
     identity,
-    repository: createServiceAdapters(configuration).neon,
+    repository: adapters.neon,
+    publisher: adapters.portal,
   };
 }
 

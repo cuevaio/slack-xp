@@ -1,7 +1,11 @@
-import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import type { NeonAdapter } from "@/lib/adapters/types";
 import type { Database } from "@/lib/db/client";
-import { clerkProfiles, newHireOnboarding } from "@/lib/db/schema";
+import {
+  clerkProfiles,
+  newHireOnboarding,
+  profileInvalidationOutbox,
+} from "@/lib/db/schema";
 import {
   assignJobTitle,
   getOnboardingStep,
@@ -12,6 +16,7 @@ import type {
   OnboardingSnapshot,
 } from "@/lib/onboarding/types";
 import { toProfileAttribution } from "@/lib/profiles/domain";
+import { createProfileInvalidationOutboxEntry } from "@/lib/profiles/outbox";
 import type { ProfileAttribution } from "@/lib/profiles/types";
 
 type OnboardingRow = {
@@ -89,6 +94,40 @@ export function buildProfileProjectionQuery(
     .returning({ clerkUserId: clerkProfiles.clerkUserId });
 }
 
+export function buildProfileOutboxQuery(
+  database: Database,
+  profile: NewHireProfile,
+  occurredAt: Date,
+) {
+  const entry = createProfileInvalidationOutboxEntry(profile, occurredAt);
+  return database
+    .insert(profileInvalidationOutbox)
+    .select(
+      database
+        .select({
+          eventKey: sql<string>`${entry.event.eventKey}`.as("event_key"),
+          profileId: clerkProfiles.clerkUserId,
+          occurredAt: sql<Date>`${occurredAt}`.as("occurred_at"),
+          publishedAt: sql<Date | null>`null`.as("published_at"),
+          createdAt: sql<Date>`${occurredAt}`.as("created_at"),
+        })
+        .from(clerkProfiles)
+        .where(
+          and(
+            eq(clerkProfiles.clerkUserId, profile.clerkUserId),
+            eq(clerkProfiles.sourceVersion, profile.sourceVersion),
+            eq(clerkProfiles.firstName, profile.firstName),
+            eq(clerkProfiles.lastName, profile.lastName),
+            eq(clerkProfiles.displayName, profile.displayName),
+            profile.imageUrl === null
+              ? isNull(clerkProfiles.imageUrl)
+              : eq(clerkProfiles.imageUrl, profile.imageUrl),
+          ),
+        ),
+    )
+    .onConflictDoNothing({ target: profileInvalidationOutbox.eventKey });
+}
+
 export function createNeonRepository(database: Database): NeonAdapter {
   async function findOnboarding(
     clerkUserId: string,
@@ -130,7 +169,10 @@ export function createNeonRepository(database: Database): NeonAdapter {
   }
 
   async function projectProfile(profile: NewHireProfile) {
-    const changed = await buildProfileProjectionQuery(database, profile);
+    const [changed] = await database.batch([
+      buildProfileProjectionQuery(database, profile),
+      buildProfileOutboxQuery(database, profile, new Date()),
+    ]);
 
     return changed.length > 0 ? "applied" : "unchanged";
   }
@@ -160,6 +202,39 @@ export function createNeonRepository(database: Database): NeonAdapter {
   return {
     projectProfile,
     getProfiles,
+    async pendingProfileInvalidations(limit) {
+      const rows = await database
+        .select({
+          eventKey: profileInvalidationOutbox.eventKey,
+          profileId: profileInvalidationOutbox.profileId,
+          occurredAt: profileInvalidationOutbox.occurredAt,
+        })
+        .from(profileInvalidationOutbox)
+        .where(isNull(profileInvalidationOutbox.publishedAt))
+        .orderBy(asc(profileInvalidationOutbox.createdAt))
+        .limit(limit);
+      return rows.map((row) => ({
+        outboxId: row.eventKey,
+        event: {
+          version: 1,
+          type: "profile.invalidated" as const,
+          eventKey: row.eventKey,
+          occurredAt: row.occurredAt.toISOString(),
+          profileId: row.profileId,
+        },
+      }));
+    },
+    async markProfileInvalidationPublished(outboxId, publishedAt) {
+      await database
+        .update(profileInvalidationOutbox)
+        .set({ publishedAt })
+        .where(
+          and(
+            eq(profileInvalidationOutbox.eventKey, outboxId),
+            isNull(profileInvalidationOutbox.publishedAt),
+          ),
+        );
+    },
     async enterNewHire(profile) {
       await projectProfile(profile);
       await database

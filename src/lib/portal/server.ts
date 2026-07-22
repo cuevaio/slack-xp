@@ -1,9 +1,18 @@
+import {
+  OFFICE_EVENT_MESSAGE_TYPE,
+  OFFICE_EVENT_SENDERS,
+  officeEventChannelId,
+} from "@/lib/office-events/contract";
 import type {
   PortalAuthority,
   PortalMembershipInput,
   PortalToken,
   PortalTokenInput,
 } from "@/lib/portal/types";
+import type {
+  ProfileInvalidationEvent,
+  ProfileInvalidationPublisher,
+} from "@/lib/profiles/types";
 
 const DEFAULT_PORTAL_API_URL = "https://api.useportal.co";
 
@@ -104,6 +113,82 @@ export function createPortalControlPlane({
         throw new PortalServiceError(502, "invalid_portal_response");
       }
       return token;
+    },
+  };
+}
+
+type PortalProfilePublisherOptions = PortalControlPlaneOptions & {
+  apiKey: string;
+  now?: () => Date;
+};
+
+function isPublishAcknowledgement(value: unknown): boolean {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "id" in value &&
+    typeof value.id === "string" &&
+    "timestamp" in value &&
+    typeof value.timestamp === "number"
+  );
+}
+
+export function createPortalProfileInvalidationPublisher({
+  secret,
+  apiKey,
+  apiUrl = DEFAULT_PORTAL_API_URL,
+  fetcher = fetch,
+  now = () => new Date(),
+}: PortalProfilePublisherOptions): ProfileInvalidationPublisher {
+  const controlPlane = createPortalControlPlane({ secret, apiUrl, fetcher });
+  const baseUrl = apiUrl.replace(/\/$/u, "");
+
+  return {
+    async publishProfileInvalidation(event: ProfileInvalidationEvent) {
+      const channelId = officeEventChannelId(now());
+      const sender = {
+        userId: OFFICE_EVENT_SENDERS.profiles,
+        claims: { username: "Portal Profile Directory", avatar: null },
+      };
+      await controlPlane.ensureMembership({ channelId, ...sender });
+      const token = await controlPlane.mintToken({
+        channelIds: [channelId],
+        ...sender,
+      });
+
+      let response: Response;
+      try {
+        response = await fetcher(
+          `${baseUrl}/v1/channels/${encodeURIComponent(channelId)}/messages`,
+          {
+            method: "POST",
+            headers: {
+              authorization: `Bearer ${token.token}`,
+              "content-type": "application/json",
+              "x-portal-key": apiKey,
+            },
+            body: JSON.stringify({
+              type: OFFICE_EVENT_MESSAGE_TYPE,
+              content: event,
+            }),
+            cache: "no-store",
+          },
+        );
+      } catch {
+        throw new PortalServiceError(503, "portal_unavailable");
+      }
+
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok || !isPublishAcknowledgement(payload)) {
+        const code =
+          typeof payload === "object" &&
+          payload !== null &&
+          "code" in payload &&
+          typeof payload.code === "string"
+            ? payload.code
+            : "portal_event_publish_failed";
+        throw new PortalServiceError(response.ok ? 502 : response.status, code);
+      }
     },
   };
 }

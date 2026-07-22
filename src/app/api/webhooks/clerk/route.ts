@@ -6,12 +6,17 @@ import {
   InvalidClerkProfilePayloadError,
   profileFromClerkPayload,
 } from "@/lib/profiles/domain";
-import type { ProfileRepository } from "@/lib/profiles/types";
+import { projectAndPropagateProfile } from "@/lib/profiles/propagation";
+import type {
+  ProfileInvalidationPublisher,
+  ProfileRepository,
+} from "@/lib/profiles/types";
 
 export const runtime = "nodejs";
 
 type ClerkWebhookDependencies = {
   repository: ProfileRepository;
+  publisher?: ProfileInvalidationPublisher;
   signingSecret: string;
 };
 
@@ -31,9 +36,16 @@ export async function handleClerkProfileWebhook(
 
   if (event.type === "user.created" || event.type === "user.updated") {
     try {
-      await dependencies.repository.projectProfile(
-        profileFromClerkPayload(event.data),
-      );
+      const profile = profileFromClerkPayload(event.data);
+      if (dependencies.publisher) {
+        await projectAndPropagateProfile({
+          repository: dependencies.repository,
+          publisher: dependencies.publisher,
+          profile,
+        });
+      } else {
+        await dependencies.repository.projectProfile(profile);
+      }
     } catch (error) {
       if (error instanceof InvalidClerkProfilePayloadError) {
         return Response.json({ error: "invalid_webhook" }, { status: 400 });
@@ -54,8 +66,10 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "installation_incomplete" }, { status: 503 });
   }
 
+  const adapters = createServiceAdapters(configuration);
   return handleClerkProfileWebhook(request, {
-    repository: createServiceAdapters(configuration).neon,
+    repository: adapters.neon,
+    publisher: adapters.portal,
     signingSecret: configuration.values.CLERK_WEBHOOK_SECRET,
   });
 }

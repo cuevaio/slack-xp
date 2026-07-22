@@ -1,3 +1,8 @@
+import {
+  OFFICE_EVENT_MESSAGE_TYPE,
+  OFFICE_EVENT_SENDERS,
+  officeEventChannelId,
+} from "@/lib/office-events/contract";
 import { parseChatContent } from "@/lib/portal/chat";
 import type {
   PortalAuthority,
@@ -5,6 +10,10 @@ import type {
   PortalMembershipInput,
   PortalTokenInput,
 } from "@/lib/portal/types";
+import type {
+  ProfileInvalidationEvent,
+  ProfileInvalidationPublisher,
+} from "@/lib/profiles/types";
 
 export class MockPortalUnavailableError extends Error {
   constructor() {
@@ -13,25 +22,27 @@ export class MockPortalUnavailableError extends Error {
   }
 }
 
-export type MockPortalAdapter = PortalAuthority & {
-  history(channelId: string): Promise<readonly PortalChatMessage[]>;
-  historyPage(
-    channelId: string,
-    options: { before?: string; limit: number },
-  ): Promise<{
-    messages: readonly PortalChatMessage[];
-    hasPrevious: boolean;
-  }>;
-  sendMessage(input: {
-    channelId: string;
-    senderId: string;
-    content: unknown;
-  }): Promise<PortalChatMessage>;
-  membershipCount(channelId: string): number;
-  failNextSend(): void;
-  setOnline(online: boolean): void;
-  reset(): void;
-};
+export type MockPortalAdapter = PortalAuthority &
+  ProfileInvalidationPublisher & {
+    history(channelId: string): Promise<readonly PortalChatMessage[]>;
+    historyPage(
+      channelId: string,
+      options: { before?: string; limit: number },
+    ): Promise<{
+      messages: readonly PortalChatMessage[];
+      hasPrevious: boolean;
+    }>;
+    sendMessage(input: {
+      channelId: string;
+      senderId: string;
+      content: unknown;
+    }): Promise<PortalChatMessage>;
+    membershipCount(channelId: string): number;
+    failNextSend(): void;
+    setOnline(online: boolean): void;
+    officeEvents(channelId: string): readonly unknown[];
+    reset(): void;
+  };
 
 export function createMockPortalAdapter({
   now = () => new Date(),
@@ -43,6 +54,7 @@ export function createMockPortalAdapter({
     Map<string, PortalMembershipInput["claims"]>
   >();
   const messages = new Map<string, PortalChatMessage[]>();
+  const officeEvents = new Map<string, unknown[]>();
   let online = true;
   let rejectNextSend = false;
   let tokenSequence = 0;
@@ -75,6 +87,26 @@ export function createMockPortalAdapter({
         token: `mock_portal_token_${tokenSequence}`,
         expiresAt: new Date(now().getTime() + 15 * 60 * 1_000).toISOString(),
       };
+    },
+
+    async publishProfileInvalidation(event: ProfileInvalidationEvent) {
+      requireOnline();
+      const channelId = officeEventChannelId(now());
+      const channelEvents = officeEvents.get(channelId) ?? [];
+      messageSequence += 1;
+      channelEvents.push({
+        id: `mock_office_event_${messageSequence}`,
+        channelId,
+        sender: { id: OFFICE_EVENT_SENDERS.profiles, anon: false },
+        timestamp: now().getTime(),
+        kind: "text",
+        type: OFFICE_EVENT_MESSAGE_TYPE,
+        ephemeral: false,
+        retracted: false,
+        status: "sent",
+        content: event,
+      });
+      officeEvents.set(channelId, channelEvents);
     },
 
     async history(channelId) {
@@ -141,9 +173,14 @@ export function createMockPortalAdapter({
       online = nextOnline;
     },
 
+    officeEvents(channelId) {
+      return [...(officeEvents.get(channelId) ?? [])];
+    },
+
     reset() {
       members.clear();
       messages.clear();
+      officeEvents.clear();
       online = true;
       rejectNextSend = false;
       tokenSequence = 0;

@@ -84,7 +84,11 @@ orders writes by Clerk's `updated_at` source version so delayed requests cannot
 replace newer data. Exact webhook replays do not rewrite the row.
 `new_hire_onboarding` owns the stable assigned job title and the confirmation,
 conduct-acceptance, and Clock In timestamps. Neither table stores Portal
-messages or message bodies.
+messages or message bodies. The next migration adds
+`profile_invalidation_outbox`, which stores only a deterministic event key, the
+stable Clerk user ID, delivery timestamps, and no name, picture, or message
+content. A profile upsert and its outbox insert run in one Neon transaction;
+Portal publishing starts only after that transaction commits.
 
 In the Clerk Dashboard, create a webhook endpoint for
 `https://<deployment>/api/webhooks/clerk`, subscribe it to `user.created` and
@@ -104,7 +108,10 @@ picture, and a status. A
 missing projection returns the non-identifying `New Hire`/`unavailable`
 fallback. Portal messages keep only the stable Clerk user ID, so both old and
 new messages resolve to the latest projection instead of retaining historical
-name or picture snapshots.
+name or picture snapshots. TanStack Query owns these browser profile batches
+under sorted keys shaped as `["new-hire-profiles", clerkUserIds]`; Portal chat
+messages remain exclusively in the Portal SDK rather than being copied into the
+query cache.
 
 First-time New Hires enter a three-step New Employee Setup Wizard. Profile
 changes use the same Employee Record editor available after Clock In. The
@@ -230,6 +237,17 @@ retries and reconnect replay by event key, pages through the current Office
 Day's event history to rebuild reaction state, and exposes neither the
 underlying message list nor a generic event-channel send function.
 
+For profile changes, the reserved `office-events:profiles` sender publishes the
+committed outbox event to the current Office Day event channel. Connected
+clients invalidate only cached batches containing that `profileId`, so live and
+historical attribution, profile pictures, detailed presence, and profile UI all
+read the same canonical Neon result. Duplicate, delayed, and reordered signals
+can only trigger another read and therefore cannot restore old values. Active
+queries also repair every 30 seconds and on focus or reconnect, covering a
+missed signal. A failed publish leaves the outbox row pending; Clerk retries and
+later authenticated session or Portal-token requests safely retry the same
+deterministic event key.
+
 The subscriber advances the event channel read position, durably mutes its
 Portal inbox entry, and clears that entry's independent inbox watermark. Product
 channel lists also exclude the event channel, so Office Events do not render as
@@ -332,8 +350,9 @@ bunx playwright install chromium
   executable boundary example. Session establishment repairs the current Clerk
   projection, and `/api/office/profiles` provides bounded batch attribution.
 - `/api/webhooks/clerk` is a public, Node.js-only delivery endpoint. It accepts
-  current profile writes only after Clerk signature verification and applies
-  source-version ordering in Neon.
+  current profile writes only after Clerk signature verification, applies
+  source-version ordering in Neon, and drains committed profile invalidations
+  through the reserved Portal sender.
 - `src/proxy.ts` performs an early protection check for office pages and server
   operations. It is not the sole authorization boundary.
 - `src/lib/auth/` owns Clerk verification, mock sessions, and exact Operator
@@ -345,7 +364,8 @@ bunx playwright install chromium
 - `src/lib/db/` contains the Drizzle schema and Neon HTTP client boundary.
   `src/lib/onboarding/` owns deterministic assignment, onboarding state, and
   the live and mock persistence implementations. `src/lib/profiles/` owns
-  Clerk payload validation, drift repair, and the batch-read contract.
+  Clerk payload validation, drift repair, the transactional profile outbox,
+  and the TanStack Query batch-read contract.
 - `src/lib/office-events/` owns the versioned Office Event runtime contract,
   reserved-sender checks, reaction projection, replay deduplication, and the
   narrow browser subscription that isolates event-channel inbox attention.

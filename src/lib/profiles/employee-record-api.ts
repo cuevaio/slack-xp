@@ -19,11 +19,13 @@ import {
   repairEmployeeRecordProjection,
   updateEmployeeRecord,
 } from "@/lib/profiles/edit";
+import type { ProfileInvalidationPublisher } from "@/lib/profiles/types";
 
 export type EmployeeRecordDependencies = {
   configuration: ReadyAppConfiguration;
   identity: AuthenticatedNewHire;
   repository: NeonAdapter;
+  publisher?: ProfileInvalidationPublisher;
 };
 
 type EmployeeRecordUpdateDependencies = EmployeeRecordDependencies & {
@@ -145,6 +147,7 @@ export async function handleEmployeeRecordConvergence(
       await repairEmployeeRecordProjection(
         dependencies.repository,
         authoritativeProfile,
+        dependencies.publisher,
       ),
     );
   } catch {

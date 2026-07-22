@@ -1,7 +1,10 @@
 "use client";
 
+import type { AggregatePresence, DetailedPresence } from "@portalsdk/core";
 import { Portal } from "@portalsdk/core";
 import { PortalProvider, useChannel } from "@portalsdk/react";
+import { useQueryClient } from "@tanstack/react-query";
+import Image from "next/image";
 import {
   type FormEvent,
   type ReactNode,
@@ -12,6 +15,7 @@ import {
   useState,
 } from "react";
 import { useOfficeEventSubscription } from "@/lib/office-events/client";
+import type { OfficeInvalidationEvent } from "@/lib/office-events/contract";
 import type { OfficeChannel } from "@/lib/portal/channels";
 import {
   CHAT_TEXT_LIMIT,
@@ -22,6 +26,12 @@ import {
   validateChatDraft,
 } from "@/lib/portal/chat";
 import { createPortalTokenSource } from "@/lib/portal/client";
+import {
+  invalidateProfileBatches,
+  useProfileBatch,
+} from "@/lib/profiles/client";
+import { ProfileQueryProvider } from "@/lib/profiles/provider";
+import type { ProfileAttribution } from "@/lib/profiles/types";
 
 type ChatConnectionStatus =
   | "idle"
@@ -36,6 +46,7 @@ type PortalOfficeBaseProps = {
   channels: readonly OfficeChannel[];
   identityId: string;
   displayName: string;
+  imageUrl: string | null;
   employeeRecord: ReactNode;
   eventChannelId: string;
   jobTitle: string;
@@ -58,8 +69,7 @@ type PortalChatProps = MockPortalOfficeProps | LivePortalOfficeProps;
 type ChatSurfaceProps = {
   active: boolean;
   channel: OfficeChannel;
-  identityId: string;
-  displayName: string;
+  presence?: DetailedPresence | AggregatePresence;
   messages: readonly unknown[];
   status: ChatConnectionStatus;
   onSend(text: string): Promise<void>;
@@ -72,6 +82,7 @@ type ChatSurfaceProps = {
 type OfficeWorkspaceProps = Pick<
   PortalOfficeBaseProps,
   | "channels"
+  | "identityId"
   | "displayName"
   | "employeeRecord"
   | "jobTitle"
@@ -215,13 +226,11 @@ function SafeMessageText({ text }: { text: string }) {
 function MessageHistory({
   channel,
   messages,
-  identityId,
-  displayName,
+  profilesById,
 }: {
   channel: OfficeChannel;
   messages: readonly SafePortalChatMessage[];
-  identityId: string;
-  displayName: string;
+  profilesById: ReadonlyMap<string, ProfileAttribution>;
 }) {
   if (messages.length === 0) {
     return (
@@ -239,40 +248,106 @@ function MessageHistory({
       className="message-history"
       aria-label={`${channel.name} message history`}
     >
-      {messages.map((message) => (
-        <li
-          className={`chat-message chat-message-${message.status}`}
-          key={message.id}
-        >
-          <div className="message-meta">
-            <strong>
-              {message.senderId === identityId ? displayName : "New Hire"}
-            </strong>
-            <time dateTime={new Date(message.timestamp).toISOString()}>
-              {new Intl.DateTimeFormat(undefined, {
-                hour: "numeric",
-                minute: "2-digit",
-              }).format(message.timestamp)}
-            </time>
-          </div>
-          <p>
-            <SafeMessageText text={message.content.text} />
-          </p>
-          {message.status === "pending" ? <small>Sending…</small> : null}
-          {message.status === "failed" ? (
-            <small role="alert">Not delivered. Retry from the composer.</small>
-          ) : null}
-        </li>
-      ))}
+      {messages.map((message) => {
+        const profile = profilesById.get(message.senderId);
+        return (
+          <li
+            className={`chat-message chat-message-${message.status}`}
+            key={message.id}
+          >
+            <div className="message-meta">
+              {profile?.imageUrl ? (
+                <Image
+                  alt=""
+                  className="message-avatar"
+                  height={28}
+                  src={profile.imageUrl}
+                  unoptimized
+                  width={28}
+                />
+              ) : (
+                <span aria-hidden="true" className="message-avatar-placeholder">
+                  {(profile?.displayName ?? "New Hire").slice(0, 1)}
+                </span>
+              )}
+              <strong>{profile?.displayName ?? "New Hire"}</strong>
+              <time dateTime={new Date(message.timestamp).toISOString()}>
+                {new Intl.DateTimeFormat(undefined, {
+                  hour: "numeric",
+                  minute: "2-digit",
+                }).format(message.timestamp)}
+              </time>
+            </div>
+            <p>
+              <SafeMessageText text={message.content.text} />
+            </p>
+            {message.status === "pending" ? <small>Sending…</small> : null}
+            {message.status === "failed" ? (
+              <small role="alert">
+                Not delivered. Retry from the composer.
+              </small>
+            ) : null}
+          </li>
+        );
+      })}
     </ol>
+  );
+}
+
+function PresenceRoster({
+  presence,
+  profilesById,
+}: {
+  presence: DetailedPresence | AggregatePresence | undefined;
+  profilesById: ReadonlyMap<string, ProfileAttribution>;
+}) {
+  if (!presence) return null;
+  if (presence.kind === "aggregate") {
+    return (
+      <p className="presence-summary">{presence.count} New Hires online</p>
+    );
+  }
+  return (
+    <div className="presence-summary">
+      <strong>Online:</strong>
+      {presence.participants.length === 0 ? (
+        <span>Nobody</span>
+      ) : (
+        <ul aria-label="New Hires online">
+          {presence.participants.map(({ id }) => {
+            const profile = profilesById.get(id);
+            return (
+              <li key={id}>
+                {profile?.imageUrl ? (
+                  <Image
+                    alt=""
+                    height={22}
+                    src={profile.imageUrl}
+                    unoptimized
+                    width={22}
+                  />
+                ) : (
+                  <span
+                    aria-hidden="true"
+                    className="presence-avatar-placeholder"
+                  >
+                    {(profile?.displayName ?? "New Hire").slice(0, 1)}
+                  </span>
+                )}
+                <span>{profile?.displayName ?? "New Hire"}</span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 
 function ChatSurface({
   active,
   channel,
-  identityId,
-  displayName,
+  presence,
   messages: rawMessages,
   status,
   onSend,
@@ -296,6 +371,24 @@ function ChatSurface({
     [channel.id, rawMessages],
   );
   const invalidMessageCount = rawMessages.length - messages.length;
+  const profileIds = useMemo(() => {
+    const ids = messages.map(({ senderId }) => senderId);
+    if (presence?.kind === "detailed") {
+      ids.push(...presence.participants.map(({ id }) => id));
+    }
+    return ids;
+  }, [messages, presence]);
+  const profileQuery = useProfileBatch(profileIds);
+  const profilesById = useMemo(
+    () =>
+      new Map(
+        (profileQuery.data ?? []).map((profile) => [
+          profile.clerkUserId,
+          profile,
+        ]),
+      ),
+    [profileQuery.data],
+  );
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -360,6 +453,7 @@ function ChatSurface({
           {connectionStatusCopy(status)}
         </output>
       </header>
+      <PresenceRoster presence={presence} profilesById={profilesById} />
 
       <div className="chat-scroll-region" ref={scrollRegionRef}>
         {channel.mode === "broadcast" ? (
@@ -402,12 +496,22 @@ function ChatSurface({
             {invalidMessageCount === 1 ? " was" : "s were"} hidden.
           </output>
         ) : null}
-        <MessageHistory
-          channel={channel}
-          displayName={displayName}
-          identityId={identityId}
-          messages={messages}
-        />
+        {profileQuery.isError ? (
+          <div className="portal-outage" role="alert">
+            <strong>New Hire Profiles are unavailable.</strong>
+            <span className="outage-detail">
+              Message history is hidden until canonical profile records return.
+            </span>
+          </div>
+        ) : profileQuery.isPending ? (
+          <p className="profile-status">Resolving New Hire Profiles…</p>
+        ) : (
+          <MessageHistory
+            channel={channel}
+            messages={messages}
+            profilesById={profilesById}
+          />
+        )}
       </div>
 
       <form className="chat-composer" onSubmit={submit}>
@@ -449,6 +553,7 @@ function ChatSurface({
 
 function OfficeWorkspace({
   channels,
+  identityId,
   displayName,
   employeeRecord,
   jobTitle,
@@ -459,11 +564,15 @@ function OfficeWorkspace({
   onSelectChannel,
   children,
 }: OfficeWorkspaceProps) {
+  const currentProfile = useProfileBatch([identityId]);
+  const currentDisplayName =
+    currentProfile.data?.find((profile) => profile.clerkUserId === identityId)
+      ?.displayName ?? displayName;
   return (
     <div className="office-body">
       <aside className="channel-panel" aria-label="Office Channels">
         <p className="eyebrow">Shared Public Office</p>
-        <h1>Welcome, {displayName}</h1>
+        <h1>Welcome, {currentDisplayName}</h1>
         <p className="job-title">{jobTitle}</p>
         {isOperator ? <p className="operator-badge">Operator access</p> : null}
         <nav aria-label="Office Channel directory">
@@ -511,14 +620,10 @@ function OfficeWorkspace({
 function LiveOfficeChannel({
   active,
   channel: officeChannel,
-  identityId,
-  displayName,
   onUnread,
 }: {
   active: boolean;
   channel: OfficeChannel;
-  identityId: string;
-  displayName: string;
   onUnread(channelId: string, count: number): void;
 }) {
   const channel = useChannel<{ text: string }>({
@@ -535,9 +640,7 @@ function LiveOfficeChannel({
     <ChatSurface
       active={active}
       channel={officeChannel}
-      displayName={displayName}
       hasPrevious={channel.hasPrevious}
-      identityId={identityId}
       isLoadingPrevious={channel.isLoadingPrevious}
       loadPrevious={channel.loadPrevious}
       messages={channel.messages}
@@ -545,6 +648,7 @@ function LiveOfficeChannel({
       onSend={async (text) => {
         await channel.send({ content: validateChatDraft(text) });
       }}
+      presence={channel.presence}
       status={channel.status}
     />
   );
@@ -553,10 +657,19 @@ function LiveOfficeChannel({
 function ignoreOfficeEvent(): void {}
 
 function OfficeEventAttentionGuard({ channelId }: { channelId: string }) {
+  const queryClient = useQueryClient();
+  const handleInvalidation = useCallback(
+    (event: OfficeInvalidationEvent) => {
+      if (event.type === "profile.invalidated") {
+        void invalidateProfileBatches(queryClient, event.profileId);
+      }
+    },
+    [queryClient],
+  );
   useOfficeEventSubscription({
     channelId,
     onReaction: ignoreOfficeEvent,
-    onInvalidation: ignoreOfficeEvent,
+    onInvalidation: handleInvalidation,
   });
   return null;
 }
@@ -600,6 +713,7 @@ function LivePortalOffice(props: Omit<LivePortalOfficeProps, "mode">) {
         channels={channels}
         displayName={displayName}
         employeeRecord={employeeRecord}
+        identityId={identityId}
         isOperator={isOperator}
         jobTitle={jobTitle}
         onSelectChannel={setActiveChannelId}
@@ -609,8 +723,6 @@ function LivePortalOffice(props: Omit<LivePortalOfficeProps, "mode">) {
           <LiveOfficeChannel
             active={channel.id === activeChannelId}
             channel={channel}
-            displayName={displayName}
-            identityId={identityId}
             key={channel.id}
             onUnread={updateUnread}
           />
@@ -624,12 +736,10 @@ function MockOfficeChannel({
   active,
   channel,
   identityId,
-  displayName,
 }: {
   active: boolean;
   channel: OfficeChannel;
   identityId: string;
-  displayName: string;
 }) {
   const [messages, setMessages] = useState<unknown[]>([]);
   const [status, setStatus] = useState<ChatConnectionStatus>("connecting");
@@ -717,14 +827,17 @@ function MockOfficeChannel({
     <ChatSurface
       active={active}
       channel={channel}
-      displayName={displayName}
       hasPrevious={hasPrevious}
-      identityId={identityId}
       isLoadingPrevious={isLoadingPrevious}
       loadPrevious={loadPrevious}
       messages={messages}
       onRetryConnection={() => void loadMockHistory()}
       onSend={sendMessage}
+      presence={{
+        kind: "detailed",
+        count: 1,
+        participants: [{ id: identityId, anon: false }],
+      }}
       status={status}
     />
   );
@@ -749,6 +862,7 @@ function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
       channels={channels}
       displayName={displayName}
       employeeRecord={employeeRecord}
+      identityId={identityId}
       isOperator={isOperator}
       jobTitle={jobTitle}
       onSelectChannel={setActiveChannelId}
@@ -758,7 +872,6 @@ function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
         <MockOfficeChannel
           active={channel.id === activeChannelId}
           channel={channel}
-          displayName={displayName}
           identityId={identityId}
           key={channel.id}
         />
@@ -768,9 +881,19 @@ function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
 }
 
 export function PortalChat(props: PortalChatProps): ReactNode {
-  return props.mode === "live" ? (
-    <LivePortalOffice {...props} />
-  ) : (
-    <MockPortalOffice {...props} />
+  const initialProfile: ProfileAttribution = {
+    clerkUserId: props.identityId,
+    displayName: props.displayName,
+    imageUrl: props.imageUrl,
+    status: "current",
+  };
+  return (
+    <ProfileQueryProvider initialProfile={initialProfile}>
+      {props.mode === "live" ? (
+        <LivePortalOffice {...props} />
+      ) : (
+        <MockPortalOffice {...props} />
+      )}
+    </ProfileQueryProvider>
   );
 }

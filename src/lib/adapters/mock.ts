@@ -1,5 +1,5 @@
 import type { ServiceAdapters } from "@/lib/adapters/types";
-import { createInMemoryOnboardingRepository } from "@/lib/onboarding/memory";
+import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
 import type { NewHireProfile } from "@/lib/onboarding/types";
 
 const MOCK_CHANNELS = [
@@ -13,12 +13,12 @@ const MOCK_REPOSITORY_KEY = Symbol.for(
 );
 
 type MockGlobal = typeof globalThis & {
-  [MOCK_REPOSITORY_KEY]?: ReturnType<typeof createInMemoryOnboardingRepository>;
+  [MOCK_REPOSITORY_KEY]?: ReturnType<typeof createInMemoryNeonRepository>;
 };
 
 function getMockRepository() {
   const mockGlobal = globalThis as MockGlobal;
-  mockGlobal[MOCK_REPOSITORY_KEY] ??= createInMemoryOnboardingRepository();
+  mockGlobal[MOCK_REPOSITORY_KEY] ??= createInMemoryNeonRepository();
   return mockGlobal[MOCK_REPOSITORY_KEY];
 }
 

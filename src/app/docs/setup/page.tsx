@@ -47,6 +47,21 @@ export default function SetupPage() {
               whitespace-separated list of exact Clerk user IDs. This value is
               server-only.
             </p>
+            <h2>Project current Clerk profiles</h2>
+            <p>
+              Add <code>https://your-deployment/api/webhooks/clerk</code> as a
+              Clerk webhook endpoint and subscribe it to{" "}
+              <code>user.created</code> and <code>user.updated</code>. Copy that
+              endpoint&apos;s signing secret into{" "}
+              <code>CLERK_WEBHOOK_SECRET</code>. The handler rejects unsigned
+              deliveries before reading their profile data.
+            </p>
+            <p>
+              Profile writes are ordered by Clerk&apos;s source timestamp, and
+              authenticated entry repairs missed deliveries. Portal messages
+              retain only the stable Clerk user ID; names and pictures are
+              resolved from the current Neon projection in batches.
+            </p>
             <h2>Apply the Neon schema</h2>
             <p>
               With <code>DATABASE_URL</code> available in the command

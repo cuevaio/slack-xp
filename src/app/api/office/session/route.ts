@@ -1,5 +1,7 @@
+import { createServiceAdapters } from "@/lib/adapters";
 import { authenticateOfficeRequest } from "@/lib/auth/server";
 import { readAppConfiguration } from "@/lib/config";
+import { repairProfileProjection } from "@/lib/profiles/service";
 
 export const runtime = "nodejs";
 
@@ -13,6 +15,11 @@ export async function GET() {
   if (!identity) {
     return Response.json({ error: "authentication_required" }, { status: 401 });
   }
+
+  await repairProfileProjection(
+    createServiceAdapters(configuration).neon,
+    identity,
+  );
 
   return Response.json({
     id: identity.id,

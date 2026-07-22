@@ -67,10 +67,31 @@ migrations during `bun run dev`, application startup, or `bun run build`.
 
 The initial Drizzle migration creates two focused tables. `clerk_profiles`
 projects the current Clerk name and picture under the stable Clerk user ID and
-can later tombstone deleted profiles without retaining public attributes.
+orders writes by Clerk's `updated_at` source version so delayed requests cannot
+replace newer data. Exact webhook replays do not rewrite the row.
 `new_hire_onboarding` owns the stable assigned job title and the confirmation,
 conduct-acceptance, and Clock In timestamps. Neither table stores Portal
 messages or message bodies.
+
+In the Clerk Dashboard, create a webhook endpoint for
+`https://<deployment>/api/webhooks/clerk`, subscribe it to `user.created` and
+`user.updated`, and put that endpoint's signing secret in
+`CLERK_WEBHOOK_SECRET`. The Node.js route verifies the signature before parsing
+profile fields and returns a generic `400` for invalid signatures or payloads;
+it does not log secrets or profile data. Clerk's current name and picture are
+also projected when an authenticated session is established. That repair uses
+the same source-version rule as webhooks, so a stale session read cannot roll a
+newer projection backward.
+
+Authenticated server consumers batch attribution through
+`POST /api/office/profiles` with `{ "clerkUserIds": [...] }`. A request accepts
+at most 100 supplied stable Clerk user IDs, deduplicates them, and performs one
+Neon query. Results contain only the stable ID, current display name and
+picture, and a status. A
+missing projection returns the non-identifying `New Hire`/`unavailable`
+fallback. Portal messages keep only the stable Clerk user ID, so both old and
+new messages resolve to the latest projection instead of retaining historical
+name or picture snapshots.
 
 First-time New Hires enter a three-step New Employee Setup Wizard. Profile
 changes are applied to Clerk first and then projected to Neon. The absurd job
@@ -134,7 +155,11 @@ bunx playwright install chromium
   adapters only after both checks pass.
 - `/api/office/*` is reserved for authenticated server operations. Each handler
   must call `authenticateOfficeRequest`; the included session endpoint is the
-  executable boundary example.
+  executable boundary example. Session establishment repairs the current Clerk
+  projection, and `/api/office/profiles` provides bounded batch attribution.
+- `/api/webhooks/clerk` is a public, Node.js-only delivery endpoint. It accepts
+  current profile writes only after Clerk signature verification and applies
+  source-version ordering in Neon.
 - `src/proxy.ts` performs an early protection check for office pages and server
   operations. It is not the sole authorization boundary.
 - `src/lib/auth/` owns Clerk verification, mock sessions, and exact Operator
@@ -145,7 +170,8 @@ bunx playwright install chromium
   and cannot be selected in production.
 - `src/lib/db/` contains the Drizzle schema and Neon HTTP client boundary.
   `src/lib/onboarding/` owns deterministic assignment, onboarding state, and
-  the live and mock persistence implementations.
+  the live and mock persistence implementations. `src/lib/profiles/` owns
+  Clerk payload validation, drift repair, and the batch-read contract.
 - `/api/office/onboarding` authenticates every mutation, updates Clerk before a
   profile projection, and rejects Clock In until required onboarding state is
   durable.

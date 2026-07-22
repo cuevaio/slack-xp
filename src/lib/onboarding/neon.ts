@@ -1,4 +1,5 @@
-import { and, eq, isNotNull, lte, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
+import type { NeonAdapter } from "@/lib/adapters/types";
 import type { Database } from "@/lib/db/client";
 import { clerkProfiles, newHireOnboarding } from "@/lib/db/schema";
 import {
@@ -8,9 +9,10 @@ import {
 } from "@/lib/onboarding/domain";
 import type {
   NewHireProfile,
-  OnboardingRepository,
   OnboardingSnapshot,
 } from "@/lib/onboarding/types";
+import { UNAVAILABLE_PROFILE_NAME } from "@/lib/profiles/domain";
+import type { ProfileAttribution } from "@/lib/profiles/types";
 
 type OnboardingRow = {
   clerkUserId: string;
@@ -52,9 +54,33 @@ function toSnapshot(row: OnboardingRow): OnboardingSnapshot {
   };
 }
 
+export function buildProfileProjectionQuery(
+  database: Database,
+  profile: NewHireProfile,
+) {
+  return database
+    .insert(clerkProfiles)
+    .values(profile)
+    .onConflictDoUpdate({
+      target: clerkProfiles.clerkUserId,
+      set: {
+        firstName: profile.firstName,
+        lastName: profile.lastName,
+        displayName: profile.displayName,
+        imageUrl: profile.imageUrl,
+        sourceVersion: profile.sourceVersion,
+        updatedAt: new Date(),
+      },
+      // A newer webhook always wins. Equal-version repair may correct drift,
+      // but an exact replay performs no write and leaves updated_at stable.
+      setWhere: sql`${clerkProfiles.sourceVersion} < excluded.source_version or (${clerkProfiles.sourceVersion} = excluded.source_version and (${clerkProfiles.firstName} is distinct from excluded.first_name or ${clerkProfiles.lastName} is distinct from excluded.last_name or ${clerkProfiles.displayName} is distinct from excluded.display_name or ${clerkProfiles.imageUrl} is distinct from excluded.image_url))`,
+    })
+    .returning({ clerkUserId: clerkProfiles.clerkUserId });
+}
+
 export function createNeonOnboardingRepository(
   database: Database,
-): OnboardingRepository {
+): NeonAdapter {
   async function findOnboarding(
     clerkUserId: string,
   ): Promise<OnboardingSnapshot | null> {
@@ -94,32 +120,51 @@ export function createNeonOnboardingRepository(
     return onboarding;
   }
 
-  async function projectProfile(profile: NewHireProfile): Promise<void> {
-    await database
-      .insert(clerkProfiles)
-      .values(profile)
-      .onConflictDoNothing({ target: clerkProfiles.clerkUserId });
+  async function projectProfile(profile: NewHireProfile) {
+    const changed = await buildProfileProjectionQuery(database, profile);
 
-    // A delayed request must not overwrite a newer Clerk projection.
-    await database
-      .update(clerkProfiles)
-      .set({
-        firstName: profile.firstName,
-        lastName: profile.lastName,
-        displayName: profile.displayName,
-        imageUrl: profile.imageUrl,
-        sourceVersion: profile.sourceVersion,
-        updatedAt: new Date(),
+    return changed.length > 0 ? "applied" : "unchanged";
+  }
+
+  async function getProfiles(
+    clerkUserIds: readonly string[],
+  ): Promise<ProfileAttribution[]> {
+    if (clerkUserIds.length === 0) {
+      return [];
+    }
+
+    const rows = await database
+      .select({
+        clerkUserId: clerkProfiles.clerkUserId,
+        displayName: clerkProfiles.displayName,
+        imageUrl: clerkProfiles.imageUrl,
       })
-      .where(
-        and(
-          eq(clerkProfiles.clerkUserId, profile.clerkUserId),
-          lte(clerkProfiles.sourceVersion, profile.sourceVersion),
-        ),
-      );
+      .from(clerkProfiles)
+      .where(inArray(clerkProfiles.clerkUserId, [...clerkUserIds]));
+    const rowsById = new Map(rows.map((row) => [row.clerkUserId, row]));
+
+    return clerkUserIds.map((clerkUserId) => {
+      const row = rowsById.get(clerkUserId);
+      if (!row?.displayName) {
+        return {
+          clerkUserId,
+          displayName: UNAVAILABLE_PROFILE_NAME,
+          imageUrl: null,
+          status: "unavailable",
+        };
+      }
+      return {
+        clerkUserId,
+        displayName: row.displayName,
+        imageUrl: row.imageUrl,
+        status: "current",
+      };
+    });
   }
 
   return {
+    projectProfile,
+    getProfiles,
     async enterNewHire(profile) {
       await projectProfile(profile);
       await database

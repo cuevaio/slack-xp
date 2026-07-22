@@ -30,6 +30,7 @@ default to `SERVICE_MODE=live`.
 
 Live mode requires these variables:
 
+- `APP_ORIGIN`
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
 - `CLERK_SECRET_KEY`
 - `CLERK_WEBHOOK_SECRET`
@@ -40,6 +41,16 @@ Live mode requires these variables:
 `OPERATOR_CLERK_USER_IDS` is an optional comma- or whitespace-separated list of
 exact Clerk user IDs that receive Operator-shaped identity. It is read only on
 the server.
+
+Use one development Clerk, Portal, and Neon stack for local and preview scopes.
+Set the same variable names to a separate production stack in Vercel's
+Production environment; production setup verification requires Clerk live keys.
+`APP_ORIGIN` is the exact `http://` or `https://` browser origin registered with
+Clerk and Portal, with no path or trailing slash.
+
+The repository selects one Vercel Function region in `vercel.json`. Change the
+single `regions` entry to the region nearest the production Neon database. This
+is deployment configuration, not an environment secret.
 
 Configuration is validated before service adapters are created. Invalid or
 partial configuration renders Installation Incomplete and lists only variable
@@ -172,6 +183,49 @@ sessions are credential-free fixtures, not a Clerk emulator, and are refused
 when the application environment is production.
 
 ## Checks
+
+Validate a fork before launch with:
+
+```bash
+bun run setup:check
+```
+
+`bun run portal:verify` is an explicit alias for the same comprehensive check so
+Portal policy cannot be evaluated without its Clerk and Neon readiness context.
+The command checks environment shape; Neon connectivity and committed migration
+hashes; the Clerk credential environment and observable webhook-secret contract;
+and Portal anonymous refusal, authenticated membership and standard mode,
+publishing, allowed and unregistered origins, and history after a fresh
+connection.
+
+Portal verification creates an isolated synthetic New Hire membership and sends
+one small `setup-verification` message to the current General Office Channel.
+That message is intentionally persistent so reconnect history can be proven. The
+command never prints its body, ID, credentials, connection strings, profile data,
+or upstream response bodies.
+
+Exit codes are stable: `0` means every required check passed, `1` means a check
+failed (or production proof is incomplete), and `2` means non-production live
+proof was unavailable because the checker is in mock mode or credentials are
+missing. Corrective output contains variable names and categories only. Clerk's
+API proves that the key pair works and belongs to the expected development or
+production stack; confirm in the Clerk Dashboard that the endpoint
+`<APP_ORIGIN>/api/webhooks/clerk` subscribes to `user.created` and
+`user.updated`, because subscription details are not exposed by the credential
+check.
+
+After `bun run setup:check` reports migration drift, apply only the committed
+Drizzle migrations and check again:
+
+```bash
+bun run db:migrate
+bun run setup:check
+```
+
+Neither setup check executes migrations. Migrations remain absent from build,
+development startup, and application startup.
+
+## Repository Verification
 
 All automated checks run without external credentials:
 

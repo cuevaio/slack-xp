@@ -34,6 +34,13 @@ export default function SetupPage() {
               browser code. Restart the development server after changing the
               environment.
             </p>
+            <p>
+              Set <code>APP_ORIGIN</code> to the exact browser origin registered
+              with Clerk and Portal. Local and preview deployments share a
+              development service stack; Vercel Production uses a separate
+              production stack. Select one Vercel Function region near Neon in
+              <code> vercel.json</code>.
+            </p>
             <h2>Configure Clerk sign-in</h2>
             <p>
               In the Clerk Dashboard, enable the hosted social connections and
@@ -73,6 +80,15 @@ export default function SetupPage() {
               The migration creates Clerk profile projections and resumable New
               Hire onboarding records only. Portal remains the authority for
               messages and conversation state.
+            </p>
+            <h2>Prove production readiness</h2>
+            <p>
+              Run <code>bun run setup:check</code> after migrations and Portal
+              configuration are deployed. It checks Neon and Clerk, then proves
+              Portal authentication, policy, origins, publishing, and persistent
+              history. Exit code <code>0</code> means ready, <code>1</code>{" "}
+              means failed, and <code>2</code> means non-production credentials
+              were unavailable.
             </p>
             <Link className="classic-button" href="/office">
               Recheck installation

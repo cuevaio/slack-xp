@@ -8,6 +8,7 @@ export const APP_ENVIRONMENTS = [
 export const SERVICE_MODES = ["mock", "live"] as const;
 
 export const LIVE_ENVIRONMENT_VARIABLES = [
+  "APP_ORIGIN",
   "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
   "CLERK_SECRET_KEY",
   "CLERK_WEBHOOK_SECRET",
@@ -64,6 +65,18 @@ export function detectAppEnvironment(env: EnvironmentSource): AppEnvironment {
 }
 
 function validateValue(name: string, value: string): boolean {
+  if (name === "APP_ORIGIN") {
+    try {
+      const url = new URL(value);
+      return (
+        (url.protocol === "http:" || url.protocol === "https:") &&
+        url.origin === value
+      );
+    } catch {
+      return false;
+    }
+  }
+
   if (name === "DATABASE_URL") {
     try {
       const url = new URL(value);
@@ -118,6 +131,32 @@ export function readAppConfiguration(
       } else {
         values[name] = value;
       }
+    }
+
+    const clerkPublishableKey = env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+    const clerkSecretKey = env.CLERK_SECRET_KEY;
+    if (clerkPublishableKey && clerkSecretKey) {
+      const expectedPrefix =
+        environment === "production"
+          ? ["pk_live_", "sk_live_"]
+          : ["pk_test_", "sk_test_"];
+      if (!clerkPublishableKey.startsWith(expectedPrefix[0])) {
+        issues.push({
+          name: "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+          reason: "invalid",
+        });
+      }
+      if (!clerkSecretKey.startsWith(expectedPrefix[1])) {
+        issues.push({ name: "CLERK_SECRET_KEY", reason: "invalid" });
+      }
+    }
+
+    if (
+      environment === "production" &&
+      env.APP_ORIGIN &&
+      !env.APP_ORIGIN.startsWith("https://")
+    ) {
+      issues.push({ name: "APP_ORIGIN", reason: "invalid" });
     }
   }
 

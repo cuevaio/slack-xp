@@ -413,17 +413,15 @@ export function createReactionProjection({
   isValidTarget?: (officeChannelId: string, messageId: string) => boolean;
 } = {}): OfficeReactionProjection {
   const seenEventKeys = new Set<string>();
-  const reactionStates = new Map<
-    string,
-    { event: ReactionOfficeEvent; active: boolean }
-  >();
+  const latestEvents = new Map<string, ReactionOfficeEvent>();
 
-  function messageKey(officeChannelId: string, messageId: string): string {
-    return `${officeChannelId}\u0000${messageId}`;
-  }
-
-  function reactionKey(event: ReactionOfficeEvent): string {
-    return `${messageKey(event.officeChannelId, event.messageId)}\u0000${event.reaction}\u0000${event.actorId}`;
+  function reactionStateKey(event: ReactionOfficeEvent): string {
+    return [
+      event.officeChannelId,
+      event.messageId,
+      event.reaction,
+      event.actorId,
+    ].join("\u0000");
   }
 
   function isLaterEvent(
@@ -442,13 +440,10 @@ export function createReactionProjection({
       if (!isValidTarget(event.officeChannelId, event.messageId)) return false;
       seenEventKeys.add(event.eventKey);
 
-      const key = reactionKey(event);
-      const previous = reactionStates.get(key);
-      if (previous && !isLaterEvent(event, previous.event)) return false;
-      reactionStates.set(key, {
-        event,
-        active: event.operation === "add",
-      });
+      const key = reactionStateKey(event);
+      const previous = latestEvents.get(key);
+      if (previous && !isLaterEvent(event, previous)) return false;
+      latestEvents.set(key, event);
       return true;
     },
 
@@ -456,13 +451,18 @@ export function createReactionProjection({
       officeChannelId: string,
       messageId: string,
     ): readonly ProjectedOfficeReaction[] {
-      const prefix = `${messageKey(officeChannelId, messageId)}\u0000`;
       const actorsByReaction = new Map<OfficeReaction, string[]>();
-      for (const [key, state] of reactionStates) {
-        if (!key.startsWith(prefix) || !state.active) continue;
-        const actors = actorsByReaction.get(state.event.reaction) ?? [];
-        actors.push(state.event.actorId);
-        actorsByReaction.set(state.event.reaction, actors);
+      for (const event of latestEvents.values()) {
+        if (
+          event.officeChannelId !== officeChannelId ||
+          event.messageId !== messageId ||
+          event.operation !== "add"
+        ) {
+          continue;
+        }
+        const actors = actorsByReaction.get(event.reaction) ?? [];
+        actors.push(event.actorId);
+        actorsByReaction.set(event.reaction, actors);
       }
       const projectedReactions: ProjectedOfficeReaction[] = [];
       for (const reaction of OFFICE_REACTIONS) {

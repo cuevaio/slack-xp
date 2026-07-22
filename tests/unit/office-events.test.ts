@@ -334,6 +334,31 @@ describe("versioned Office Event contract", () => {
     ]);
   });
 
+  test("uses the event key to break equal-timestamp ties", () => {
+    const first = supportedEvents[0];
+    if (first.type !== "reaction.changed") {
+      throw new Error("Expected the reaction fixture first.");
+    }
+    const laterKey = {
+      ...first,
+      eventKey: eventKey("reaction.changed", "reaction-operation-2"),
+      operation: "remove" as const,
+    };
+    const ascendingKeyOrder = createReactionProjection();
+    const descendingKeyOrder = createReactionProjection();
+
+    expect(ascendingKeyOrder.apply(first)).toBe(true);
+    expect(ascendingKeyOrder.apply(laterKey)).toBe(true);
+    expect(descendingKeyOrder.apply(laterKey)).toBe(true);
+    expect(descendingKeyOrder.apply(first)).toBe(false);
+    expect(
+      ascendingKeyOrder.read(first.officeChannelId, first.messageId),
+    ).toEqual(descendingKeyOrder.read(first.officeChannelId, first.messageId));
+    expect(
+      descendingKeyOrder.read(first.officeChannelId, first.messageId),
+    ).toEqual([]);
+  });
+
   test("keeps participant ownership isolated while folding counts", () => {
     const first = supportedEvents[0];
     if (first.type !== "reaction.changed") {

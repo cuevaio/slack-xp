@@ -65,16 +65,24 @@ type LivePortalOfficeProps = PortalOfficeBaseProps & {
 
 type PortalChatProps = MockPortalOfficeProps | LivePortalOfficeProps;
 
-type ChatSurfaceProps = {
+type ReactionMutation = Pick<
+  ReactionOfficeEvent,
+  "officeChannelId" | "messageId" | "reaction" | "operation"
+>;
+
+type ReactionProps = {
+  reactionEvents: readonly ReactionOfficeEvent[];
+  reactionsEnabled: boolean;
+  onReact(input: ReactionMutation): Promise<void>;
+};
+
+type ChatSurfaceProps = ReactionProps & {
   active: boolean;
   channel: OfficeChannel;
   identityId: string;
   displayName: string;
   messages: readonly unknown[];
   status: ChatConnectionStatus;
-  reactionEvents: readonly ReactionOfficeEvent[];
-  reactionsEnabled: boolean;
-  onReact(input: ReactionMutation): Promise<void>;
   onSend(text: string): Promise<void>;
   onRetryConnection(): void;
   loadPrevious?: () => Promise<unknown>;
@@ -101,11 +109,6 @@ type MockHistoryPage = {
   messages: unknown[];
   hasPrevious: boolean;
 };
-
-type ReactionMutation = Pick<
-  ReactionOfficeEvent,
-  "officeChannelId" | "messageId" | "reaction" | "operation"
->;
 
 const REACTION_NAMES: Record<OfficeReaction, string> = {
   "👍": "Thumbs up",
@@ -184,6 +187,16 @@ function prependUniqueMessages(
 
 function firstMessageId(messages: readonly unknown[]): string | undefined {
   return getMessageId(messages[0]);
+}
+
+function appendReactionEvent(
+  events: ReactionOfficeEvent[],
+  event: ReactionOfficeEvent,
+): ReactionOfficeEvent[] {
+  if (events.some(({ eventKey }) => eventKey === event.eventKey)) {
+    return events;
+  }
+  return [...events, event];
 }
 
 function parseMockHistoryPage(value: unknown): MockHistoryPage | null {
@@ -396,14 +409,11 @@ function MessageHistory({
   reactionEvents,
   reactionsEnabled,
   onReact,
-}: {
+}: ReactionProps & {
   channel: OfficeChannel;
   messages: readonly SafePortalChatMessage[];
   identityId: string;
   displayName: string;
-  reactionEvents: readonly ReactionOfficeEvent[];
-  reactionsEnabled: boolean;
-  onReact(input: ReactionMutation): Promise<void>;
 }) {
   if (messages.length === 0) {
     return (
@@ -725,15 +735,12 @@ function LiveOfficeChannel({
   onReact,
   reactionEvents,
   reactionsEnabled,
-}: {
+}: ReactionProps & {
   active: boolean;
   channel: OfficeChannel;
   identityId: string;
   displayName: string;
   onUnread(channelId: string, count: number): void;
-  onReact(input: ReactionMutation): Promise<void>;
-  reactionEvents: readonly ReactionOfficeEvent[];
-  reactionsEnabled: boolean;
 }) {
   const channel = useChannel<{ text: string }>({
     channelId: officeChannel.id,
@@ -767,7 +774,7 @@ function LiveOfficeChannel({
   );
 }
 
-function ignoreOfficeEvent(): void {}
+function ignoreOfficeInvalidation(): void {}
 
 function useReactionPublisher({
   identityId,
@@ -827,13 +834,9 @@ function LivePortalWorkspace({
   const { status: eventStatus, publishReaction } = useOfficeEventSubscription({
     channelId: eventChannelId,
     onReaction: (event) => {
-      setReactionEvents((current) =>
-        current.some(({ eventKey }) => eventKey === event.eventKey)
-          ? current
-          : [...current, event],
-      );
+      setReactionEvents((current) => appendReactionEvent(current, event));
     },
-    onInvalidation: ignoreOfficeEvent,
+    onInvalidation: ignoreOfficeInvalidation,
   });
   const [activeChannelId, setActiveChannelId] = useState(channels[0]?.id ?? "");
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
@@ -845,7 +848,7 @@ function LivePortalWorkspace({
       return { ...current, [channelId]: count };
     });
   }, []);
-  const react = useReactionPublisher({
+  const updateReaction = useReactionPublisher({
     identityId,
     eventChannelId,
     publish: publishReaction,
@@ -874,7 +877,7 @@ function LivePortalWorkspace({
           displayName={displayName}
           identityId={identityId}
           key={channel.id}
-          onReact={react}
+          onReact={updateReaction}
           onUnread={updateUnread}
           reactionEvents={reactionEvents}
           reactionsEnabled={reactionsEnabled}
@@ -908,14 +911,11 @@ function MockOfficeChannel({
   onReact,
   reactionEvents,
   reactionsEnabled,
-}: {
+}: ReactionProps & {
   active: boolean;
   channel: OfficeChannel;
   identityId: string;
   displayName: string;
-  onReact(input: ReactionMutation): Promise<void>;
-  reactionEvents: readonly ReactionOfficeEvent[];
-  reactionsEnabled: boolean;
 }) {
   const [messages, setMessages] = useState<unknown[]>([]);
   const [status, setStatus] = useState<ChatConnectionStatus>("connecting");
@@ -1074,14 +1074,12 @@ function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
       }
       const reactionEvent = parsed.event;
       setReactionEvents((current) =>
-        current.some(({ eventKey }) => eventKey === reactionEvent.eventKey)
-          ? current
-          : [...current, reactionEvent],
+        appendReactionEvent(current, reactionEvent),
       );
     },
     [eventChannelId],
   );
-  const react = useReactionPublisher({
+  const updateReaction = useReactionPublisher({
     identityId,
     eventChannelId,
     publish: publishMockReaction,
@@ -1106,7 +1104,7 @@ function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
           displayName={displayName}
           identityId={identityId}
           key={channel.id}
-          onReact={react}
+          onReact={updateReaction}
           reactionEvents={reactionEvents}
           reactionsEnabled={reactionStatus === "ready"}
         />

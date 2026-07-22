@@ -342,15 +342,13 @@ function LiveGeneralChat({
   );
 }
 
-function ignoreReaction(): void {}
-
-function ignoreInvalidation(): void {}
+function ignoreOfficeEvent(): void {}
 
 function OfficeEventAttentionGuard({ channelId }: { channelId: string }) {
   useOfficeEventSubscription({
     channelId,
-    onReaction: ignoreReaction,
-    onInvalidation: ignoreInvalidation,
+    onReaction: ignoreOfficeEvent,
+    onInvalidation: ignoreOfficeEvent,
   });
   return null;
 }

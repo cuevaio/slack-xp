@@ -8,7 +8,13 @@ export type OfficeEventInboxEntry = {
 export function silenceOfficeEventAttention(
   entry: OfficeEventInboxEntry | undefined,
 ): void {
-  if (!entry) return;
-  if (!entry.muted) entry.mute();
-  if (entry.unread > 0) entry.markAsRead();
+  if (!entry) {
+    return;
+  }
+  if (!entry.muted) {
+    entry.mute();
+  }
+  if (entry.unread > 0) {
+    entry.markAsRead();
+  }
 }

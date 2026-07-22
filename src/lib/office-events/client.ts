@@ -1,53 +1,51 @@
 "use client";
 
+import type { ChannelStatus } from "@portalsdk/core";
 import { useChannel, useInbox } from "@portalsdk/react";
 import { useCallback, useEffect, useRef } from "react";
 import { silenceOfficeEventAttention } from "@/lib/office-events/attention";
 import {
   createOfficeEventDispatcher,
-  type OfficeInvalidationEvent,
-  type ReactionOfficeEvent,
+  type OfficeEventDispatcher,
+  type OfficeEventHandlers,
 } from "@/lib/office-events/contract";
 
 export type OfficeEventSubscription = {
-  status:
-    | "idle"
-    | "connecting"
-    | "ready"
-    | "reconnecting"
-    | "degraded"
-    | "degraded-http"
-    | "blocked";
+  status: ChannelStatus;
+};
+
+type OfficeEventSubscriptionOptions = OfficeEventHandlers & {
+  channelId: string;
 };
 
 export function useOfficeEventSubscription({
   channelId,
   onReaction,
   onInvalidation,
-}: {
-  channelId: string;
-  onReaction(event: ReactionOfficeEvent): void;
-  onInvalidation(event: OfficeInvalidationEvent): void;
-}): OfficeEventSubscription {
-  const handlers = useRef({ onReaction, onInvalidation });
-  const dispatchers = useRef(
-    new Map<string, ReturnType<typeof createOfficeEventDispatcher>>(),
+}: OfficeEventSubscriptionOptions): OfficeEventSubscription {
+  const latestHandlers = useRef<OfficeEventHandlers>({
+    onReaction,
+    onInvalidation,
+  });
+  const dispatchersByChannelId = useRef(
+    new Map<string, OfficeEventDispatcher>(),
   );
 
   useEffect(() => {
-    handlers.current = { onReaction, onInvalidation };
+    latestHandlers.current = { onReaction, onInvalidation };
   }, [onReaction, onInvalidation]);
 
-  const dispatch = useCallback(
+  const dispatchMessage = useCallback(
     (message: unknown) => {
-      let dispatcher = dispatchers.current.get(channelId);
+      let dispatcher = dispatchersByChannelId.current.get(channelId);
       if (!dispatcher) {
         dispatcher = createOfficeEventDispatcher({
           channelId,
-          onReaction: (event) => handlers.current.onReaction(event),
-          onInvalidation: (event) => handlers.current.onInvalidation(event),
+          onReaction: (event) => latestHandlers.current.onReaction(event),
+          onInvalidation: (event) =>
+            latestHandlers.current.onInvalidation(event),
         });
-        dispatchers.current.set(channelId, dispatcher);
+        dispatchersByChannelId.current.set(channelId, dispatcher);
       }
       dispatcher.dispatch(message);
     },
@@ -58,7 +56,7 @@ export function useOfficeEventSubscription({
     channelId,
     history: 100,
     readOn: "mount",
-    onMessage: dispatch,
+    onMessage: dispatchMessage,
   });
   const inbox = useInbox();
 
@@ -67,13 +65,9 @@ export function useOfficeEventSubscription({
   }, [channelId, inbox.channels]);
 
   useEffect(() => {
-    if (
-      channel.status === "ready" &&
-      channel.hasPrevious &&
-      !channel.isLoadingPrevious
-    ) {
-      void channel.loadPrevious();
-    }
+    if (channel.status !== "ready") return;
+    if (!channel.hasPrevious || channel.isLoadingPrevious) return;
+    void channel.loadPrevious();
   }, [
     channel.status,
     channel.hasPrevious,

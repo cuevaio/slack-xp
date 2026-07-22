@@ -21,7 +21,7 @@ const completedNewHire = {
 };
 
 describe("Portal control-plane boundary", () => {
-  test("adds daily membership before minting a 15-minute channel-scoped token", async () => {
+  test("adds daily memberships before minting a 15-minute channel-scoped token", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const fetcher: typeof fetch = Object.assign(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -135,7 +135,7 @@ describe("Portal control-plane boundary", () => {
 });
 
 describe("controlled Portal adapter", () => {
-  test("keeps hidden event membership idempotent and out of visible channel attention", async () => {
+  test("keeps daily channel memberships idempotent", async () => {
     const portal = createMockPortalAdapter({
       now: () => new Date("2026-07-22T12:00:00.000Z"),
     });

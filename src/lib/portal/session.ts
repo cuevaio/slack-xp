@@ -43,24 +43,26 @@ export async function issueOfficePortalSession({
 
   const channelId = generalChannelId(now);
   const eventChannelId = officeEventChannelId(now);
-  const identityClaims = {
+  const channelIds = [channelId, eventChannelId] as const;
+  const portalIdentity = {
     userId: identity.id,
     claims: {
       username: identity.fullName,
       avatar: identity.imageUrl,
     },
   };
-  await portal.ensureMembership({ channelId, ...identityClaims });
-  await portal.ensureMembership({
-    channelId: eventChannelId,
-    ...identityClaims,
-  });
+  for (const membershipChannelId of channelIds) {
+    await portal.ensureMembership({
+      channelId: membershipChannelId,
+      ...portalIdentity,
+    });
+  }
   return {
     channelId,
     eventChannelId,
     ...(await portal.mintToken({
-      channelIds: [channelId, eventChannelId],
-      ...identityClaims,
+      channelIds,
+      ...portalIdentity,
     })),
   };
 }

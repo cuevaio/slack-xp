@@ -27,9 +27,8 @@ export async function OfficeFoundation({
   if (!generalChannel) {
     throw new Error("The General Office Channel is not configured.");
   }
-  const eventChannelId = officeEventChannelIdForDay(
-    generalChannel.id.split(":", 1)[0] ?? "",
-  );
+  const [officeDay] = generalChannel.id.split(":", 1);
+  const eventChannelId = officeEventChannelIdForDay(officeDay ?? "");
 
   return (
     <main className="office-shell">

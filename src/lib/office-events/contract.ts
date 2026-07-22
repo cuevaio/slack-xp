@@ -8,15 +8,17 @@ export const OFFICE_EVENT_SENDERS = {
 } as const;
 
 export const OFFICE_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🎉"] as const;
+const EVENT_TYPES = [
+  "reaction.changed",
+  "profile.invalidated",
+  "report.invalidated",
+  "message-removal.invalidated",
+  "employment.invalidated",
+  "operator.invalidated",
+] as const;
 
 export type OfficeReaction = (typeof OFFICE_REACTIONS)[number];
-export type OfficeEventType =
-  | "reaction.changed"
-  | "profile.invalidated"
-  | "report.invalidated"
-  | "message-removal.invalidated"
-  | "employment.invalidated"
-  | "operator.invalidated";
+export type OfficeEventType = (typeof EVENT_TYPES)[number];
 
 type OfficeEventBase<TType extends OfficeEventType> = {
   version: typeof OFFICE_EVENT_VERSION;
@@ -42,6 +44,11 @@ export type OfficeInvalidationEvent =
 
 export type OfficeEvent = ReactionOfficeEvent | OfficeInvalidationEvent;
 
+export type OfficeEventHandlers = {
+  onReaction(event: ReactionOfficeEvent): void;
+  onInvalidation(event: OfficeInvalidationEvent): void;
+};
+
 export type SafeOfficeEventMessage = {
   id: string;
   senderId: string;
@@ -55,14 +62,10 @@ export type OfficeEventDispatchResult =
   | "reaction"
   | "invalidation";
 
-const EVENT_TYPES: readonly OfficeEventType[] = [
-  "reaction.changed",
-  "profile.invalidated",
-  "report.invalidated",
-  "message-removal.invalidated",
-  "employment.invalidated",
-  "operator.invalidated",
-];
+export type OfficeEventDispatcher = {
+  dispatch(message: unknown): OfficeEventDispatchResult;
+};
+
 const SOURCE_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/u;
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,254}$/u;
 const OFFICE_DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/u;
@@ -120,16 +123,77 @@ function hasValidBase(
   value: Record<string, unknown>,
   type: OfficeEventType,
 ): boolean {
+  const eventKeyPrefix = officeEventKeyPrefix(type);
   return (
     value.version === OFFICE_EVENT_VERSION &&
     value.type === type &&
     isCanonicalTimestamp(value.occurredAt) &&
     typeof value.eventKey === "string" &&
-    value.eventKey.startsWith(`office-event:v1:${type}:`) &&
-    SOURCE_ID_PATTERN.test(
-      value.eventKey.slice(`office-event:v1:${type}:`.length),
-    )
+    value.eventKey.startsWith(eventKeyPrefix) &&
+    SOURCE_ID_PATTERN.test(value.eventKey.slice(eventKeyPrefix.length))
   );
+}
+
+function officeEventKeyPrefix(type: OfficeEventType): string {
+  return `office-event:v${OFFICE_EVENT_VERSION}:${type}:`;
+}
+
+function isReactionOfficeEvent(value: unknown): value is ReactionOfficeEvent {
+  if (!isObject(value)) return false;
+  return (
+    hasExactKeys(value, [
+      ...BASE_KEYS,
+      "officeChannelId",
+      "messageId",
+      "actorId",
+      "reaction",
+      "operation",
+    ]) &&
+    hasValidBase(value, "reaction.changed") &&
+    isIdentifier(value.officeChannelId) &&
+    !value.officeChannelId.endsWith(":office-events") &&
+    isIdentifier(value.messageId) &&
+    isIdentifier(value.actorId) &&
+    OFFICE_REACTIONS.some((reaction) => reaction === value.reaction) &&
+    (value.operation === "add" || value.operation === "remove")
+  );
+}
+
+function hasValidInvalidation(
+  value: Record<string, unknown>,
+  type: OfficeInvalidationEvent["type"],
+  identifierKey:
+    | "profileId"
+    | "reportId"
+    | "messageId"
+    | "newHireId"
+    | "operatorId",
+): boolean {
+  return (
+    hasExactKeys(value, [...BASE_KEYS, identifierKey]) &&
+    hasValidBase(value, type) &&
+    isIdentifier(value[identifierKey])
+  );
+}
+
+function isOfficeInvalidationEvent(
+  value: unknown,
+): value is OfficeInvalidationEvent {
+  if (!isObject(value)) return false;
+  switch (value.type) {
+    case "profile.invalidated":
+      return hasValidInvalidation(value, value.type, "profileId");
+    case "report.invalidated":
+      return hasValidInvalidation(value, value.type, "reportId");
+    case "message-removal.invalidated":
+      return hasValidInvalidation(value, value.type, "messageId");
+    case "employment.invalidated":
+      return hasValidInvalidation(value, value.type, "newHireId");
+    case "operator.invalidated":
+      return hasValidInvalidation(value, value.type, "operatorId");
+    default:
+      return false;
+  }
 }
 
 function isValidOfficeDay(value: string): boolean {
@@ -171,7 +235,7 @@ export function createOfficeEventKey(
       "A valid Office Event type and stable source identifier are required.",
     );
   }
-  return `office-event:v1:${type}:${sourceId}`;
+  return `${officeEventKeyPrefix(type)}${sourceId}`;
 }
 
 export function parseOfficeEvent(value: unknown): OfficeEvent | null {
@@ -182,56 +246,13 @@ export function parseOfficeEvent(value: unknown): OfficeEvent | null {
 
   switch (value.type) {
     case "reaction.changed":
-      if (
-        !hasExactKeys(value, [
-          ...BASE_KEYS,
-          "officeChannelId",
-          "messageId",
-          "actorId",
-          "reaction",
-          "operation",
-        ]) ||
-        !hasValidBase(value, "reaction.changed") ||
-        !isIdentifier(value.officeChannelId) ||
-        value.officeChannelId.endsWith(":office-events") ||
-        !isIdentifier(value.messageId) ||
-        !isIdentifier(value.actorId) ||
-        !OFFICE_REACTIONS.some((reaction) => reaction === value.reaction) ||
-        (value.operation !== "add" && value.operation !== "remove")
-      ) {
-        return null;
-      }
-      return value as ReactionOfficeEvent;
+      return isReactionOfficeEvent(value) ? value : null;
     case "profile.invalidated":
-      return hasExactKeys(value, [...BASE_KEYS, "profileId"]) &&
-        hasValidBase(value, "profile.invalidated") &&
-        isIdentifier(value.profileId)
-        ? (value as OfficeInvalidationEvent)
-        : null;
     case "report.invalidated":
-      return hasExactKeys(value, [...BASE_KEYS, "reportId"]) &&
-        hasValidBase(value, "report.invalidated") &&
-        isIdentifier(value.reportId)
-        ? (value as OfficeInvalidationEvent)
-        : null;
     case "message-removal.invalidated":
-      return hasExactKeys(value, [...BASE_KEYS, "messageId"]) &&
-        hasValidBase(value, "message-removal.invalidated") &&
-        isIdentifier(value.messageId)
-        ? (value as OfficeInvalidationEvent)
-        : null;
     case "employment.invalidated":
-      return hasExactKeys(value, [...BASE_KEYS, "newHireId"]) &&
-        hasValidBase(value, "employment.invalidated") &&
-        isIdentifier(value.newHireId)
-        ? (value as OfficeInvalidationEvent)
-        : null;
     case "operator.invalidated":
-      return hasExactKeys(value, [...BASE_KEYS, "operatorId"]) &&
-        hasValidBase(value, "operator.invalidated") &&
-        isIdentifier(value.operatorId)
-        ? (value as OfficeInvalidationEvent)
-        : null;
+      return isOfficeInvalidationEvent(value) ? value : null;
     default:
       return null;
   }
@@ -298,12 +319,10 @@ export function createOfficeEventDispatcher({
   onReaction,
   onInvalidation,
   dedupeLimit = 2_048,
-}: {
+}: OfficeEventHandlers & {
   channelId: string;
-  onReaction(event: ReactionOfficeEvent): void;
-  onInvalidation(event: OfficeInvalidationEvent): void;
   dedupeLimit?: number;
-}) {
+}): OfficeEventDispatcher {
   if (!Number.isSafeInteger(dedupeLimit) || dedupeLimit < 1) {
     throw new TypeError(
       "The Office Event dedupe limit must be a positive integer.",
@@ -311,7 +330,7 @@ export function createOfficeEventDispatcher({
   }
   const seenEventKeys = new Set<string>();
 
-  function remember(eventKey: string): boolean {
+  function rememberEventKey(eventKey: string): boolean {
     if (seenEventKeys.has(eventKey)) return false;
     seenEventKeys.add(eventKey);
     if (seenEventKeys.size > dedupeLimit) {
@@ -325,7 +344,7 @@ export function createOfficeEventDispatcher({
     dispatch(message: unknown): OfficeEventDispatchResult {
       const parsed = parseOfficeEventMessage(message, channelId);
       if (!parsed) return "ignored";
-      if (!remember(parsed.event.eventKey)) return "duplicate";
+      if (!rememberEventKey(parsed.event.eventKey)) return "duplicate";
 
       if (parsed.event.type === "reaction.changed") {
         onReaction(parsed.event);
@@ -342,7 +361,15 @@ export type ProjectedOfficeReaction = {
   actorIds: readonly string[];
 };
 
-export function createReactionProjection() {
+export type OfficeReactionProjection = {
+  apply(event: ReactionOfficeEvent): boolean;
+  read(
+    officeChannelId: string,
+    messageId: string,
+  ): readonly ProjectedOfficeReaction[];
+};
+
+export function createReactionProjection(): OfficeReactionProjection {
   const seenEventKeys = new Set<string>();
   const reactions = new Map<string, Map<OfficeReaction, Set<string>>>();
 
@@ -358,13 +385,22 @@ export function createReactionProjection() {
       const key = messageKey(event.officeChannelId, event.messageId);
       const messageReactions = reactions.get(key) ?? new Map();
       const actors = messageReactions.get(event.reaction) ?? new Set();
-      if (event.operation === "add") actors.add(event.actorId);
-      else actors.delete(event.actorId);
+      if (event.operation === "add") {
+        actors.add(event.actorId);
+      } else {
+        actors.delete(event.actorId);
+      }
 
-      if (actors.size > 0) messageReactions.set(event.reaction, actors);
-      else messageReactions.delete(event.reaction);
-      if (messageReactions.size > 0) reactions.set(key, messageReactions);
-      else reactions.delete(key);
+      if (actors.size > 0) {
+        messageReactions.set(event.reaction, actors);
+      } else {
+        messageReactions.delete(event.reaction);
+      }
+      if (messageReactions.size > 0) {
+        reactions.set(key, messageReactions);
+      } else {
+        reactions.delete(key);
+      }
       return true;
     },
 
@@ -376,10 +412,17 @@ export function createReactionProjection() {
         messageKey(officeChannelId, messageId),
       );
       if (!messageReactions) return [];
-      return OFFICE_REACTIONS.flatMap((reaction) => {
+      const projectedReactions: ProjectedOfficeReaction[] = [];
+      for (const reaction of OFFICE_REACTIONS) {
         const actors = messageReactions.get(reaction);
-        return actors ? [{ reaction, actorIds: [...actors].sort() }] : [];
-      });
+        if (actors) {
+          projectedReactions.push({
+            reaction,
+            actorIds: [...actors].sort(),
+          });
+        }
+      }
+      return projectedReactions;
     },
   };
 }

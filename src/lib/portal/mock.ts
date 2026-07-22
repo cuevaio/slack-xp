@@ -55,10 +55,10 @@ export function createMockPortalAdapter({
 
     async mintToken({ channelIds, userId }: PortalTokenInput) {
       requireOnline();
-      if (
-        channelIds.length === 0 ||
-        channelIds.some((channelId) => !members.get(channelId)?.has(userId))
-      ) {
+      const hasAllMemberships =
+        channelIds.length > 0 &&
+        channelIds.every((channelId) => members.get(channelId)?.has(userId));
+      if (!hasAllMemberships) {
         throw new MockPortalUnavailableError();
       }
       tokenSequence += 1;

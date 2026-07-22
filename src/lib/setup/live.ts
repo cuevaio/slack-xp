@@ -13,12 +13,35 @@ import type {
 
 const PORTAL_API_URL = "https://api.useportal.co";
 const CONNECTION_TIMEOUT_MS = 15_000;
+const SETUP_VERIFIER_USER_ID = "portal-messenger-setup-verifier";
+const UNREGISTERED_ORIGIN = "https://portal-verification.invalid";
+const MISSING_MIGRATION_STORAGE_CODES = new Set(["42P01", "3F000"]);
+
+type AppliedMigration = {
+  hash: string;
+  created_at: string | number;
+};
 
 function requireEnvironmentValue(env: EnvironmentSource, name: string): string {
   const value = env[name];
-  if (!value)
+  if (!value) {
     throw new Error(`Required setup variable is unavailable: ${name}`);
+  }
+
   return value;
+}
+
+function databaseErrorCode(error: unknown): string | null {
+  if (
+    typeof error !== "object" ||
+    error === null ||
+    !("code" in error) ||
+    typeof error.code !== "string"
+  ) {
+    return null;
+  }
+
+  return error.code;
 }
 
 async function verifyNeon(
@@ -29,20 +52,14 @@ async function verifyNeon(
   await sql.query("select 1 as connected");
   const committed = readMigrationFiles({ migrationsFolder });
 
-  let applied: Array<{ hash: string; created_at: string | number }>;
+  let applied: AppliedMigration[];
   try {
     applied = (await sql.query(
       "select hash, created_at from drizzle.__drizzle_migrations order by created_at asc",
-    )) as Array<{ hash: string; created_at: string | number }>;
+    )) as AppliedMigration[];
   } catch (error) {
-    const code =
-      typeof error === "object" &&
-      error !== null &&
-      "code" in error &&
-      typeof error.code === "string"
-        ? error.code
-        : null;
-    if (code === "42P01" || code === "3F000") {
+    const code = databaseErrorCode(error);
+    if (code !== null && MISSING_MIGRATION_STORAGE_CODES.has(code)) {
       return { migrations: "drift" };
     }
     throw error;
@@ -66,22 +83,28 @@ type ConnectionResult<M> = {
   channel: ChannelHandle<M>;
 };
 
-async function connect<M>(
+async function connectToChannel<M>(
   portal: Portal,
   channelId: string,
 ): Promise<ConnectionResult<M>> {
   const channel = portal.channel<M>(channelId);
-  return await new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     let settled = false;
     const finish = (status: "ready" | "blocked", error?: PortalError) => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
+
       settled = true;
       clearTimeout(timeout);
       unsubscribe();
       resolve({ status, errorCode: error?.code ?? null, channel });
     };
     const timeout = setTimeout(() => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
+
       settled = true;
       unsubscribe();
       channel.release();
@@ -118,11 +141,10 @@ async function verifyPortal(
   appOrigin: string,
 ): Promise<PortalVerificationEvidence> {
   const channelId = generalChannelId(new Date());
-  const userId = "portal-messenger-setup-verifier";
   const authority = createPortalControlPlane({ secret });
   const membershipInput = {
     channelId,
-    userId,
+    userId: SETUP_VERIFIER_USER_ID,
     claims: { username: "Setup Verifier", avatar: null },
   };
   await authority.ensureMembership(membershipInput);
@@ -131,11 +153,11 @@ async function verifyPortal(
   const [allowedOriginAccepted, unregisteredOriginAccepted] = await Promise.all(
     [
       originAccepted(apiKey, appOrigin),
-      originAccepted(apiKey, "https://portal-verification.invalid"),
+      originAccepted(apiKey, UNREGISTERED_ORIGIN),
     ],
   );
 
-  const anonymousConnection = await connect<{ text: string }>(
+  const anonymousConnection = await connectToChannel<{ text: string }>(
     new Portal({ apiKey }),
     channelId,
   );
@@ -144,7 +166,7 @@ async function verifyPortal(
     anonymousConnection.errorCode === "anonymous_not_allowed";
   anonymousConnection.channel.release();
 
-  const authenticatedConnection = await connect<{ text: string }>(
+  const authenticatedConnection = await connectToChannel<{ text: string }>(
     new Portal({ apiKey, token: token.token }),
     channelId,
   );
@@ -165,13 +187,13 @@ async function verifyPortal(
   const channel = authenticatedConnection.channel;
   const snapshot = channel.getSnapshot();
   const membership = (await channel.members()).some(
-    (member) => member.userId === userId,
+    (member) => member.userId === SETUP_VERIFIER_USER_ID,
   );
   const marker = `setup-verification:${randomUUID()}`;
   const acknowledgement = await channel.send({ content: { text: marker } });
   channel.release();
 
-  const reconnected = await connect<{ text: string }>(
+  const reconnected = await connectToChannel<{ text: string }>(
     new Portal({ apiKey, token: token.token }),
     channelId,
   );

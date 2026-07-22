@@ -20,6 +20,17 @@ export const LIVE_ENVIRONMENT_VARIABLES = [
 export type AppEnvironment = (typeof APP_ENVIRONMENTS)[number];
 export type ServiceMode = (typeof SERVICE_MODES)[number];
 export type EnvironmentSource = Record<string, string | undefined>;
+type LiveEnvironmentVariable = (typeof LIVE_ENVIRONMENT_VARIABLES)[number];
+
+const VALUE_PREFIXES: Partial<
+  Record<LiveEnvironmentVariable, readonly string[]>
+> = {
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ["pk_test_", "pk_live_"],
+  CLERK_SECRET_KEY: ["sk_test_", "sk_live_"],
+  CLERK_WEBHOOK_SECRET: ["whsec_"],
+  NEXT_PUBLIC_PORTAL_KEY: ["pk_"],
+  PORTAL_SECRET: ["sk_"],
+};
 
 type ConfigurationIssue = {
   name: string;
@@ -64,7 +75,7 @@ export function detectAppEnvironment(env: EnvironmentSource): AppEnvironment {
   return env.NODE_ENV === "test" ? "test" : "local";
 }
 
-function validateValue(name: string, value: string): boolean {
+function validateValue(name: LiveEnvironmentVariable, value: string): boolean {
   if (name === "APP_ORIGIN") {
     try {
       const url = new URL(value);
@@ -86,15 +97,8 @@ function validateValue(name: string, value: string): boolean {
     }
   }
 
-  const prefixes: Record<string, readonly string[]> = {
-    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ["pk_test_", "pk_live_"],
-    CLERK_SECRET_KEY: ["sk_test_", "sk_live_"],
-    CLERK_WEBHOOK_SECRET: ["whsec_"],
-    NEXT_PUBLIC_PORTAL_KEY: ["pk_"],
-    PORTAL_SECRET: ["sk_"],
-  };
-
-  return prefixes[name]?.some((prefix) => value.startsWith(prefix)) ?? false;
+  const prefixes = VALUE_PREFIXES[name];
+  return prefixes?.some((prefix) => value.startsWith(prefix)) ?? false;
 }
 
 export function readAppConfiguration(
@@ -136,17 +140,17 @@ export function readAppConfiguration(
     const clerkPublishableKey = env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
     const clerkSecretKey = env.CLERK_SECRET_KEY;
     if (clerkPublishableKey && clerkSecretKey) {
-      const expectedPrefix =
+      const [publishableKeyPrefix, secretKeyPrefix] =
         environment === "production"
           ? ["pk_live_", "sk_live_"]
           : ["pk_test_", "sk_test_"];
-      if (!clerkPublishableKey.startsWith(expectedPrefix[0])) {
+      if (!clerkPublishableKey.startsWith(publishableKeyPrefix)) {
         issues.push({
           name: "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
           reason: "invalid",
         });
       }
-      if (!clerkSecretKey.startsWith(expectedPrefix[1])) {
+      if (!clerkSecretKey.startsWith(secretKeyPrefix)) {
         issues.push({ name: "CLERK_SECRET_KEY", reason: "invalid" });
       }
     }

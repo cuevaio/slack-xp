@@ -1,3 +1,4 @@
+import type { HRReportRepository, HRReportState } from "@/lib/hr-reports/types";
 import {
   assignJobTitle,
   getOnboardingStep,
@@ -68,11 +69,33 @@ function toSnapshot(
   };
 }
 
+type StoredHRReport = {
+  reportId: string;
+  reporterId: string;
+  officeDay: string;
+  officeChannelId: string;
+  messageId: string;
+  category: string;
+  state: HRReportState;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+type StoredHRReportNotification = {
+  outboxId: string;
+  reportId: string;
+  createdAt: Date;
+  publishedAt: Date | null;
+};
+
 export type InMemoryNeonRepository = OnboardingRepository &
-  ProfileRepository & {
+  ProfileRepository &
+  HRReportRepository & {
     recordCount(): number;
     projectionWriteCount(): number;
     profileBatchReadCount(): number;
+    hrReportRecords(): readonly StoredHRReport[];
+    hrReportNotificationRecords(): readonly StoredHRReportNotification[];
     reset(): void;
   };
 
@@ -85,6 +108,8 @@ export function createInMemoryNeonRepository(
     string,
     ProfileInvalidationOutboxEntry & { publishedAt: Date | null }
   >();
+  const hrReports = new Map<string, StoredHRReport>();
+  const hrReportNotifications = new Map<string, StoredHRReportNotification>();
   let projectionWrites = 0;
   let profileBatchReads = 0;
 
@@ -154,6 +179,68 @@ export function createInMemoryNeonRepository(
       }
     },
 
+    async createMessageHRReport(input) {
+      const existing = [...hrReports.values()].find(
+        (report) =>
+          report.reporterId === input.reporterId &&
+          report.officeChannelId === input.officeChannelId &&
+          report.messageId === input.messageId &&
+          report.state === "open",
+      );
+      if (existing) {
+        return { reportId: existing.reportId, status: "already-reported" };
+      }
+      const report: StoredHRReport = {
+        reportId: input.reportId,
+        reporterId: input.reporterId,
+        officeDay: input.officeDay,
+        officeChannelId: input.officeChannelId,
+        messageId: input.messageId,
+        category: input.category,
+        state: "open",
+        createdAt: input.createdAt,
+        updatedAt: input.createdAt,
+      };
+      const outboxId = `hr-report-notification:${input.reportId}`;
+      hrReports.set(report.reportId, report);
+      hrReportNotifications.set(outboxId, {
+        outboxId,
+        reportId: report.reportId,
+        createdAt: input.createdAt,
+        publishedAt: null,
+      });
+      return { reportId: report.reportId, status: "created" };
+    },
+
+    async pendingHRReportNotifications(limit) {
+      return [...hrReportNotifications.values()]
+        .filter(({ publishedAt }) => publishedAt === null)
+        .sort(
+          (left, right) => left.createdAt.getTime() - right.createdAt.getTime(),
+        )
+        .slice(0, limit)
+        .flatMap((entry) => {
+          const report = hrReports.get(entry.reportId);
+          return report
+            ? [
+                {
+                  outboxId: entry.outboxId,
+                  officeDay: report.officeDay,
+                  officeChannelId: report.officeChannelId,
+                  messageId: report.messageId,
+                },
+              ]
+            : [];
+        });
+    },
+
+    async markHRReportNotificationPublished(outboxId, publishedAt) {
+      const entry = hrReportNotifications.get(outboxId);
+      if (entry && entry.publishedAt === null) {
+        entry.publishedAt = publishedAt;
+      }
+    },
+
     async enterNewHire(profile) {
       applyProfileProjection(profile);
       let onboarding = onboardings.get(profile.clerkUserId);
@@ -217,10 +304,20 @@ export function createInMemoryNeonRepository(
       return profileBatchReads;
     },
 
+    hrReportRecords() {
+      return [...hrReports.values()];
+    },
+
+    hrReportNotificationRecords() {
+      return [...hrReportNotifications.values()];
+    },
+
     reset() {
       profiles.clear();
       onboardings.clear();
       profileOutbox.clear();
+      hrReports.clear();
+      hrReportNotifications.clear();
       projectionWrites = 0;
       profileBatchReads = 0;
     },

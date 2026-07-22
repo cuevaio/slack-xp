@@ -3,6 +3,10 @@ import type {
   ChannelStatus,
   DetailedPresence,
 } from "@portalsdk/core";
+import type {
+  HRReportNotification,
+  HRReportNotificationPublisher,
+} from "@/lib/hr-reports/types";
 import {
   isOfficeEventChannelId,
   OFFICE_EVENT_MESSAGE_TYPE,
@@ -66,7 +70,8 @@ export class MockPortalUnavailableError extends Error {
 }
 
 export type MockPortalAdapter = PortalAuthority &
-  ProfileInvalidationPublisher & {
+  ProfileInvalidationPublisher &
+  HRReportNotificationPublisher & {
     history(channelId: string): Promise<readonly PortalChatMessage[]>;
     historyPage(
       channelId: string,
@@ -85,6 +90,8 @@ export type MockPortalAdapter = PortalAuthority &
       channelIds: readonly string[],
     ): readonly MockPortalInboxEntry[];
     markInboxRead(userId: string, channelId: string): void;
+    hrReportNotifications(userId: string): readonly MockHRReportNotification[];
+    markHRReportNotificationRead(userId: string, notificationId: string): void;
     officeEventHistory(
       channelId: string,
     ): Promise<readonly PortalOfficeEventMessage[]>;
@@ -122,6 +129,11 @@ export type MockPortalInboxEntry = {
   } | null;
 };
 
+export type MockHRReportNotification = HRReportNotification & {
+  at: number;
+  read: boolean;
+};
+
 export function createMockPortalAdapter({
   now = () => new Date(),
 }: {
@@ -142,6 +154,10 @@ export function createMockPortalAdapter({
     Set<(message: PortalOfficeEventMessage) => void>
   >();
   const unreadCounts = new Map<string, Map<string, number>>();
+  const hrReportNotifications = new Map<
+    string,
+    Map<string, MockHRReportNotification>
+  >();
   let online = true;
   let rejectNextSend = false;
   let tokenSequence = 0;
@@ -301,6 +317,21 @@ export function createMockPortalAdapter({
       officeEvents.set(channelId, channelEvents);
     },
 
+    async publishHRReportNotification(notification, operatorIds) {
+      requireOnline();
+      for (const operatorId of operatorIds) {
+        const notifications =
+          hrReportNotifications.get(operatorId) ?? new Map();
+        const current = notifications.get(notification.notificationId);
+        notifications.set(notification.notificationId, {
+          ...notification,
+          at: current?.at ?? now().getTime(),
+          read: current?.read ?? false,
+        });
+        hrReportNotifications.set(operatorId, notifications);
+      }
+    },
+
     async history(channelId) {
       requireOnline();
       return [...(messages.get(channelId) ?? [])];
@@ -385,6 +416,21 @@ export function createMockPortalAdapter({
         channelId,
         messages.get(channelId)?.length ?? 0,
       );
+    },
+
+    hrReportNotifications(userId) {
+      requireOnline();
+      return [...(hrReportNotifications.get(userId)?.values() ?? [])].sort(
+        (left, right) => right.at - left.at,
+      );
+    },
+
+    markHRReportNotificationRead(userId, notificationId) {
+      requireOnline();
+      const notification = hrReportNotifications
+        .get(userId)
+        ?.get(notificationId);
+      if (notification) notification.read = true;
     },
 
     async officeEventHistory(channelId) {
@@ -550,6 +596,7 @@ export function createMockPortalAdapter({
       officeEvents.clear();
       officeEventListeners.clear();
       unreadCounts.clear();
+      hrReportNotifications.clear();
       online = true;
       rejectNextSend = false;
       tokenSequence = 0;

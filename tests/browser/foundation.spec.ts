@@ -153,6 +153,14 @@ test("server boundaries reject invalid setup and forged identity", async ({
 
   const earlyPortalToken = await page.request.post("/api/office/portal/token");
   expect(earlyPortalToken.status()).toBe(403);
+  const earlyHRReport = await page.request.post("/api/office/hr-reports", {
+    data: {
+      category: "harassment-or-bullying",
+      officeChannelId: "general:2026-07-22",
+      messageId: "message-forged",
+    },
+  });
+  expect(earlyHRReport.status()).toBe(403);
 
   const invalidProfile = await page.request.post("/api/office/onboarding", {
     form: { intent: "confirm-profile", firstName: "", lastName: "" },
@@ -179,6 +187,79 @@ test("server boundaries reject invalid setup and forged identity", async ({
   expect((await page.request.post("/api/office/portal/token")).status()).toBe(
     401,
   );
+});
+
+test("message HR Reports stay private and deep-link Operators to review context", async ({
+  page,
+}) => {
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+
+  const reportText = "Private HR Report browser target";
+  await page.getByLabel("Message # General").fill(reportText);
+  await page.getByRole("button", { name: "Send" }).click();
+  const message = page.getByRole("listitem").filter({ hasText: reportText });
+  await expect(message).toBeVisible();
+
+  await message.getByRole("button", { name: "Report to HR" }).click();
+  const dialog = page.getByRole("dialog", { name: "Private HR Report" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole("radio")).toHaveCount(4);
+  await expect(
+    dialog.getByRole("radio", { name: "Harassment or bullying" }),
+  ).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+  await expect(
+    message.getByRole("button", { name: "Report to HR" }),
+  ).toBeFocused();
+  await message.getByRole("button", { name: "Report to HR" }).click();
+  await dialog.getByRole("radio", { name: "Threatening behavior" }).check();
+
+  const reportRequest = page.waitForRequest(
+    (request) =>
+      new URL(request.url()).pathname === "/api/office/hr-reports" &&
+      request.method() === "POST",
+  );
+  await dialog.getByRole("button", { name: "Submit private report" }).click();
+  const submittedRequest = await reportRequest;
+  expect(submittedRequest.postDataJSON()).toEqual({
+    category: "threatening-behavior",
+    officeChannelId: expect.stringMatching(/^general:/),
+    messageId: expect.stringMatching(/^mock_message_/),
+  });
+  expect(submittedRequest.postData()).not.toContain(reportText);
+  await expect(message.getByText("Private HR Report submitted.")).toBeVisible();
+
+  const duplicate = await page.request.post("/api/office/hr-reports", {
+    data: submittedRequest.postDataJSON(),
+  });
+  expect(duplicate.status()).toBe(200);
+  expect(await duplicate.json()).toMatchObject({ status: "already-reported" });
+
+  const publicEvents = await page.request.get("/api/office/portal/mock-events");
+  expect(JSON.stringify(await publicEvents.json())).not.toMatch(
+    /hr-report|threatening-behavior/i,
+  );
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.goto("/office");
+  await page.getByRole("button", { name: "Sign in as Operator" }).click();
+  const notification = page.getByRole("link", {
+    name: "HR Report ready for review, open message context",
+  });
+  await expect(notification).toBeVisible();
+  await notification.click();
+  await expect(page).toHaveURL(
+    /officeDay=.*&channel=general&message=mock_message_/,
+  );
+  const reviewMessage = page
+    .getByRole("listitem")
+    .filter({ hasText: reportText });
+  await expect(reviewMessage).toBeVisible();
+  await expect(reviewMessage).toBeFocused();
 });
 
 test("general chat confirms, reconnects, validates text, and recovers from Portal faults", async ({

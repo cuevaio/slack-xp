@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import type { InboxEntry } from "@portalsdk/core";
 import { listOfficeChannels } from "@/lib/portal/channels";
 import {
+  parseHRReportInboxItem,
   parseOfficeInboxResponse,
   reconcileOfficeInbox,
 } from "@/lib/portal/inbox";
@@ -26,6 +27,39 @@ function inboxEntry(
 }
 
 describe("Office Channel inbox projection", () => {
+  test("accepts only safe body-free HR Report review notifications", () => {
+    const item = {
+      id: "notification-17",
+      type: "hr-report.ready",
+      title: "HR Report ready for review",
+      data: {
+        title: "HR Report ready for review",
+        href: "https://office.example.com/office?officeDay=2026-07-22&channel=general&message=message-17",
+        officeDay: "2026-07-22",
+        officeChannelId: "general:2026-07-22",
+        messageId: "message-17",
+      },
+      at: 1_753_188_000_000,
+      read: false,
+    };
+    expect(parseHRReportInboxItem(item)).toEqual({
+      id: "notification-17",
+      title: "HR Report ready for review",
+      href: "/office?officeDay=2026-07-22&channel=general&message=message-17",
+      officeDay: "2026-07-22",
+      officeChannelId: "general:2026-07-22",
+      messageId: "message-17",
+      at: 1_753_188_000_000,
+      read: false,
+    });
+    expect(
+      parseHRReportInboxItem({
+        ...item,
+        data: { ...item.data, href: "https://evil.example/steal" },
+      }),
+    ).toBeNull();
+  });
+
   test("validates the complete mock inbox response at runtime", () => {
     expect(
       parseOfficeInboxResponse({

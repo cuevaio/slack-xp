@@ -1,3 +1,7 @@
+import type {
+  HRReportNotification,
+  HRReportNotificationPublisher,
+} from "@/lib/hr-reports/types";
 import {
   OFFICE_EVENT_MESSAGE_TYPE,
   OFFICE_EVENT_SENDERS,
@@ -188,6 +192,85 @@ export function createPortalProfileInvalidationPublisher({
             ? payload.code
             : "portal_event_publish_failed";
         throw new PortalServiceError(response.ok ? 502 : response.status, code);
+      }
+    },
+  };
+}
+
+export const HR_REPORT_NOTIFICATION_CHANNEL_ID = "hr-reports";
+
+export function createPortalHRReportNotificationPublisher({
+  secret,
+  apiKey,
+  apiUrl = DEFAULT_PORTAL_API_URL,
+  fetcher = fetch,
+}: PortalProfilePublisherOptions): HRReportNotificationPublisher {
+  const controlPlane = createPortalControlPlane({ secret, apiUrl, fetcher });
+  const baseUrl = apiUrl.replace(/\/$/u, "");
+
+  return {
+    async publishHRReportNotification(
+      notification: HRReportNotification,
+      operatorIds: readonly string[],
+    ) {
+      const sender = {
+        userId: OFFICE_EVENT_SENDERS.operations,
+        claims: { username: "Portal Systems HR", avatar: null },
+      };
+      await Promise.all([
+        controlPlane.ensureMembership({
+          channelId: HR_REPORT_NOTIFICATION_CHANNEL_ID,
+          ...sender,
+        }),
+        ...operatorIds.map((operatorId) =>
+          controlPlane.ensureMembership({
+            channelId: HR_REPORT_NOTIFICATION_CHANNEL_ID,
+            userId: operatorId,
+            claims: { username: "Operator", avatar: null },
+          }),
+        ),
+      ]);
+      const token = await controlPlane.mintToken({
+        channelIds: [HR_REPORT_NOTIFICATION_CHANNEL_ID],
+        ...sender,
+      });
+
+      for (const operatorId of operatorIds) {
+        let response: Response;
+        try {
+          response = await fetcher(
+            `${baseUrl}/v1/channels/${HR_REPORT_NOTIFICATION_CHANNEL_ID}/messages`,
+            {
+              method: "POST",
+              headers: {
+                authorization: `Bearer ${token.token}`,
+                "content-type": "application/json",
+                "x-portal-key": apiKey,
+              },
+              body: JSON.stringify({
+                type: notification.type,
+                to: operatorId,
+                content: {
+                  title: notification.title,
+                  href: notification.href,
+                  officeDay: notification.officeDay,
+                  officeChannelId: notification.officeChannelId,
+                  messageId: notification.messageId,
+                },
+              }),
+              cache: "no-store",
+            },
+          );
+        } catch {
+          throw new PortalServiceError(503, "portal_unavailable");
+        }
+        const payload: unknown = await response.json().catch(() => null);
+        if (!response.ok || !isPublishAcknowledgement(payload)) {
+          throw new PortalServiceError(
+            response.ok ? 502 : response.status,
+            "portal_notification_publish_failed",
+          );
+        }
       }
     },
   };

@@ -90,6 +90,15 @@ stable Clerk user ID, delivery timestamps, and no name, picture, or message
 content. A profile upsert and its outbox insert run in one Neon transaction;
 Portal publishing starts only after that transaction commits.
 
+The HR Report migration adds `hr_reports` and
+`hr_report_notification_outbox`. An HR Report stores only its reporter, Office
+Day, Office Channel and message identifiers, approved category, open workflow
+state, and timestamps. It never stores the message body, preview text,
+presence, unread state, or other Portal conversation data. A partial unique
+index allows one open report per reporter and message, while the report and its
+pending notification row commit together so retries return `already-reported`
+without creating another workflow record.
+
 In the Clerk Dashboard, create a webhook endpoint for
 `https://<deployment>/api/webhooks/clerk`, subscribe it to `user.created` and
 `user.updated`, and put that endpoint's signing secret in
@@ -219,6 +228,18 @@ attention. This state is never copied into Neon or treated as browser-local
 authority. Guarded mock mode implements the same contract with server-owned
 per-fixture watermarks and snapshot polling solely for deterministic browser
 tests; live mode has no polling or application fallback for Portal unread state.
+
+Confirmed messages expose an accessible private HR Report dialog with four
+server-validated categories. `POST /api/office/hr-reports` requires a completed,
+authenticated New Hire and accepts only the current Office Day's curated Office
+Channel plus a stable message ID. After the Neon transaction commits, a hidden
+`hr-reports` Portal channel sends each configured Operator a targeted inbox item;
+targeted delivery skips public fan-out. Its generic title and deep link contain
+only Office Day, Office Channel, and message coordinates—never the category,
+reporter, message text, or other private detail. Failed notification delivery
+leaves the outbox row pending for a safe retry on a later report submission or
+Portal-token refresh, and Operators can follow the validated same-application
+link directly to the message context.
 
 The Office Day is the pure UTC date of the current instant. A client monitor
 arms for the next UTC boundary and also rechecks at least once per minute and
@@ -445,12 +466,16 @@ the server clock.
 - `src/lib/office-events/` owns the versioned Office Event runtime contract,
   reserved-sender checks, reaction projection, replay deduplication, and the
   narrow browser subscription that isolates event-channel inbox attention.
+- `src/lib/hr-reports/` owns approved categories, stable-reference validation,
+  open-report idempotency, safe review links, and notification outbox draining.
 - `/api/office/onboarding` authenticates every mutation, updates Clerk before a
   profile projection, and rejects Clock In until required onboarding state is
   durable.
 - `/api/office/employee-record` authenticates every read and mutation. Writes
   update Clerk before confirming onboarding or inspecting Neon; reads repair
   and report projection convergence without treating Neon as profile authority.
+- `/api/office/hr-reports` authenticates completed New Hires, rejects unknown
+  categories and non-current Office Channels, and never accepts message text.
 - `/api/office/portal/token` authenticates the New Hire, checks completed
   onboarding, idempotently grants all five daily Office Channel memberships and
   the hidden Office Event membership, and mints a 15-minute Portal user token

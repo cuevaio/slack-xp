@@ -1,3 +1,4 @@
+import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import type { OfficeChannel } from "@/lib/portal/channels";
 import { parseChatContent } from "@/lib/portal/chat";
 
@@ -17,6 +18,17 @@ export type OfficeInboxRow = {
   preview: OfficeInboxPreview | null;
 };
 
+export type HRReportInboxItem = {
+  id: string;
+  title: string;
+  href: string;
+  officeDay: string;
+  officeChannelId: string;
+  messageId: string;
+  at: number;
+  read: boolean;
+};
+
 type OfficeInboxPreview = {
   sender: string;
   text: string;
@@ -25,6 +37,75 @@ type OfficeInboxPreview = {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+export function parseHRReportInboxItem(
+  value: unknown,
+): HRReportInboxItem | null {
+  if (
+    !isObject(value) ||
+    typeof value.id !== "string" ||
+    value.type !== "hr-report.ready" ||
+    typeof value.at !== "number" ||
+    !Number.isFinite(value.at) ||
+    typeof value.read !== "boolean" ||
+    !isObject(value.data)
+  ) {
+    return null;
+  }
+  const data = value.data;
+  if (
+    Object.keys(data).some(
+      (key) =>
+        ![
+          "title",
+          "href",
+          "officeDay",
+          "officeChannelId",
+          "messageId",
+        ].includes(key),
+    )
+  ) {
+    return null;
+  }
+  const title = typeof value.title === "string" ? value.title : data.title;
+  if (
+    title !== "HR Report ready for review" ||
+    typeof data.href !== "string" ||
+    typeof data.officeDay !== "string" ||
+    typeof data.officeChannelId !== "string" ||
+    typeof data.messageId !== "string"
+  ) {
+    return null;
+  }
+  let url: URL;
+  try {
+    url = new URL(data.href);
+  } catch {
+    return null;
+  }
+  if (url.pathname !== "/office" || url.hash || url.username || url.password) {
+    return null;
+  }
+  const target = parseHRReportReviewTarget(url.search);
+  if (
+    !target ||
+    target.officeDay !== data.officeDay ||
+    target.officeChannelId !== data.officeChannelId ||
+    target.messageId !== data.messageId
+  ) {
+    return null;
+  }
+  return {
+    id: value.id,
+    title,
+    href: `${url.pathname}${url.search}`,
+    officeDay: data.officeDay,
+    officeChannelId: data.officeChannelId,
+    messageId: data.messageId,
+    at: value.at,
+    read: value.read,
+  };
 }
 
 function parseOfficeInboxEntry(value: unknown): OfficeInboxEntry | null {

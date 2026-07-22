@@ -1,6 +1,8 @@
 import { createServiceAdapters } from "@/lib/adapters";
+import { configuredOperatorUserIds } from "@/lib/auth/operator";
 import { authenticateOfficeRequest } from "@/lib/auth/server";
 import { readAppConfiguration } from "@/lib/config";
+import { flushHRReportNotifications } from "@/lib/hr-reports/service";
 import { MockPortalUnavailableError } from "@/lib/portal/mock";
 import { officeNowForRequest } from "@/lib/portal/request-time";
 import { PortalServiceError } from "@/lib/portal/server";
@@ -26,6 +28,26 @@ export async function POST(request: Request) {
   const adapters = createServiceAdapters(configuration);
   try {
     await flushProfileInvalidations(adapters.neon, adapters.portal);
+    try {
+      await flushHRReportNotifications({
+        repository: adapters.neon,
+        publisher: adapters.portal,
+        operatorIds:
+          configuration.serviceMode === "mock"
+            ? ["user_mock_operator"]
+            : configuredOperatorUserIds(),
+        appOrigin:
+          configuration.values.APP_ORIGIN ?? new URL(request.url).origin,
+      });
+    } catch {
+      console.error(
+        JSON.stringify({
+          operation: "hr_report_notification_retry",
+          authority: "portal",
+          status: "pending",
+        }),
+      );
+    }
     const session = await issueOfficePortalSession({
       identity,
       onboarding: await adapters.neon.getNewHire(identity.id),

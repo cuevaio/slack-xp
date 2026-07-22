@@ -52,7 +52,8 @@ export default function SetupPage() {
             <p>
               Optionally set <code>OPERATOR_CLERK_USER_IDS</code> to a comma- or
               whitespace-separated list of exact Clerk user IDs. This value is
-              server-only.
+              server-only. Those Operators receive private targeted Portal inbox
+              items when New Hires submit HR Reports.
             </p>
             <h2>Project current Clerk profiles</h2>
             <p>
@@ -88,9 +89,11 @@ export default function SetupPage() {
             <p>
               The migrations create Clerk profile projections, a retry-safe
               profile invalidation outbox, and resumable New Hire onboarding
-              records. The outbox contains stable references and delivery
-              timestamps, never profile values or message content. Portal
-              remains the authority for messages and conversation state.
+              records. They also create body-free HR Report workflow and
+              notification-outbox records. The outboxes contain stable
+              references and delivery timestamps, never profile values, message
+              bodies, previews, or presence. Portal remains the authority for
+              messages and conversation state.
             </p>
             <h2>Prove production readiness</h2>
             <p>

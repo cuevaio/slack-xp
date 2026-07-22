@@ -1156,6 +1156,51 @@ a {
   font-size: 0.75rem;
 }
 
+.hr-report-inbox {
+  margin-top: 1.2rem;
+  padding: 0.7rem;
+  border: 2px inset #eee;
+  background: #fff8d8;
+}
+
+.hr-report-inbox h2 {
+  margin: 0 0 0.5rem;
+  color: #5a2170;
+  font-size: 0.9rem;
+}
+
+.hr-report-inbox p {
+  margin: 0;
+  color: #5f5a4e;
+  font-size: 0.72rem;
+}
+
+.hr-report-inbox ul {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hr-report-inbox a {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.5rem;
+  border: 1px solid #8c6e2a;
+  background: white;
+  color: #2d1740;
+  text-decoration: none;
+}
+
+.hr-report-inbox a.is-read {
+  opacity: 0.65;
+}
+
+.hr-report-inbox small {
+  font-size: 0.64rem;
+}
+
 .conversation-panel {
   background: var(--paper);
   min-width: 0;
@@ -1460,6 +1505,12 @@ a {
   border-color: #c5cbd4;
 }
 
+.chat-message:focus {
+  border-color: #5a2170;
+  outline: 3px solid #a96bc0;
+  outline-offset: 2px;
+}
+
 .chat-message-pending {
   opacity: 0.7;
 }
@@ -1640,6 +1691,96 @@ a {
   color: #8b2018;
   font-family: inherit;
   font-weight: 700;
+}
+
+.message-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.message-action-button {
+  min-height: 44px;
+  margin-top: 0.45rem;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid #7f8793;
+  border-radius: 3px;
+  background: #f4f5f7;
+  color: #442052;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.message-action-button:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+
+.hr-report-controls > output {
+  display: block;
+  max-width: 250px;
+  margin-top: 0.3rem;
+  color: #442052;
+}
+
+.hr-report-dialog-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgb(13 23 42 / 62%);
+}
+
+.hr-report-dialog {
+  width: min(100%, 470px);
+  padding: 1.2rem;
+  border: 3px outset #eee;
+  background: #ece9d8;
+  box-shadow: 8px 10px 0 rgb(9 25 48 / 38%);
+  color: var(--ink);
+}
+
+.hr-report-dialog h2 {
+  margin: 0 0 0.6rem;
+  color: #442052;
+}
+
+.hr-report-dialog > p {
+  margin: 0 0 1rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.hr-report-dialog fieldset {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0.8rem;
+  border: 1px solid #7f8793;
+}
+
+.hr-report-dialog label {
+  display: flex;
+  min-height: 36px;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.hr-report-dialog input {
+  width: 18px;
+  height: 18px;
+}
+
+.hr-report-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  margin-top: 1rem;
 }
 
 .portal-outage {

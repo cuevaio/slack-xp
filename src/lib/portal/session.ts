@@ -1,6 +1,7 @@
 import { officeEventChannelId } from "@/lib/office-events/contract";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 import { listOfficeChannels } from "@/lib/portal/channels";
+import { HR_REPORT_NOTIFICATION_CHANNEL_ID } from "@/lib/portal/server";
 import type { PortalAuthority, PortalToken } from "@/lib/portal/types";
 
 export class PortalEligibilityError extends Error {
@@ -14,6 +15,7 @@ type PortalSessionIdentity = {
   id: string;
   fullName: string;
   imageUrl: string | null;
+  isOperator?: boolean;
 };
 
 export type OfficePortalSession = PortalToken & {
@@ -43,7 +45,11 @@ export async function issueOfficePortalSession({
 
   const channelIds = listOfficeChannels(now).map(({ id }) => id);
   const eventChannelId = officeEventChannelId(now);
-  const membershipChannelIds = [...channelIds, eventChannelId];
+  const membershipChannelIds = [
+    ...channelIds,
+    eventChannelId,
+    ...(identity.isOperator ? [HR_REPORT_NOTIFICATION_CHANNEL_ID] : []),
+  ];
   const portalIdentity = {
     userId: identity.id,
     claims: {

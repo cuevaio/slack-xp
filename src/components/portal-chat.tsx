@@ -20,6 +20,12 @@ import {
   useRef,
   useState,
 } from "react";
+import {
+  HR_REPORT_CATEGORIES,
+  HR_REPORT_CATEGORY_LABELS,
+  parseHRReportReviewTarget,
+} from "@/lib/hr-reports/domain";
+import type { HRReportCategory } from "@/lib/hr-reports/types";
 import { useOfficeEventSubscription } from "@/lib/office-events/client";
 import {
   createReactionOfficeEvent,
@@ -46,8 +52,10 @@ import {
 } from "@/lib/portal/chat";
 import { createPortalTokenSource } from "@/lib/portal/client";
 import {
+  type HRReportInboxItem,
   type OfficeInboxEntry,
   type OfficeInboxRow,
+  parseHRReportInboxItem,
   parseOfficeInboxResponse,
   reconcileOfficeInbox,
 } from "@/lib/portal/inbox";
@@ -143,10 +151,12 @@ type OfficeWorkspaceProps = Pick<
   activeChannelId: string;
   inboxRows: readonly OfficeInboxRow[];
   inboxStatus: InboxStatus;
+  reportNotifications: readonly HRReportInboxItem[];
   isMobile: boolean | null;
   mobileNavigationOpen: boolean;
   onOpenMobileNavigation(): void;
   onSelectChannel(channelId: string): void;
+  onReadReportNotification(notificationId: string): void;
   children: ReactNode;
 };
 
@@ -170,8 +180,10 @@ type LiveActivityProps = {
 
 type MockOfficeInbox = {
   entries: readonly OfficeInboxEntry[];
+  reportNotifications: readonly HRReportInboxItem[];
   status: InboxStatus;
   markAsRead(channelId: string): Promise<void>;
+  markReportNotificationAsRead(notificationId: string): Promise<void>;
 };
 
 type ResponsiveOfficeNavigation = {
@@ -501,6 +513,9 @@ async function fetchMockHistoryPage(
 
 function useMockOfficeInbox(): MockOfficeInbox {
   const [entries, setEntries] = useState<readonly OfficeInboxEntry[]>([]);
+  const [reportNotifications, setReportNotifications] = useState<
+    readonly HRReportInboxItem[]
+  >([]);
   const [status, setStatus] = useState<InboxStatus>("connecting");
   const requestInFlight = useRef(false);
 
@@ -516,10 +531,31 @@ function useMockOfficeInbox(): MockOfficeInbox {
       });
       const payload: unknown = await response.json().catch(() => null);
       const nextEntries = parseOfficeInboxResponse(payload);
-      if (!response.ok || !nextEntries) {
+      const notificationCandidates =
+        typeof payload === "object" &&
+        payload !== null &&
+        "notifications" in payload &&
+        Array.isArray(payload.notifications)
+          ? payload.notifications
+          : null;
+      const nextNotifications = notificationCandidates?.map(
+        parseHRReportInboxItem,
+      );
+      if (
+        !response.ok ||
+        !nextEntries ||
+        !nextNotifications ||
+        nextNotifications.some((notification) => notification === null)
+      ) {
         throw new Error("Mock Portal inbox unavailable");
       }
       setEntries(nextEntries);
+      setReportNotifications(
+        nextNotifications.filter(
+          (notification): notification is HRReportInboxItem =>
+            notification !== null,
+        ),
+      );
       setStatus("ready");
     } catch {
       setStatus("reconnecting");
@@ -551,10 +587,29 @@ function useMockOfficeInbox(): MockOfficeInbox {
     [refresh],
   );
 
+  const markReportNotificationAsRead = useCallback(
+    async (notificationId: string) => {
+      const response = await fetch("/api/office/portal/mock-inbox", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notificationId }),
+      });
+      if (!response.ok) {
+        setStatus("reconnecting");
+        return;
+      }
+      await refresh();
+    },
+    [refresh],
+  );
+
   return {
     entries,
+    reportNotifications,
     status,
     markAsRead,
+    markReportNotificationAsRead,
   };
 }
 
@@ -726,6 +781,198 @@ function ReactionControls({
   );
 }
 
+function HRReportControls({ message }: { message: SafePortalChatMessage }) {
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [category, setCategory] = useState<HRReportCategory>(
+    HR_REPORT_CATEGORIES[0],
+  );
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState<
+    | null
+    | "created"
+    | "already-reported"
+    | "created-notification-pending"
+    | "error"
+  >(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const firstCategoryRef = useRef<HTMLInputElement>(null);
+  const titleId = `hr-report-title-${message.id}`;
+
+  useEffect(() => {
+    if (dialogOpen) firstCategoryRef.current?.focus();
+  }, [dialogOpen]);
+
+  function closeDialog() {
+    setDialogOpen(false);
+    requestAnimationFrame(() => triggerRef.current?.focus());
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSubmitting(true);
+    setResult(null);
+    try {
+      const response = await fetch("/api/office/hr-reports", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          category,
+          officeChannelId: message.channelId,
+          messageId: message.id,
+        }),
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      const responseBody =
+        typeof payload === "object" && payload !== null ? payload : null;
+      const status =
+        responseBody &&
+        "status" in responseBody &&
+        (responseBody.status === "created" ||
+          responseBody.status === "already-reported")
+          ? responseBody.status
+          : null;
+      if (!response.ok || !status) throw new Error("HR Report unavailable");
+      const notificationPending =
+        responseBody &&
+        "notificationStatus" in responseBody &&
+        responseBody.notificationStatus === "pending";
+      setResult(
+        status === "created" && notificationPending
+          ? "created-notification-pending"
+          : status,
+      );
+      setDialogOpen(false);
+      requestAnimationFrame(() => triggerRef.current?.focus());
+    } catch {
+      setResult("error");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const submitted =
+    result === "created" ||
+    result === "already-reported" ||
+    result === "created-notification-pending";
+
+  return (
+    <div className="hr-report-controls">
+      <button
+        aria-haspopup="dialog"
+        className="message-action-button"
+        disabled={submitted}
+        onClick={() => {
+          setResult(null);
+          setDialogOpen(true);
+        }}
+        ref={triggerRef}
+        type="button"
+      >
+        {submitted ? "Reported to HR" : "Report to HR"}
+      </button>
+      {dialogOpen ? (
+        <div
+          aria-labelledby={titleId}
+          aria-modal="true"
+          className="hr-report-dialog-backdrop"
+          onKeyDown={(event: KeyboardEvent<HTMLDivElement>) => {
+            if (event.key === "Escape" && !submitting) {
+              event.preventDefault();
+              closeDialog();
+              return;
+            }
+            if (event.key === "Tab") {
+              const controls = [
+                ...event.currentTarget.querySelectorAll<HTMLElement>(
+                  "input:not([disabled]), button:not([disabled])",
+                ),
+              ];
+              const first = controls[0];
+              const last = controls.at(-1);
+              if (
+                event.shiftKey &&
+                first &&
+                last &&
+                document.activeElement === first
+              ) {
+                event.preventDefault();
+                last.focus();
+              } else if (
+                !event.shiftKey &&
+                first &&
+                last &&
+                document.activeElement === last
+              ) {
+                event.preventDefault();
+                first.focus();
+              }
+            }
+          }}
+          role="dialog"
+        >
+          <form className="hr-report-dialog" onSubmit={submit}>
+            <h2 id={titleId}>Private HR Report</h2>
+            <p>
+              Choose the reason for Operator review. The message stays in
+              Portal; only its stable reference is stored with this report.
+            </p>
+            <fieldset>
+              <legend>Reason for review</legend>
+              {HR_REPORT_CATEGORIES.map((option, index) => (
+                <label key={option}>
+                  <input
+                    checked={category === option}
+                    name={`hr-report-category-${message.id}`}
+                    onChange={() => setCategory(option)}
+                    ref={index === 0 ? firstCategoryRef : undefined}
+                    type="radio"
+                    value={option}
+                  />
+                  {HR_REPORT_CATEGORY_LABELS[option]}
+                </label>
+              ))}
+            </fieldset>
+            {result === "error" ? (
+              <p className="chat-error" role="alert">
+                HR Report could not be submitted. Please try again.
+              </p>
+            ) : null}
+            <div className="hr-report-dialog-actions">
+              <button
+                className="classic-button"
+                disabled={submitting}
+                onClick={closeDialog}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="classic-button"
+                disabled={submitting}
+                type="submit"
+              >
+                {submitting ? "Submitting…" : "Submit private report"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+      {result === "created" ? (
+        <output>Private HR Report submitted.</output>
+      ) : null}
+      {result === "already-reported" ? (
+        <output>You already have an open report for this message.</output>
+      ) : null}
+      {result === "created-notification-pending" ? (
+        <output>
+          Private HR Report submitted. Operator notification is queued.
+        </output>
+      ) : null}
+    </div>
+  );
+}
+
 function profileDisplayName(profile: ProfileAttribution | undefined): string {
   return profile?.displayName ?? FALLBACK_PROFILE_NAME;
 }
@@ -809,6 +1056,7 @@ function MessageHistory({
             className={`chat-message chat-message-${message.status}`}
             data-message-id={message.id}
             key={message.id}
+            tabIndex={-1}
           >
             <div className="message-meta">
               <ProfileAvatar
@@ -832,13 +1080,16 @@ function MessageHistory({
               </small>
             ) : null}
             {message.status === "sent" ? (
-              <ReactionControls
-                enabled={reactionsEnabled}
-                identityId={identityId}
-                message={message}
-                onReact={onReact}
-                reactions={projection.read(channel.id, message.id)}
-              />
+              <div className="message-actions">
+                <ReactionControls
+                  enabled={reactionsEnabled}
+                  identityId={identityId}
+                  message={message}
+                  onReact={onReact}
+                  reactions={projection.read(channel.id, message.id)}
+                />
+                <HRReportControls message={message} />
+              </div>
             ) : null}
           </li>
         );
@@ -966,6 +1217,36 @@ function ChatSurface({
   useEffect(() => {
     latestOnContentVisible.current = onContentVisible;
   }, [onContentVisible]);
+
+  useEffect(() => {
+    if (
+      !visible ||
+      !profileContentReady ||
+      !isChatContentReady(status) ||
+      messages.length === 0 ||
+      !latestMessageId
+    ) {
+      return;
+    }
+    const target = parseHRReportReviewTarget(window.location.search);
+    if (!target || target.officeChannelId !== channel.id) return;
+    const element = [
+      ...document.querySelectorAll<HTMLElement>(".chat-message"),
+    ].find(
+      (candidate) =>
+        candidate.getAttribute("data-message-id") === target.messageId,
+    );
+    if (!element) return;
+    element.scrollIntoView({ block: "center" });
+    element.focus({ preventScroll: true });
+  }, [
+    channel.id,
+    latestMessageId,
+    messages.length,
+    profileContentReady,
+    status,
+    visible,
+  ]);
 
   useEffect(() => {
     if (
@@ -1196,10 +1477,12 @@ function OfficeWorkspace({
   activeChannelId,
   inboxRows,
   inboxStatus,
+  reportNotifications,
   isMobile,
   mobileNavigationOpen,
   onOpenMobileNavigation,
   onSelectChannel,
+  onReadReportNotification,
   children,
 }: OfficeWorkspaceProps) {
   const currentProfile = useProfileBatch([identityId]);
@@ -1211,7 +1494,9 @@ function OfficeWorkspace({
   const inboxRowsByChannelId = new Map(
     inboxRows.map((row) => [row.channelId, row]),
   );
-  const totalUnread = inboxRows.reduce((total, row) => total + row.unread, 0);
+  const totalUnread =
+    inboxRows.reduce((total, row) => total + row.unread, 0) +
+    reportNotifications.filter(({ read }) => !read).length;
 
   useEffect(() => {
     if (isMobile !== true) return;
@@ -1286,6 +1571,37 @@ function OfficeWorkspace({
               );
             })}
           </nav>
+          {isOperator ? (
+            <section
+              aria-label="HR Report notifications"
+              className="hr-report-inbox"
+            >
+              <h2>HR Inbox</h2>
+              {reportNotifications.length === 0 ? (
+                <p>No open HR Report notifications.</p>
+              ) : (
+                <ul>
+                  {reportNotifications.map((notification) => (
+                    <li key={notification.id}>
+                      <a
+                        aria-label={`${notification.title}, open message context`}
+                        className={notification.read ? "is-read" : undefined}
+                        href={notification.href}
+                        onClick={() =>
+                          onReadReportNotification(notification.id)
+                        }
+                      >
+                        <strong>{notification.title}</strong>
+                        <small>
+                          {notification.officeDay} · Open message context
+                        </small>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : null}
           {employeeRecord}
           {canSignOut ? (
             <form action="/api/auth/sign-out" method="post">
@@ -1420,6 +1736,7 @@ function LivePortalWorkspace({
   displayName,
   employeeRecord,
   eventChannelId,
+  officeDay: currentOfficeDay,
   jobTitle,
   isOperator,
   canSignOut,
@@ -1444,6 +1761,15 @@ function LivePortalWorkspace({
     onInvalidation: handleInvalidation,
   });
   const [activeChannelId, setActiveChannelId] = useState(channels[0]?.id ?? "");
+  useEffect(() => {
+    const target = parseHRReportReviewTarget(window.location.search);
+    if (
+      target?.officeDay === currentOfficeDay &&
+      channels.some(({ id }) => id === target.officeChannelId)
+    ) {
+      setActiveChannelId(target.officeChannelId);
+    }
+  }, [channels, currentOfficeDay]);
   const navigation = useResponsiveOfficeNavigation();
   const inbox = useInbox();
   const inboxRows = useMemo(
@@ -1455,6 +1781,14 @@ function LivePortalWorkspace({
         displayName,
       }),
     [channels, displayName, identityId, inbox.channels],
+  );
+  const reportNotifications = useMemo(
+    () =>
+      inbox.items.flatMap((item) => {
+        const parsed = parseHRReportInboxItem(item);
+        return parsed ? [parsed] : [];
+      }),
+    [inbox.items],
   );
   const markInboxRead = useCallback(
     (channelId: string) => {
@@ -1492,12 +1826,16 @@ function LivePortalWorkspace({
       identityId={identityId}
       inboxRows={inboxRows}
       inboxStatus={inbox.status}
+      reportNotifications={reportNotifications}
       isMobile={navigation.isMobile}
       isOperator={isOperator}
       jobTitle={jobTitle}
       mobileNavigationOpen={navigation.mobileNavigationOpen}
       onOpenMobileNavigation={navigation.openMobileNavigation}
       onSelectChannel={selectChannel}
+      onReadReportNotification={(notificationId) => {
+        inbox.items.find(({ id }) => id === notificationId)?.markAsRead();
+      }}
     >
       {channels.map((channel) => (
         <LiveOfficeChannel
@@ -1720,6 +2058,15 @@ function MockPortalOffice(
     onOfficeDayExpired,
   } = props;
   const [activeChannelId, setActiveChannelId] = useState(channels[0]?.id ?? "");
+  useEffect(() => {
+    const target = parseHRReportReviewTarget(window.location.search);
+    if (
+      target?.officeDay === currentOfficeDay &&
+      channels.some(({ id }) => id === target.officeChannelId)
+    ) {
+      setActiveChannelId(target.officeChannelId);
+    }
+  }, [channels, currentOfficeDay]);
   const navigation = useResponsiveOfficeNavigation();
   const inbox = useMockOfficeInbox();
   const inboxRows = useMemo(
@@ -1810,12 +2157,16 @@ function MockPortalOffice(
       identityId={identityId}
       inboxRows={inboxRows}
       inboxStatus={inbox.status}
+      reportNotifications={inbox.reportNotifications}
       isMobile={navigation.isMobile}
       isOperator={isOperator}
       jobTitle={jobTitle}
       mobileNavigationOpen={navigation.mobileNavigationOpen}
       onOpenMobileNavigation={navigation.openMobileNavigation}
       onSelectChannel={selectChannel}
+      onReadReportNotification={(notificationId) => {
+        void inbox.markReportNotificationAsRead(notificationId);
+      }}
     >
       {channels.map((channel) => (
         <MockOfficeChannel

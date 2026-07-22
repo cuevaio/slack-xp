@@ -5,6 +5,7 @@ import { createNeonRepository } from "@/lib/onboarding/neon";
 import { listOfficeChannels } from "@/lib/portal/channels";
 import {
   createPortalControlPlane,
+  createPortalHRReportNotificationPublisher,
   createPortalProfileInvalidationPublisher,
 } from "@/lib/portal/server";
 
@@ -25,12 +26,18 @@ export function createLiveAdapters(
       apiKey: configuration.values.NEXT_PUBLIC_PORTAL_KEY,
     },
   );
+  const hrReportNotificationPublisher =
+    createPortalHRReportNotificationPublisher({
+      secret: portalSecret,
+      apiKey: configuration.values.NEXT_PUBLIC_PORTAL_KEY,
+    });
 
   return {
     kind: "live",
     portal: {
       ...portalControlPlane,
       ...profileInvalidationPublisher,
+      ...hrReportNotificationPublisher,
       async listChannels(now) {
         return listOfficeChannels(now);
       },

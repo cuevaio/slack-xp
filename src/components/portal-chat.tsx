@@ -1,7 +1,7 @@
 "use client";
 
-import { Portal } from "@portalsdk/core";
-import { PortalProvider, useChannel } from "@portalsdk/react";
+import { type InboxStatus, Portal } from "@portalsdk/core";
+import { PortalProvider, useChannel, useInbox } from "@portalsdk/react";
 import {
   type FormEvent,
   type ReactNode,
@@ -22,6 +22,11 @@ import {
   validateChatDraft,
 } from "@/lib/portal/chat";
 import { createPortalTokenSource } from "@/lib/portal/client";
+import {
+  type OfficeInboxEntry,
+  type OfficeInboxRow,
+  reconcileOfficeInbox,
+} from "@/lib/portal/inbox";
 
 type ChatConnectionStatus =
   | "idle"
@@ -56,7 +61,8 @@ type LivePortalOfficeProps = PortalOfficeBaseProps & {
 type PortalChatProps = MockPortalOfficeProps | LivePortalOfficeProps;
 
 type ChatSurfaceProps = {
-  active: boolean;
+  visible: boolean;
+  readWhenVisible?: boolean;
   channel: OfficeChannel;
   identityId: string;
   displayName: string;
@@ -67,6 +73,7 @@ type ChatSurfaceProps = {
   loadPrevious?: () => Promise<unknown>;
   hasPrevious?: boolean;
   isLoadingPrevious?: boolean;
+  onContentVisible?(): void;
 };
 
 type OfficeWorkspaceProps = Pick<
@@ -79,7 +86,11 @@ type OfficeWorkspaceProps = Pick<
   | "canSignOut"
 > & {
   activeChannelId: string;
-  unreadCounts: Readonly<Record<string, number>>;
+  inboxRows: readonly OfficeInboxRow[];
+  inboxStatus: InboxStatus;
+  isMobile: boolean | null;
+  mobileNavigationOpen: boolean;
+  onOpenMobileNavigation(): void;
   onSelectChannel(channelId: string): void;
   children: ReactNode;
 };
@@ -87,6 +98,14 @@ type OfficeWorkspaceProps = Pick<
 type MockHistoryPage = {
   messages: unknown[];
   hasPrevious: boolean;
+};
+
+type ResponsiveOfficeNavigation = {
+  isMobile: boolean | null;
+  mobileNavigationOpen: boolean;
+  conversationVisible: boolean;
+  openMobileNavigation(): void;
+  showConversation(): void;
 };
 
 function connectionStatusCopy(status: ChatConnectionStatus): string {
@@ -115,6 +134,45 @@ function sendButtonCopy(isSending: boolean, hasError: boolean): string {
     return "Retry send";
   }
   return "Send";
+}
+
+function inboxStatusCopy(status: InboxStatus): string {
+  switch (status) {
+    case "ready":
+      return "Inbox current";
+    case "reconnecting":
+      return "Reconnecting inbox…";
+    case "idle":
+    case "connecting":
+      return "Loading inbox…";
+  }
+}
+
+function useResponsiveOfficeNavigation(): ResponsiveOfficeNavigation {
+  const [isMobile, setIsMobile] = useState<boolean | null>(null);
+  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(true);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 850px)");
+    const update = () => {
+      setIsMobile(query.matches);
+      if (query.matches) {
+        setMobileNavigationOpen(true);
+      }
+    };
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  return {
+    isMobile,
+    mobileNavigationOpen,
+    conversationVisible:
+      isMobile === false || (isMobile === true && !mobileNavigationOpen),
+    openMobileNavigation: () => setMobileNavigationOpen(true),
+    showConversation: () => setMobileNavigationOpen(false),
+  };
 }
 
 function getMessageId(message: unknown): string | undefined {
@@ -197,6 +255,119 @@ async function fetchMockHistoryPage(
   return historyPage;
 }
 
+function parseMockInbox(value: unknown): OfficeInboxEntry[] | null {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("channels" in value) ||
+    !Array.isArray(value.channels)
+  ) {
+    return null;
+  }
+
+  const entries: OfficeInboxEntry[] = [];
+  for (const candidate of value.channels) {
+    if (
+      typeof candidate !== "object" ||
+      candidate === null ||
+      !("id" in candidate) ||
+      typeof candidate.id !== "string" ||
+      !("unread" in candidate) ||
+      typeof candidate.unread !== "number" ||
+      !Number.isFinite(candidate.unread)
+    ) {
+      return null;
+    }
+    let latest: OfficeInboxEntry["latest"];
+    if ("latest" in candidate && candidate.latest !== undefined) {
+      const value = candidate.latest;
+      if (
+        typeof value !== "object" ||
+        value === null ||
+        !("text" in value) ||
+        typeof value.text !== "string" ||
+        !("sender" in value) ||
+        typeof value.sender !== "object" ||
+        value.sender === null ||
+        !("id" in value.sender) ||
+        typeof value.sender.id !== "string" ||
+        !("at" in value) ||
+        typeof value.at !== "number" ||
+        !Number.isFinite(value.at)
+      ) {
+        return null;
+      }
+      latest = {
+        text: value.text,
+        sender: { id: value.sender.id },
+        at: value.at,
+      };
+    }
+    entries.push({
+      id: candidate.id,
+      unread: candidate.unread,
+      ...(latest ? { latest } : {}),
+    });
+  }
+  return entries;
+}
+
+function useMockOfficeInbox(): {
+  entries: readonly OfficeInboxEntry[];
+  status: InboxStatus;
+  markAsRead(channelId: string): Promise<void>;
+} {
+  const [entries, setEntries] = useState<readonly OfficeInboxEntry[]>([]);
+  const [status, setStatus] = useState<InboxStatus>("connecting");
+  const requestInFlight = useRef(false);
+
+  const refresh = useCallback(async () => {
+    if (requestInFlight.current) return;
+    requestInFlight.current = true;
+    try {
+      const response = await fetch("/api/office/portal/mock-inbox", {
+        credentials: "include",
+        cache: "no-store",
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      const nextEntries = parseMockInbox(payload);
+      if (!response.ok || !nextEntries) {
+        throw new Error("Mock Portal inbox unavailable");
+      }
+      setEntries(nextEntries);
+      setStatus("ready");
+    } catch {
+      setStatus("reconnecting");
+    } finally {
+      requestInFlight.current = false;
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    const interval = window.setInterval(() => void refresh(), 300);
+    return () => window.clearInterval(interval);
+  }, [refresh]);
+
+  return {
+    entries,
+    status,
+    async markAsRead(channelId: string) {
+      const response = await fetch("/api/office/portal/mock-inbox", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channelId }),
+      });
+      if (!response.ok) {
+        setStatus("reconnecting");
+        return;
+      }
+      await refresh();
+    },
+  };
+}
+
 function SafeMessageText({ text }: { text: string }) {
   let characterOffset = 0;
   return linkifyChatText(text).map((part) => {
@@ -242,6 +413,7 @@ function MessageHistory({
       {messages.map((message) => (
         <li
           className={`chat-message chat-message-${message.status}`}
+          data-message-id={message.id}
           key={message.id}
         >
           <div className="message-meta">
@@ -269,7 +441,8 @@ function MessageHistory({
 }
 
 function ChatSurface({
-  active,
+  visible,
+  readWhenVisible = true,
   channel,
   identityId,
   displayName,
@@ -280,11 +453,14 @@ function ChatSurface({
   loadPrevious,
   hasPrevious = false,
   isLoadingPrevious = false,
+  onContentVisible,
 }: ChatSurfaceProps) {
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const scrollRegionRef = useRef<HTMLDivElement>(null);
+  const surfaceRef = useRef<HTMLElement>(null);
+  const latestOnContentVisible = useRef(onContentVisible);
   const messages = useMemo(
     () =>
       rawMessages
@@ -296,6 +472,65 @@ function ChatSurface({
     [channel.id, rawMessages],
   );
   const invalidMessageCount = rawMessages.length - messages.length;
+  const latestMessageId = messages.at(-1)?.id ?? null;
+
+  useEffect(() => {
+    latestOnContentVisible.current = onContentVisible;
+  }, [onContentVisible]);
+
+  useEffect(() => {
+    if (
+      !visible ||
+      !readWhenVisible ||
+      (status !== "ready" &&
+        status !== "degraded" &&
+        status !== "degraded-http")
+    ) {
+      return;
+    }
+
+    const surface = surfaceRef.current;
+    if (!surface) return;
+    let animationFrame = 0;
+    const reportIfVisible = () => {
+      cancelAnimationFrame(animationFrame);
+      animationFrame = requestAnimationFrame(() => {
+        const bounds = surface.getBoundingClientRect();
+        const renderedLatestMessageId =
+          surface
+            .querySelector(".message-history")
+            ?.lastElementChild?.getAttribute("data-message-id") ?? null;
+        if (
+          !document.hidden &&
+          !surface.hidden &&
+          surface.querySelectorAll(".chat-message").length ===
+            messages.length &&
+          renderedLatestMessageId === latestMessageId &&
+          bounds.width > 0 &&
+          bounds.height > 0 &&
+          bounds.bottom > 0 &&
+          bounds.right > 0 &&
+          bounds.top < window.innerHeight &&
+          bounds.left < window.innerWidth
+        ) {
+          latestOnContentVisible.current?.();
+        }
+      });
+    };
+    const observer = new IntersectionObserver(reportIfVisible, {
+      threshold: 0.01,
+    });
+    observer.observe(surface);
+    document.addEventListener("visibilitychange", reportIfVisible);
+    window.addEventListener("resize", reportIfVisible);
+    reportIfVisible();
+    return () => {
+      cancelAnimationFrame(animationFrame);
+      observer.disconnect();
+      document.removeEventListener("visibilitychange", reportIfVisible);
+      window.removeEventListener("resize", reportIfVisible);
+    };
+  }, [latestMessageId, messages.length, readWhenVisible, status, visible]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -341,8 +576,9 @@ function ChatSurface({
     <section
       aria-labelledby={headingId}
       className={`general-chat ${channel.mode === "broadcast" ? "broadcast-chat" : ""}`}
-      hidden={!active}
+      hidden={!visible}
       id={`office-channel-${channel.slug}`}
+      ref={surfaceRef}
     >
       <header className="conversation-heading">
         <div>
@@ -455,85 +691,156 @@ function OfficeWorkspace({
   isOperator,
   canSignOut,
   activeChannelId,
-  unreadCounts,
+  inboxRows,
+  inboxStatus,
+  isMobile,
+  mobileNavigationOpen,
+  onOpenMobileNavigation,
   onSelectChannel,
   children,
 }: OfficeWorkspaceProps) {
+  const directoryButtons = useRef(new Map<string, HTMLButtonElement>());
+  const mobileDirectoryTrigger = useRef<HTMLButtonElement>(null);
+  const inboxRowsByChannelId = new Map(
+    inboxRows.map((row) => [row.channelId, row]),
+  );
+  const totalUnread = inboxRows.reduce((total, row) => total + row.unread, 0);
+
+  useEffect(() => {
+    if (isMobile !== true) return;
+    if (mobileNavigationOpen) {
+      directoryButtons.current.get(activeChannelId)?.focus();
+    } else {
+      mobileDirectoryTrigger.current?.focus();
+    }
+  }, [activeChannelId, isMobile, mobileNavigationOpen]);
+
   return (
-    <div className="office-body">
-      <aside className="channel-panel" aria-label="Office Channels">
-        <p className="eyebrow">Shared Public Office</p>
-        <h1>Welcome, {displayName}</h1>
-        <p className="job-title">{jobTitle}</p>
-        {isOperator ? <p className="operator-badge">Operator access</p> : null}
-        <nav aria-label="Office Channel directory">
-          {channels.map((channel) => {
-            const unreadCount = unreadCounts[channel.id] ?? 0;
-            return (
-              <button
-                aria-controls={`office-channel-${channel.slug}`}
-                aria-current={
-                  channel.id === activeChannelId ? "page" : undefined
-                }
-                className="channel-button"
-                key={channel.id}
-                onClick={() => onSelectChannel(channel.id)}
-                type="button"
-              >
-                <span className="channel-button-copy">
-                  <strong># {channel.slug}</strong>
-                  <small> {channel.name}</small>
-                </span>
-                {unreadCount > 0 ? (
-                  <b>
-                    <span className="sr-only">{unreadCount} unread</span>
-                    <span aria-hidden="true">{unreadCount}</span>
-                  </b>
-                ) : null}
+    <>
+      <div
+        className="office-body"
+        data-mobile-view={mobileNavigationOpen ? "directory" : "conversation"}
+      >
+        <aside className="channel-panel" aria-label="Office Channels">
+          <p className="eyebrow">Shared Public Office</p>
+          <h1>Welcome, {displayName}</h1>
+          <p className="job-title">{jobTitle}</p>
+          {isOperator ? (
+            <p className="operator-badge">Operator access</p>
+          ) : null}
+          <output className="inbox-status" aria-live="polite">
+            {inboxStatusCopy(inboxStatus)}
+          </output>
+          <nav aria-label="Office Channel directory">
+            {channels.map((channel) => {
+              const row = inboxRowsByChannelId.get(channel.id);
+              const unreadCount = row?.unread ?? 0;
+              return (
+                <button
+                  aria-controls={`office-channel-${channel.slug}`}
+                  aria-current={
+                    channel.id === activeChannelId ? "page" : undefined
+                  }
+                  className="channel-button"
+                  key={channel.id}
+                  onClick={() => onSelectChannel(channel.id)}
+                  ref={(element) => {
+                    if (element) {
+                      directoryButtons.current.set(channel.id, element);
+                    } else {
+                      directoryButtons.current.delete(channel.id);
+                    }
+                  }}
+                  type="button"
+                >
+                  <span className="channel-button-copy">
+                    <strong># {channel.slug}</strong>
+                    <small>{channel.name}</small>
+                    <small className="channel-preview">
+                      {row?.preview ? (
+                        <>
+                          <span className="channel-preview-sender">
+                            {row.preview.sender}:
+                          </span>{" "}
+                          {row.preview.text}
+                        </>
+                      ) : (
+                        "No messages yet"
+                      )}
+                    </small>
+                  </span>
+                  {unreadCount > 0 ? (
+                    <b>
+                      <span className="sr-only">{unreadCount} unread</span>
+                      <span aria-hidden="true">{unreadCount}</span>
+                    </b>
+                  ) : null}
+                </button>
+              );
+            })}
+          </nav>
+          {employeeRecord}
+          {canSignOut ? (
+            <form action="/api/auth/sign-out" method="post">
+              <button className="classic-button sign-out-button" type="submit">
+                Sign out
               </button>
-            );
-          })}
-        </nav>
-        {employeeRecord}
-        {canSignOut ? (
-          <form action="/api/auth/sign-out" method="post">
-            <button className="classic-button sign-out-button" type="submit">
-              Sign out
-            </button>
-          </form>
-        ) : null}
-      </aside>
-      <section className="conversation-panel">{children}</section>
-    </div>
+            </form>
+          ) : null}
+        </aside>
+        <section className="conversation-panel">
+          <button
+            aria-label="Open Office Channel directory"
+            className="mobile-directory-trigger"
+            onClick={onOpenMobileNavigation}
+            ref={mobileDirectoryTrigger}
+            type="button"
+          >
+            ‹ Office Channels
+          </button>
+          {children}
+        </section>
+      </div>
+      <footer className="office-taskbar">
+        <button
+          aria-label={`Focus Office Channel directory, ${totalUnread} unread`}
+          onClick={() => directoryButtons.current.get(activeChannelId)?.focus()}
+          type="button"
+        >
+          <span aria-hidden="true">▣</span>
+          Portal Messenger — {totalUnread} unread
+        </button>
+        <output aria-live="polite">{inboxStatusCopy(inboxStatus)}</output>
+      </footer>
+    </>
   );
 }
 
 function LiveOfficeChannel({
-  active,
+  visible,
   channel: officeChannel,
   identityId,
   displayName,
-  onUnread,
+  onInboxRead,
 }: {
-  active: boolean;
+  visible: boolean;
   channel: OfficeChannel;
   identityId: string;
   displayName: string;
-  onUnread(channelId: string, count: number): void;
+  onInboxRead(channelId: string): void;
 }) {
   const channel = useChannel<{ text: string }>({
     channelId: officeChannel.id,
     history: 50,
-    readOn: active ? "visible" : "manual",
+    readOn: "manual",
   });
-
-  useEffect(() => {
-    onUnread(officeChannel.id, channel.unread);
-  }, [channel.unread, officeChannel.id, onUnread]);
+  const markVisibleContentRead = useCallback(() => {
+    channel.markAsRead();
+    onInboxRead(officeChannel.id);
+  }, [channel.markAsRead, officeChannel.id, onInboxRead]);
 
   return (
     <ChatSurface
-      active={active}
       channel={officeChannel}
       displayName={displayName}
       hasPrevious={channel.hasPrevious}
@@ -542,10 +849,12 @@ function LiveOfficeChannel({
       loadPrevious={channel.loadPrevious}
       messages={channel.messages}
       onRetryConnection={() => window.location.reload()}
+      onContentVisible={markVisibleContentRead}
       onSend={async (text) => {
         await channel.send({ content: validateChatDraft(text) });
       }}
       status={channel.status}
+      visible={visible}
     />
   );
 }
@@ -561,82 +870,117 @@ function OfficeEventAttentionGuard({ channelId }: { channelId: string }) {
   return null;
 }
 
-function LivePortalOffice(props: Omit<LivePortalOfficeProps, "mode">) {
+function LivePortalWorkspace(props: Omit<LivePortalOfficeProps, "mode">) {
   const {
     channels,
     identityId,
     displayName,
     employeeRecord,
-    eventChannelId,
     jobTitle,
     isOperator,
     canSignOut,
-    publishableKey,
   } = props;
   const [activeChannelId, setActiveChannelId] = useState(channels[0]?.id ?? "");
-  const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
+  const navigation = useResponsiveOfficeNavigation();
+  const inbox = useInbox();
+  const inboxRows = useMemo(
+    () =>
+      reconcileOfficeInbox({
+        channels,
+        entries: inbox.channels,
+        identityId,
+        displayName,
+      }),
+    [channels, displayName, identityId, inbox.channels],
+  );
+  const markInboxRead = useCallback(
+    (channelId: string) => {
+      const entry = inbox.channels.get(channelId);
+      if (entry && entry.unread > 0) {
+        entry.markAsRead();
+      }
+    },
+    [inbox.channels],
+  );
+  const selectChannel = useCallback(
+    (channelId: string) => {
+      setActiveChannelId(channelId);
+      navigation.showConversation();
+    },
+    [navigation.showConversation],
+  );
+
+  return (
+    <OfficeWorkspace
+      activeChannelId={activeChannelId}
+      canSignOut={canSignOut}
+      channels={channels}
+      displayName={displayName}
+      employeeRecord={employeeRecord}
+      inboxRows={inboxRows}
+      inboxStatus={inbox.status}
+      isMobile={navigation.isMobile}
+      isOperator={isOperator}
+      jobTitle={jobTitle}
+      mobileNavigationOpen={navigation.mobileNavigationOpen}
+      onOpenMobileNavigation={navigation.openMobileNavigation}
+      onSelectChannel={selectChannel}
+    >
+      {channels.map((channel) => (
+        <LiveOfficeChannel
+          channel={channel}
+          displayName={displayName}
+          identityId={identityId}
+          key={channel.id}
+          onInboxRead={markInboxRead}
+          visible={
+            navigation.conversationVisible && channel.id === activeChannelId
+          }
+        />
+      ))}
+    </OfficeWorkspace>
+  );
+}
+
+function LivePortalOffice(props: Omit<LivePortalOfficeProps, "mode">) {
   const [portal] = useState(
     () =>
       new Portal({
-        apiKey: publishableKey,
+        apiKey: props.publishableKey,
         token: createPortalTokenSource(),
       }),
   );
-  const updateUnread = useCallback((channelId: string, count: number) => {
-    setUnreadCounts((current) => {
-      if (current[channelId] === count) {
-        return current;
-      }
-      return { ...current, [channelId]: count };
-    });
-  }, []);
 
   return (
     <PortalProvider client={portal}>
-      <OfficeEventAttentionGuard channelId={eventChannelId} />
-      <OfficeWorkspace
-        activeChannelId={activeChannelId}
-        canSignOut={canSignOut}
-        channels={channels}
-        displayName={displayName}
-        employeeRecord={employeeRecord}
-        isOperator={isOperator}
-        jobTitle={jobTitle}
-        onSelectChannel={setActiveChannelId}
-        unreadCounts={unreadCounts}
-      >
-        {channels.map((channel) => (
-          <LiveOfficeChannel
-            active={channel.id === activeChannelId}
-            channel={channel}
-            displayName={displayName}
-            identityId={identityId}
-            key={channel.id}
-            onUnread={updateUnread}
-          />
-        ))}
-      </OfficeWorkspace>
+      <OfficeEventAttentionGuard channelId={props.eventChannelId} />
+      <LivePortalWorkspace {...props} />
     </PortalProvider>
   );
 }
 
 function MockOfficeChannel({
-  active,
+  visible,
   channel,
   identityId,
   displayName,
+  latestActivityAt,
+  onContentVisible,
 }: {
-  active: boolean;
+  visible: boolean;
   channel: OfficeChannel;
   identityId: string;
   displayName: string;
+  latestActivityAt: number;
+  onContentVisible(channelId: string): void;
 }) {
   const [messages, setMessages] = useState<unknown[]>([]);
   const [status, setStatus] = useState<ChatConnectionStatus>("connecting");
   const [hasPrevious, setHasPrevious] = useState(false);
   const [isLoadingPrevious, setIsLoadingPrevious] = useState(false);
+  const [readWhenVisible, setReadWhenVisible] = useState(false);
 
-  const loadMockHistory = useCallback(async () => {
+  const loadMockHistory = useCallback(async (): Promise<boolean> => {
     setStatus("connecting");
     try {
       await createPortalTokenSource()();
@@ -644,16 +988,32 @@ function MockOfficeChannel({
       setMessages(historyPage.messages);
       setHasPrevious(historyPage.hasPrevious);
       setStatus("ready");
+      return true;
     } catch {
       setMessages([]);
       setHasPrevious(false);
       setStatus("reconnecting");
+      return false;
     }
   }, [channel.slug]);
 
   useEffect(() => {
-    void loadMockHistory();
-  }, [loadMockHistory]);
+    if (!visible) {
+      setReadWhenVisible(false);
+      return;
+    }
+    let current = true;
+    const expectedActivityAt = latestActivityAt;
+    setReadWhenVisible(false);
+    void loadMockHistory().then((loaded) => {
+      if (current && loaded && expectedActivityAt === latestActivityAt) {
+        setReadWhenVisible(true);
+      }
+    });
+    return () => {
+      current = false;
+    };
+  }, [latestActivityAt, loadMockHistory, visible]);
 
   async function loadPrevious(): Promise<void> {
     const before = firstMessageId(messages);
@@ -715,7 +1075,6 @@ function MockOfficeChannel({
 
   return (
     <ChatSurface
-      active={active}
       channel={channel}
       displayName={displayName}
       hasPrevious={hasPrevious}
@@ -723,9 +1082,15 @@ function MockOfficeChannel({
       isLoadingPrevious={isLoadingPrevious}
       loadPrevious={loadPrevious}
       messages={messages}
-      onRetryConnection={() => void loadMockHistory()}
+      onContentVisible={() => onContentVisible(channel.id)}
+      onRetryConnection={() => {
+        setReadWhenVisible(false);
+        void loadMockHistory().then(setReadWhenVisible);
+      }}
       onSend={sendMessage}
+      readWhenVisible={readWhenVisible}
       status={status}
+      visible={visible}
     />
   );
 }
@@ -741,6 +1106,25 @@ function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
     canSignOut,
   } = props;
   const [activeChannelId, setActiveChannelId] = useState(channels[0]?.id ?? "");
+  const navigation = useResponsiveOfficeNavigation();
+  const inbox = useMockOfficeInbox();
+  const inboxRows = useMemo(
+    () =>
+      reconcileOfficeInbox({
+        channels,
+        entries: inbox.entries,
+        identityId,
+        displayName,
+      }),
+    [channels, displayName, identityId, inbox.entries],
+  );
+  const selectChannel = useCallback(
+    (channelId: string) => {
+      setActiveChannelId(channelId);
+      navigation.showConversation();
+    },
+    [navigation.showConversation],
+  );
 
   return (
     <OfficeWorkspace
@@ -749,18 +1133,29 @@ function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
       channels={channels}
       displayName={displayName}
       employeeRecord={employeeRecord}
+      inboxRows={inboxRows}
+      inboxStatus={inbox.status}
+      isMobile={navigation.isMobile}
       isOperator={isOperator}
       jobTitle={jobTitle}
-      onSelectChannel={setActiveChannelId}
-      unreadCounts={{}}
+      mobileNavigationOpen={navigation.mobileNavigationOpen}
+      onOpenMobileNavigation={navigation.openMobileNavigation}
+      onSelectChannel={selectChannel}
     >
       {channels.map((channel) => (
         <MockOfficeChannel
-          active={channel.id === activeChannelId}
           channel={channel}
           displayName={displayName}
           identityId={identityId}
           key={channel.id}
+          latestActivityAt={
+            inboxRows.find(({ channelId }) => channelId === channel.id)?.preview
+              ?.at ?? 0
+          }
+          onContentVisible={(channelId) => void inbox.markAsRead(channelId)}
+          visible={
+            navigation.conversationVisible && channel.id === activeChannelId
+          }
         />
       ))}
     </OfficeWorkspace>

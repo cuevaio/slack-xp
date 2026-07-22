@@ -426,6 +426,103 @@ test("the complete Office Channel directory switches without losing per-channel 
   await expect(page.getByLabel("Message # All Hands")).toBeEnabled();
 });
 
+test("Portal inbox attention reconciles across New Hires and visible desktop/mobile navigation", async ({
+  browser,
+  page,
+}) => {
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+  await expect(page.getByText("Inbox current").first()).toBeVisible();
+
+  const colleagueContext = await browser.newContext();
+  const colleague = await colleagueContext.newPage();
+  await colleague.goto("/office");
+  await colleague.getByRole("button", { name: "Sign in as New Hire" }).click();
+  await colleague.getByRole("button", { name: "Save Employee Record" }).click();
+  await colleague.getByRole("checkbox").check();
+  await colleague.getByRole("button", { name: "Accept and Continue" }).click();
+  await colleague.getByRole("button", { name: "CLOCK IN" }).click();
+
+  const readerDirectory = page.getByRole("navigation", {
+    name: "Office Channel directory",
+  });
+  const colleagueDirectory = colleague.getByRole("navigation", {
+    name: "Office Channel directory",
+  });
+  await colleagueDirectory
+    .getByRole("button", { name: /# watercooler/ })
+    .click();
+  await colleague
+    .getByLabel("Message # Watercooler")
+    .fill("The coffee machine has requested legal representation.");
+  await colleague.getByRole("button", { name: "Send" }).click();
+
+  const watercoolerRow = readerDirectory.getByRole("button", {
+    name: /# watercooler/,
+  });
+  await expect(watercoolerRow).toContainText(
+    "New Hire: The coffee machine has requested legal representation.",
+  );
+  await expect(watercoolerRow).toHaveAccessibleName(/1 unread/);
+  await expect(
+    page.getByRole("button", {
+      name: "Focus Office Channel directory, 1 unread",
+    }),
+  ).toBeVisible();
+
+  await watercoolerRow.click();
+  await expect(
+    page.getByText("The coffee machine has requested legal representation.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(watercoolerRow).not.toHaveAccessibleName(/1 unread/);
+
+  await page.request.post("/api/auth/mock-portal", {
+    form: { intent: "offline" },
+  });
+  await expect(page.getByText("Reconnecting inbox…").first()).toBeVisible();
+  await page.request.post("/api/auth/mock-portal", {
+    form: { intent: "online" },
+  });
+
+  await colleagueDirectory.getByRole("button", { name: /# urgent/ }).click();
+  await colleague
+    .getByLabel("Message # Urgent")
+    .fill("The fax machine is now considered mission critical.");
+  await colleague.getByRole("button", { name: "Send" }).click();
+
+  const urgentRow = readerDirectory.getByRole("button", {
+    name: /# urgent/,
+  });
+  await expect(urgentRow).toContainText(
+    "New Hire: The fax machine is now considered mission critical.",
+  );
+  await expect(urgentRow).toHaveAccessibleName(/1 unread/);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(readerDirectory).toBeVisible();
+  await expect(page.getByLabel("Message # Watercooler")).not.toBeVisible();
+  await urgentRow.click();
+  const directoryTrigger = page.getByRole("button", {
+    name: "Open Office Channel directory",
+  });
+  await expect(directoryTrigger).toBeFocused();
+  await expect(
+    page.getByText("The fax machine is now considered mission critical.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(urgentRow).not.toHaveAccessibleName(/1 unread/);
+
+  await directoryTrigger.click();
+  await expect(readerDirectory).toBeVisible();
+  await expect(urgentRow).toBeFocused();
+  await colleagueContext.close();
+});
+
 test("history paginates backward without duplicates and displays canonical time locally", async ({
   page,
 }) => {
@@ -519,7 +616,7 @@ test("completed mock office remains usable at a mobile viewport", async ({
     page.getByText("Shared Public Office", { exact: true }),
   ).toBeVisible();
   await expect(page.getByRole("navigation")).toBeVisible();
-  await expect(page.getByLabel("Message # General")).toBeVisible();
+  await expect(page.getByLabel("Message # General")).not.toBeVisible();
   await page
     .getByRole("navigation", { name: "Office Channel directory" })
     .getByRole("button", { name: /# all-hands/ })

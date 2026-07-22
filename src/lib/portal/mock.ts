@@ -27,10 +27,25 @@ export type MockPortalAdapter = PortalAuthority & {
     senderId: string;
     content: unknown;
   }): Promise<PortalChatMessage>;
+  inbox(
+    userId: string,
+    channelIds: readonly string[],
+  ): readonly MockPortalInboxEntry[];
+  markInboxRead(userId: string, channelId: string): void;
   membershipCount(channelId: string): number;
   failNextSend(): void;
   setOnline(online: boolean): void;
   reset(): void;
+};
+
+export type MockPortalInboxEntry = {
+  channelId: string;
+  unread: number;
+  latest: {
+    text: string;
+    senderId: string;
+    at: number;
+  } | null;
 };
 
 export function createMockPortalAdapter({
@@ -43,6 +58,7 @@ export function createMockPortalAdapter({
     Map<string, PortalMembershipInput["claims"]>
   >();
   const messages = new Map<string, PortalChatMessage[]>();
+  const inboxWatermarks = new Map<string, Map<string, number>>();
   let online = true;
   let rejectNextSend = false;
   let tokenSequence = 0;
@@ -58,8 +74,14 @@ export function createMockPortalAdapter({
     async ensureMembership({ channelId, userId, claims }) {
       requireOnline();
       const channelMembers = members.get(channelId) ?? new Map();
+      const isNewMember = !channelMembers.has(userId);
       channelMembers.set(userId, claims);
       members.set(channelId, channelMembers);
+      if (isNewMember) {
+        const userWatermarks = inboxWatermarks.get(userId) ?? new Map();
+        userWatermarks.set(channelId, messages.get(channelId)?.length ?? 0);
+        inboxWatermarks.set(userId, userWatermarks);
+      }
     },
 
     async mintToken({ channelIds, userId }: PortalTokenInput) {
@@ -126,7 +148,40 @@ export function createMockPortalAdapter({
       const channelMessages = messages.get(channelId) ?? [];
       channelMessages.push(message);
       messages.set(channelId, channelMessages);
+      const senderWatermarks = inboxWatermarks.get(senderId) ?? new Map();
+      senderWatermarks.set(channelId, channelMessages.length);
+      inboxWatermarks.set(senderId, senderWatermarks);
       return message;
+    },
+
+    inbox(userId, channelIds) {
+      requireOnline();
+      const userWatermarks = inboxWatermarks.get(userId) ?? new Map();
+      return channelIds.map((channelId) => {
+        const channelMessages = messages.get(channelId) ?? [];
+        const latest = channelMessages.at(-1);
+        return {
+          channelId,
+          unread: Math.max(
+            0,
+            channelMessages.length - (userWatermarks.get(channelId) ?? 0),
+          ),
+          latest: latest
+            ? {
+                text: latest.content.text,
+                senderId: latest.sender.id,
+                at: latest.timestamp,
+              }
+            : null,
+        };
+      });
+    },
+
+    markInboxRead(userId, channelId) {
+      requireOnline();
+      const userWatermarks = inboxWatermarks.get(userId) ?? new Map();
+      userWatermarks.set(channelId, messages.get(channelId)?.length ?? 0);
+      inboxWatermarks.set(userId, userWatermarks);
     },
 
     membershipCount(channelId) {
@@ -144,6 +199,7 @@ export function createMockPortalAdapter({
     reset() {
       members.clear();
       messages.clear();
+      inboxWatermarks.clear();
       online = true;
       rejectNextSend = false;
       tokenSequence = 0;

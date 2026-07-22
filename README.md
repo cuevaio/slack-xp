@@ -194,6 +194,25 @@ text escaping and linkifies only HTTP(S) URLs with a new browsing context and
 `noopener noreferrer`. HTML, rich Markdown, uploads, embeds, media, and URL
 unfurling are not supported.
 
+The authenticated client also mounts Portal's inbox subscription for the whole
+Office Day. The fixed directory order remains product-curated while each row's
+unread count and latest conversation preview are reconciled from Portal inbox
+entries after initial connection and reconnect. Preview text passes the same
+plain-text runtime validation as chat, and sender IDs resolve only to the
+current New Hire's known profile or the non-identifying `New Hire` fallback.
+The desktop directory and taskbar expose the same row projection. On mobile,
+the directory becomes a full-screen navigation surface and returns focus to the
+conversation navigation control after selection.
+
+Portal's channel read position and its independent inbox-row position advance
+only after the selected conversation has loaded and its surface is actually
+visible in the active browser tab. Prefetching every Office Channel, selecting
+one behind the mobile directory, or receiving activity elsewhere does not clear
+attention. This state is never copied into Neon or treated as browser-local
+authority. Guarded mock mode implements the same contract with server-owned
+per-fixture watermarks and snapshot polling solely for deterministic browser
+tests; live mode has no polling or application fallback for Portal unread state.
+
 Portal connection and publish failures remain visible as offline/retry states.
 Live mode never substitutes mock or browser-local messages. Mock chat uses a
 separate authenticated test-only route and in-memory Portal adapter; that route
@@ -362,5 +381,9 @@ bunx playwright install chromium
 - `/api/office/portal/mock-chat` is a guarded non-production adapter route used
   only by the credential-free UI and browser tests. Live chat goes directly
   through the published Portal SDK and hosted APIs.
+- `/api/office/portal/mock-inbox` is the guarded deterministic inbox seam. It
+  exposes only server-owned mock conversation rows and advances their mock
+  watermark on visible-read; live inbox state comes directly from Portal's
+  published React hook.
 - Browser-facing configuration uses only publishable `NEXT_PUBLIC_*` keys.
   Secret values remain server-only.

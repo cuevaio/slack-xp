@@ -1,0 +1,128 @@
+import { createServiceAdapters } from "@/lib/adapters";
+import { getMockPortalAdapter } from "@/lib/adapters/mock";
+import { authenticateOfficeRequest } from "@/lib/auth/server";
+import type { AuthenticatedNewHire } from "@/lib/auth/types";
+import { readAppConfiguration } from "@/lib/config";
+import { MockPortalUnavailableError } from "@/lib/portal/mock";
+import {
+  issueOfficePortalSession,
+  type OfficePortalSession,
+  PortalEligibilityError,
+} from "@/lib/portal/session";
+
+export const runtime = "nodejs";
+
+type MockInboxContext =
+  | { errorResponse: Response }
+  | { identity: AuthenticatedNewHire; session: OfficePortalSession };
+
+function portalUnavailableResponse(): Response {
+  return Response.json({ error: "portal_unavailable" }, { status: 503 });
+}
+
+async function getMockInboxContext(): Promise<MockInboxContext> {
+  const configuration = readAppConfiguration();
+  if (
+    configuration.status !== "ready" ||
+    configuration.serviceMode !== "mock" ||
+    configuration.environment === "production"
+  ) {
+    return {
+      errorResponse: Response.json({ error: "not_found" }, { status: 404 }),
+    };
+  }
+
+  const identity = await authenticateOfficeRequest(configuration);
+  if (!identity) {
+    return {
+      errorResponse: Response.json(
+        { error: "authentication_required" },
+        { status: 401 },
+      ),
+    };
+  }
+
+  const adapters = createServiceAdapters(configuration);
+  try {
+    return {
+      identity,
+      session: await issueOfficePortalSession({
+        identity,
+        onboarding: await adapters.neon.getNewHire(identity.id),
+        portal: adapters.portal,
+      }),
+    };
+  } catch (error) {
+    if (error instanceof PortalEligibilityError) {
+      return {
+        errorResponse: Response.json(
+          { error: "new_hire_ineligible" },
+          { status: 403 },
+        ),
+      };
+    }
+    if (error instanceof MockPortalUnavailableError) {
+      return { errorResponse: portalUnavailableResponse() };
+    }
+    throw error;
+  }
+}
+
+export async function GET() {
+  const context = await getMockInboxContext();
+  if ("errorResponse" in context) {
+    return context.errorResponse;
+  }
+
+  try {
+    const channels = getMockPortalAdapter()
+      .inbox(context.identity.id, context.session.channelIds)
+      .map((entry) => ({
+        id: entry.channelId,
+        unread: entry.unread,
+        latest: entry.latest
+          ? {
+              text: entry.latest.text,
+              sender: { id: entry.latest.senderId },
+              at: entry.latest.at,
+            }
+          : undefined,
+      }));
+    return Response.json({ channels });
+  } catch (error) {
+    if (error instanceof MockPortalUnavailableError) {
+      return portalUnavailableResponse();
+    }
+    throw error;
+  }
+}
+
+export async function POST(request: Request) {
+  const context = await getMockInboxContext();
+  if ("errorResponse" in context) {
+    return context.errorResponse;
+  }
+
+  const body: unknown = await request.json().catch(() => null);
+  const channelId =
+    typeof body === "object" &&
+    body !== null &&
+    "channelId" in body &&
+    typeof body.channelId === "string" &&
+    context.session.channelIds.includes(body.channelId)
+      ? body.channelId
+      : null;
+  if (!channelId) {
+    return Response.json({ error: "invalid_channel" }, { status: 422 });
+  }
+
+  try {
+    getMockPortalAdapter().markInboxRead(context.identity.id, channelId);
+    return new Response(null, { status: 204 });
+  } catch (error) {
+    if (error instanceof MockPortalUnavailableError) {
+      return portalUnavailableResponse();
+    }
+    throw error;
+  }
+}

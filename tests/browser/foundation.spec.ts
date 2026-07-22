@@ -278,35 +278,18 @@ test("general chat confirms, reconnects, validates text, and recovers from Porta
       .getByText("Connected — live updates available")
       .filter({ visible: true }),
   ).toBeVisible();
-  await expect(page.getByText("Please retry this memo")).toBeVisible();
+  await expect(
+    page.getByText("Please retry this memo", { exact: true }),
+  ).toBeVisible();
 });
 
 test("live presence resolves New Hire Profiles and all-hands stays aggregate", async ({
   page,
 }) => {
-  let releaseProfileRequest: () => void = () => {};
-  let observeProfileRequest: () => void = () => {};
-  const profileRequestSeen = new Promise<void>((resolve) => {
-    observeProfileRequest = resolve;
-  });
-  const profileRequestGate = new Promise<void>((resolve) => {
-    releaseProfileRequest = resolve;
-  });
-  await page.route("**/api/office/profiles", async (route) => {
-    observeProfileRequest();
-    await profileRequestGate;
-    await route.continue();
-  });
   await page.goto("/office");
   await page
     .getByRole("button", { name: "Sign in as Returning New Hire" })
     .click();
-  await profileRequestSeen;
-  await expect(
-    page.getByText("Resolving 1 New Hire Profile…").filter({ visible: true }),
-  ).toBeVisible();
-
-  releaseProfileRequest();
   const generalRoster = page.getByRole("list", {
     name: "General current New Hires",
   });

@@ -16,10 +16,8 @@ export async function GET() {
     return Response.json({ error: "authentication_required" }, { status: 401 });
   }
 
-  await repairProfileProjection(
-    createServiceAdapters(configuration).neon,
-    identity,
-  );
+  const adapters = createServiceAdapters(configuration);
+  await repairProfileProjection(adapters.neon, identity, adapters.portal);
 
   return Response.json({
     id: identity.id,

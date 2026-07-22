@@ -7,6 +7,7 @@ import {
   issueOfficePortalSession,
   PortalEligibilityError,
 } from "@/lib/portal/session";
+import { flushProfileInvalidations } from "@/lib/profiles/propagation";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,7 @@ export async function POST() {
 
   const adapters = createServiceAdapters(configuration);
   try {
+    await flushProfileInvalidations(adapters.neon, adapters.portal);
     const session = await issueOfficePortalSession({
       identity,
       onboarding: await adapters.neon.getNewHire(identity.id),

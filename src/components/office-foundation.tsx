@@ -49,6 +49,7 @@ export async function OfficeFoundation({
           canSignOut={identity.authentication === "mock"}
           channels={channels}
           displayName={onboarding.displayName}
+          imageUrl={onboarding.imageUrl}
           employeeRecord={<EmployeeRecordDialog onboarding={onboarding} />}
           eventChannelId={eventChannelId}
           identityId={identity.id}

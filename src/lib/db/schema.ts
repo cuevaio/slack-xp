@@ -1,5 +1,12 @@
 import { sql } from "drizzle-orm";
-import { bigint, check, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import {
+  bigint,
+  check,
+  index,
+  pgTable,
+  text,
+  timestamp,
+} from "drizzle-orm/pg-core";
 
 export const clerkProfiles = pgTable(
   "clerk_profiles",
@@ -64,5 +71,31 @@ export const newHireOnboarding = pgTable(
       "new_hire_onboarding_conduct_order_check",
       sql`${table.conductAcceptedAt} is null or ${table.profileConfirmedAt} is not null`,
     ),
+  ],
+);
+
+export const profileInvalidationOutbox = pgTable(
+  "profile_invalidation_outbox",
+  {
+    eventKey: text("event_key").primaryKey(),
+    profileId: text("profile_id").notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "profile_invalidation_outbox_event_key_check",
+      sql`char_length(${table.eventKey}) between 1 and 255`,
+    ),
+    check(
+      "profile_invalidation_outbox_profile_id_check",
+      sql`char_length(${table.profileId}) between 1 and 255`,
+    ),
+    index("profile_invalidation_outbox_pending_idx")
+      .on(table.createdAt)
+      .where(sql`${table.publishedAt} is null`),
   ],
 );

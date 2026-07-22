@@ -5,6 +5,9 @@ import type {
 } from "@portalsdk/core";
 import {
   isOfficeEventChannelId,
+  OFFICE_EVENT_MESSAGE_TYPE,
+  OFFICE_EVENT_SENDERS,
+  officeEventChannelId,
   parseOfficeEventMessage,
   type ReactionOfficeEvent,
 } from "@/lib/office-events/contract";
@@ -17,6 +20,10 @@ import type {
   PortalOfficeEventMessage,
   PortalTokenInput,
 } from "@/lib/portal/types";
+import type {
+  ProfileInvalidationEvent,
+  ProfileInvalidationPublisher,
+} from "@/lib/profiles/types";
 
 const TYPING_THROTTLE_MS = 3_000;
 const TYPING_EXPIRY_MS = 5_000;
@@ -58,50 +65,52 @@ export class MockPortalUnavailableError extends Error {
   }
 }
 
-export type MockPortalAdapter = PortalAuthority & {
-  history(channelId: string): Promise<readonly PortalChatMessage[]>;
-  historyPage(
-    channelId: string,
-    options: { before?: string; limit: number },
-  ): Promise<{
-    messages: readonly PortalChatMessage[];
-    hasPrevious: boolean;
-  }>;
-  sendMessage(input: {
-    channelId: string;
-    senderId: string;
-    content: unknown;
-  }): Promise<PortalChatMessage>;
-  inbox(
-    userId: string,
-    channelIds: readonly string[],
-  ): readonly MockPortalInboxEntry[];
-  markInboxRead(userId: string, channelId: string): void;
-  officeEventHistory(
-    channelId: string,
-  ): Promise<readonly PortalOfficeEventMessage[]>;
-  sendOfficeEvent(input: {
-    channelId: string;
-    senderId: string;
-    content: ReactionOfficeEvent;
-  }): Promise<PortalOfficeEventMessage>;
-  subscribeOfficeEvents(
-    channelId: string,
-    userId: string,
-    listener: (message: PortalOfficeEventMessage) => void,
-  ): () => void;
-  unreadCount(channelId: string, userId: string): number;
-  membershipCount(channelId: string): number;
-  connect(input: {
-    clientId: string;
-    channelId: string;
-    userId: string;
-    mode: MockChannelMode;
-  }): MockPortalConnection;
-  failNextSend(): void;
-  setOnline(online: boolean): void;
-  reset(): void;
-};
+export type MockPortalAdapter = PortalAuthority &
+  ProfileInvalidationPublisher & {
+    history(channelId: string): Promise<readonly PortalChatMessage[]>;
+    historyPage(
+      channelId: string,
+      options: { before?: string; limit: number },
+    ): Promise<{
+      messages: readonly PortalChatMessage[];
+      hasPrevious: boolean;
+    }>;
+    sendMessage(input: {
+      channelId: string;
+      senderId: string;
+      content: unknown;
+    }): Promise<PortalChatMessage>;
+    inbox(
+      userId: string,
+      channelIds: readonly string[],
+    ): readonly MockPortalInboxEntry[];
+    markInboxRead(userId: string, channelId: string): void;
+    officeEventHistory(
+      channelId: string,
+    ): Promise<readonly PortalOfficeEventMessage[]>;
+    sendOfficeEvent(input: {
+      channelId: string;
+      senderId: string;
+      content: ReactionOfficeEvent;
+    }): Promise<PortalOfficeEventMessage>;
+    subscribeOfficeEvents(
+      channelId: string,
+      userId: string,
+      listener: (message: PortalOfficeEventMessage) => void,
+    ): () => void;
+    unreadCount(channelId: string, userId: string): number;
+    membershipCount(channelId: string): number;
+    connect(input: {
+      clientId: string;
+      channelId: string;
+      userId: string;
+      mode: MockChannelMode;
+    }): MockPortalConnection;
+    failNextSend(): void;
+    setOnline(online: boolean): void;
+    officeEvents(channelId: string): readonly unknown[];
+    reset(): void;
+  };
 
 export type MockPortalInboxEntry = {
   channelId: string;
@@ -127,7 +136,7 @@ export function createMockPortalAdapter({
   const recentPresence = new Map<string, MockPresenceEvent[]>();
   const typing = new Map<string, Map<string, MockTypingActivity>>();
   const inboxWatermarks = new Map<string, Map<string, number>>();
-  const officeEvents = new Map<string, PortalOfficeEventMessage[]>();
+  const officeEvents = new Map<string, unknown[]>();
   const officeEventListeners = new Map<
     string,
     Set<(message: PortalOfficeEventMessage) => void>
@@ -272,6 +281,26 @@ export function createMockPortalAdapter({
       };
     },
 
+    async publishProfileInvalidation(event: ProfileInvalidationEvent) {
+      requireOnline();
+      const channelId = officeEventChannelId(now());
+      const channelEvents = officeEvents.get(channelId) ?? [];
+      messageSequence += 1;
+      channelEvents.push({
+        id: `mock_office_event_${messageSequence}`,
+        channelId,
+        sender: { id: OFFICE_EVENT_SENDERS.profiles, anon: false },
+        timestamp: now().getTime(),
+        kind: "text",
+        type: OFFICE_EVENT_MESSAGE_TYPE,
+        ephemeral: false,
+        retracted: false,
+        status: "sent",
+        content: event,
+      });
+      officeEvents.set(channelId, channelEvents);
+    },
+
     async history(channelId) {
       requireOnline();
       return [...(messages.get(channelId) ?? [])];
@@ -360,7 +389,12 @@ export function createMockPortalAdapter({
 
     async officeEventHistory(channelId) {
       requireOnline();
-      return [...(officeEvents.get(channelId) ?? [])];
+      return (officeEvents.get(channelId) ?? []).flatMap((message) => {
+        const parsed = parseOfficeEventMessage(message, channelId);
+        return parsed?.event.type === "reaction.changed"
+          ? [message as PortalOfficeEventMessage]
+          : [];
+      });
     },
 
     async sendOfficeEvent({ channelId, senderId, content }) {
@@ -500,6 +534,10 @@ export function createMockPortalAdapter({
         }
       }
       online = nextOnline;
+    },
+
+    officeEvents(channelId) {
+      return [...(officeEvents.get(channelId) ?? [])];
     },
 
     reset() {

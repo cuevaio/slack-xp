@@ -33,6 +33,7 @@ export async function POST(request: Request) {
           configuration,
           identity,
           repository: adapters.neon,
+          publisher: adapters.portal,
         });
       }
       case "accept-conduct":

@@ -6,7 +6,10 @@ import {
   type ReactionOfficeEvent,
 } from "@/lib/office-events/contract";
 import { createMockPortalAdapter } from "@/lib/portal/mock";
-import { createPortalControlPlane } from "@/lib/portal/server";
+import {
+  createPortalControlPlane,
+  createPortalProfileInvalidationPublisher,
+} from "@/lib/portal/server";
 import {
   issueOfficePortalSession,
   PortalEligibilityError,
@@ -26,6 +29,62 @@ const completedNewHire = {
 };
 
 describe("Portal control-plane boundary", () => {
+  test("publishes profile invalidations as the reserved sender without profile values", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const fetcher: typeof fetch = Object.assign(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        requests.push({ url, init });
+        if (url.endsWith("/members")) return Response.json({ added: 1 });
+        if (url.endsWith("/tokens")) {
+          return Response.json({
+            token: "profile-publisher-token",
+            expiresAt: "2026-07-22T12:15:00.000Z",
+          });
+        }
+        return Response.json({
+          id: "profile-event-message",
+          timestamp: 1_753_184_800_000,
+        });
+      },
+      { preconnect: fetch.preconnect },
+    );
+    const publisher = createPortalProfileInvalidationPublisher({
+      secret: "sk_portal_test",
+      apiKey: "pk_portal_test",
+      fetcher,
+      now: () => new Date("2026-07-22T12:00:00.000Z"),
+    });
+    const event = {
+      version: 1 as const,
+      type: "profile.invalidated" as const,
+      eventKey:
+        "office-event:v1:profile.invalidated:profile_20_abcdef1234567890",
+      occurredAt: "2026-07-22T11:59:00.000Z",
+      profileId: "user_profile_test",
+    };
+
+    await publisher.publishProfileInvalidation(event);
+
+    expect(requests.map(({ url }) => url)).toEqual([
+      "https://api.useportal.co/v1/channels/2026-07-22%3Aoffice-events/members",
+      "https://api.useportal.co/v1/tokens",
+      "https://api.useportal.co/v1/channels/2026-07-22%3Aoffice-events/messages",
+    ]);
+    expect(JSON.parse(String(requests[0]?.init?.body))).toMatchObject({
+      userId: "office-events:profiles",
+    });
+    expect(JSON.parse(String(requests[1]?.init?.body))).toMatchObject({
+      userId: "office-events:profiles",
+      channels: { "2026-07-22:office-events": ["connect", "publish"] },
+    });
+    expect(JSON.parse(String(requests[2]?.init?.body))).toEqual({
+      type: "office.event",
+      content: event,
+    });
+    expect(String(requests[2]?.init?.body)).not.toMatch(/Pat|image|firstName/i);
+  });
+
   test("adds every daily membership before minting a 15-minute office-scoped token", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const fetcher: typeof fetch = Object.assign(

@@ -1,0 +1,247 @@
+{
+  "id": "865ab5cd-b02c-4a38-8913-59598b55aa57",
+  "prevId": "f471e4e6-11c0-416d-a900-3cefe984452e",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.clerk_profiles": {
+      "name": "clerk_profiles",
+      "schema": "",
+      "columns": {
+        "clerk_user_id": {
+          "name": "clerk_user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "first_name": {
+          "name": "first_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_name": {
+          "name": "last_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "image_url": {
+          "name": "image_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_version": {
+          "name": "source_version",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "clerk_profiles_clerk_user_id_check": {
+          "name": "clerk_profiles_clerk_user_id_check",
+          "value": "char_length(\"clerk_profiles\".\"clerk_user_id\") between 1 and 255"
+        },
+        "clerk_profiles_active_or_tombstoned_check": {
+          "name": "clerk_profiles_active_or_tombstoned_check",
+          "value": "(\"clerk_profiles\".\"deleted_at\" is null and \"clerk_profiles\".\"first_name\" is not null and \"clerk_profiles\".\"last_name\" is not null and \"clerk_profiles\".\"display_name\" is not null and char_length(\"clerk_profiles\".\"display_name\") between 1 and 80) or (\"clerk_profiles\".\"deleted_at\" is not null and \"clerk_profiles\".\"first_name\" is null and \"clerk_profiles\".\"last_name\" is null and \"clerk_profiles\".\"display_name\" is null and \"clerk_profiles\".\"image_url\" is null)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.new_hire_onboarding": {
+      "name": "new_hire_onboarding",
+      "schema": "",
+      "columns": {
+        "clerk_user_id": {
+          "name": "clerk_user_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "job_title": {
+          "name": "job_title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "profile_confirmed_at": {
+          "name": "profile_confirmed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "conduct_accepted_at": {
+          "name": "conduct_accepted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "new_hire_onboarding_clerk_user_id_clerk_profiles_clerk_user_id_fk": {
+          "name": "new_hire_onboarding_clerk_user_id_clerk_profiles_clerk_user_id_fk",
+          "tableFrom": "new_hire_onboarding",
+          "tableTo": "clerk_profiles",
+          "columnsFrom": ["clerk_user_id"],
+          "columnsTo": ["clerk_user_id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "new_hire_onboarding_job_title_check": {
+          "name": "new_hire_onboarding_job_title_check",
+          "value": "char_length(\"new_hire_onboarding\".\"job_title\") between 1 and 120"
+        },
+        "new_hire_onboarding_completion_check": {
+          "name": "new_hire_onboarding_completion_check",
+          "value": "\"new_hire_onboarding\".\"completed_at\" is null or (\"new_hire_onboarding\".\"profile_confirmed_at\" is not null and \"new_hire_onboarding\".\"conduct_accepted_at\" is not null)"
+        },
+        "new_hire_onboarding_conduct_order_check": {
+          "name": "new_hire_onboarding_conduct_order_check",
+          "value": "\"new_hire_onboarding\".\"conduct_accepted_at\" is null or \"new_hire_onboarding\".\"profile_confirmed_at\" is not null"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.profile_invalidation_outbox": {
+      "name": "profile_invalidation_outbox",
+      "schema": "",
+      "columns": {
+        "event_key": {
+          "name": "event_key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "profile_id": {
+          "name": "profile_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "occurred_at": {
+          "name": "occurred_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "profile_invalidation_outbox_pending_idx": {
+          "name": "profile_invalidation_outbox_pending_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"profile_invalidation_outbox\".\"published_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "profile_invalidation_outbox_event_key_check": {
+          "name": "profile_invalidation_outbox_event_key_check",
+          "value": "char_length(\"profile_invalidation_outbox\".\"event_key\") between 1 and 255"
+        },
+        "profile_invalidation_outbox_profile_id_check": {
+          "name": "profile_invalidation_outbox_profile_id_check",
+          "value": "char_length(\"profile_invalidation_outbox\".\"profile_id\") between 1 and 255"
+        }
+      },
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

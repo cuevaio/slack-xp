@@ -5,7 +5,16 @@ import vercelConfig from "../../vercel.json";
 
 describe("deployed Portal customer contract", () => {
   test("refuses anonymous access without content middleware", () => {
-    expect(portalConfig.channels?.["*"]).toEqual({ anonymous: false });
+    for (const channel of [
+      "general:*",
+      "watercooler:*",
+      "tech-support:*",
+      "urgent:*",
+      "office-events:*",
+      "hr-reports",
+    ]) {
+      expect(portalConfig.channels?.[channel]).toEqual({ anonymous: false });
+    }
     expect(portalConfig.channels?.["all-hands:*"]).toEqual({
       anonymous: false,
       mode: "broadcast",
@@ -35,6 +44,9 @@ describe("deployed Portal customer contract", () => {
     );
     expect(packageJson.scripts["portal:verify"]).toBe(
       "bun scripts/setup-check.ts",
+    );
+    expect(packageJson.scripts["portal:deploy"]).toBe(
+      "bun scripts/portal-deploy.ts",
     );
     expect(packageJson.scripts.build).not.toContain("migrate");
     expect(packageJson.scripts.start).not.toContain("migrate");

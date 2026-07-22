@@ -3,6 +3,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { SendHomeControl } from "@/components/send-home-control";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import {
   invalidateHRReportQueue,
   requestHRReportDismissal,
@@ -99,9 +102,13 @@ function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
     <li className="hr-review-item">
       <div className="hr-review-heading">
         <strong>{presentation.title}</strong>
-        <span className="hr-review-state" data-state={report.state}>
+        <Badge
+          className="hr-review-state"
+          data-state={report.state}
+          variant={report.state === "open" ? "warning" : "secondary"}
+        >
           {report.state}
-        </span>
+        </Badge>
       </div>
       <p>{presentation.categoryLabel}</p>
       <small>
@@ -117,20 +124,16 @@ function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
             <label htmlFor={privateNoteId}>
               Private Operator note (optional)
             </label>
-            <textarea
+            <Textarea
               id={privateNoteId}
               maxLength={HR_REPORT_PRIVATE_NOTE_MAX_LENGTH}
               onChange={(event) => setPrivateNote(event.currentTarget.value)}
               rows={3}
               value={privateNote}
             />
-            <button
-              className="classic-button"
-              disabled={dismissal.isPending}
-              type="submit"
-            >
+            <Button disabled={dismissal.isPending} type="submit">
               {dismissal.isPending ? "Dismissing…" : "Dismiss HR Report"}
-            </button>
+            </Button>
             {dismissal.isError ? (
               <p role="alert">
                 Dismissal failed. Operator access was rechecked.

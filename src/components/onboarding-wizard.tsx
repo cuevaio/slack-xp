@@ -6,6 +6,7 @@ import {
   EmployeeRecordEditor,
   type EmployeeRecordResult,
 } from "@/components/employee-record-editor";
+import { Button } from "@/components/ui/button";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 
 const stepNumber = {
@@ -146,9 +147,9 @@ function ConductStepForm({
       </label>
       <Assignment jobTitle={onboarding.jobTitle} />
       <WizardError message={error} />
-      <button className="classic-button" disabled={pending} type="submit">
+      <Button disabled={pending} type="submit">
         {pending ? "Recording..." : "Accept and Continue"}
-      </button>
+      </Button>
     </form>
   );
 }
@@ -169,9 +170,15 @@ function ClockInStepForm({
       </p>
       <Assignment jobTitle={onboarding.jobTitle} />
       <WizardError message={error} />
-      <button className="clock-in-button" disabled={pending} type="submit">
+      <Button
+        className="clock-in-button"
+        disabled={pending}
+        size="lg"
+        type="submit"
+        variant="primary"
+      >
         {pending ? "CLOCKING IN..." : "CLOCK IN"}
-      </button>
+      </Button>
     </form>
   );
 }

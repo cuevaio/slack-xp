@@ -8,6 +8,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 import type { ProfileConvergence } from "@/lib/profiles/edit";
 
@@ -313,15 +316,16 @@ export function EmployeeRecordEditor({
         </p>
       </div>
       <div className="profile-fields">
-        <label>
+        <Label htmlFor="employee-first-name">
           First name
-          <input
+          <Input
             aria-describedby={
               fieldErrors.firstName ? "employee-first-name-error" : undefined
             }
             aria-invalid={fieldErrors.firstName ? true : undefined}
             autoComplete="given-name"
             defaultValue={record.firstName}
+            id="employee-first-name"
             maxLength={80}
             name="firstName"
             ref={firstNameRef}
@@ -332,16 +336,17 @@ export function EmployeeRecordEditor({
               {fieldErrors.firstName}
             </span>
           ) : null}
-        </label>
-        <label>
+        </Label>
+        <Label htmlFor="employee-last-name">
           Last name
-          <input
+          <Input
             aria-describedby={
               fieldErrors.lastName ? "employee-last-name-error" : undefined
             }
             aria-invalid={fieldErrors.lastName ? true : undefined}
             autoComplete="family-name"
             defaultValue={record.lastName}
+            id="employee-last-name"
             maxLength={80}
             name="lastName"
             ref={lastNameRef}
@@ -351,15 +356,16 @@ export function EmployeeRecordEditor({
               {fieldErrors.lastName}
             </span>
           ) : null}
-        </label>
-        <label>
+        </Label>
+        <Label htmlFor="employee-image">
           Profile picture (optional, 2 MB maximum)
-          <input
+          <Input
             accept="image/png,image/jpeg,image/webp"
             aria-describedby={
               fieldErrors.image ? "employee-image-error" : undefined
             }
             aria-invalid={fieldErrors.image ? true : undefined}
+            id="employee-image"
             name="image"
             ref={imageRef}
             type="file"
@@ -369,21 +375,17 @@ export function EmployeeRecordEditor({
               {fieldErrors.image}
             </span>
           ) : null}
-        </label>
+        </Label>
       </div>
       {footer}
       <div className="employee-record-actions">
-        <button className="classic-button" disabled={busy} type="submit">
+        <Button disabled={busy} type="submit">
           {submitButtonLabel(state)}
-        </button>
+        </Button>
         {state === "awaiting" ? (
-          <button
-            className="classic-button"
-            onClick={() => void checkProjection(4)}
-            type="button"
-          >
+          <Button onClick={() => void checkProjection(4)} type="button">
             Check office update
-          </button>
+          </Button>
         ) : null}
       </div>
       {message ? (

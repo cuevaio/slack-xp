@@ -1,3 +1,4 @@
+import { buttonVariants } from "@/components/ui/button";
 import type { AppConfiguration } from "@/lib/config";
 
 type IncompleteConfiguration = Extract<
@@ -37,7 +38,7 @@ export function InstallationIncomplete({
                 </li>
               ))}
             </ul>
-            <a className="classic-button" href="/docs/setup">
+            <a className={buttonVariants()} href="/docs/setup">
               Open setup guide
             </a>
           </div>

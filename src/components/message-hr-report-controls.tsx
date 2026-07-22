@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { Button } from "@/components/ui/button";
 import {
   HR_REPORT_CATEGORIES,
   type HRReportCategory,
@@ -225,21 +226,12 @@ function HRReportControls<Category extends HRReportCategory>({
               </p>
             ) : null}
             <div className="hr-report-dialog-actions">
-              <button
-                className="classic-button"
-                disabled={submitting}
-                onClick={closeDialog}
-                type="button"
-              >
+              <Button disabled={submitting} onClick={closeDialog} type="button">
                 Cancel
-              </button>
-              <button
-                className="classic-button"
-                disabled={submitting}
-                type="submit"
-              >
+              </Button>
+              <Button disabled={submitting} type="submit" variant="primary">
                 {submitting ? "Submitting…" : "Submit private report"}
-              </button>
+              </Button>
             </div>
           </form>
         </div>

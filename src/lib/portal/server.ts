@@ -237,10 +237,9 @@ type PortalMessagePublication = {
   channelId: string;
   content: unknown;
   failureCode: string;
-  messageType:
-    | typeof OFFICE_EVENT_MESSAGE_TYPE
-    | typeof SCRIPTED_SYSTEM_EVENT_MESSAGE_TYPE;
-  token: string;
+  messageType: string;
+  senderId: string;
+  to?: string;
 };
 
 function portalResponseErrorCode(
@@ -260,13 +259,13 @@ function portalResponseErrorCode(
 }
 
 function createPortalMessagePublisher({
-  apiKey,
   apiUrl,
   fetcher,
+  secret,
 }: {
-  apiKey: string;
   apiUrl: string;
   fetcher: typeof fetch;
+  secret: string;
 }) {
   const baseUrl = apiUrl.replace(/\/$/u, "");
 
@@ -275,7 +274,8 @@ function createPortalMessagePublisher({
     content,
     failureCode,
     messageType,
-    token,
+    senderId,
+    to,
   }: PortalMessagePublication): Promise<void> {
     let response: Response;
     try {
@@ -284,11 +284,15 @@ function createPortalMessagePublisher({
         {
           method: "POST",
           headers: {
-            authorization: `Bearer ${token}`,
-            "content-type": "application/json",
-            "x-portal-key": apiKey,
+            Authorization: `Bearer ${secret}`,
+            "Content-Type": "application/json",
           },
-          body: JSON.stringify({ type: messageType, content }),
+          body: JSON.stringify({
+            senderId,
+            type: messageType,
+            ...(to ? { to } : {}),
+            content,
+          }),
           cache: "no-store",
         },
       );
@@ -308,16 +312,15 @@ function createPortalMessagePublisher({
 
 export function createPortalProfileInvalidationPublisher({
   secret,
-  apiKey,
   apiUrl = DEFAULT_PORTAL_API_URL,
   fetcher = fetch,
   now = () => new Date(),
 }: PortalProfilePublisherOptions): ProfileInvalidationPublisher {
   const controlPlane = createPortalControlPlane({ secret, apiUrl, fetcher });
   const publishPortalMessage = createPortalMessagePublisher({
-    apiKey,
     apiUrl,
     fetcher,
+    secret,
   });
 
   return {
@@ -328,17 +331,13 @@ export function createPortalProfileInvalidationPublisher({
         claims: { username: "Portal Profile Directory", avatar: null },
       };
       await controlPlane.ensureMembership({ channelId, ...sender });
-      const token = await controlPlane.mintToken({
-        channelIds: [channelId],
-        ...sender,
-      });
 
       await publishPortalMessage({
         channelId,
         content: event,
         failureCode: "portal_event_publish_failed",
         messageType: OFFICE_EVENT_MESSAGE_TYPE,
-        token: token.token,
+        senderId: sender.userId,
       });
     },
   };
@@ -346,15 +345,14 @@ export function createPortalProfileInvalidationPublisher({
 
 export function createPortalHRReportInvalidationPublisher({
   secret,
-  apiKey,
   apiUrl = DEFAULT_PORTAL_API_URL,
   fetcher = fetch,
 }: PortalPublisherOptions): HRReportInvalidationPublisher {
   const controlPlane = createPortalControlPlane({ secret, apiUrl, fetcher });
   const publishPortalMessage = createPortalMessagePublisher({
-    apiKey,
     apiUrl,
     fetcher,
+    secret,
   });
 
   return {
@@ -365,16 +363,12 @@ export function createPortalHRReportInvalidationPublisher({
         claims: { username: "Portal Systems Operations", avatar: null },
       };
       await controlPlane.ensureMembership({ channelId, ...sender });
-      const token = await controlPlane.mintToken({
-        channelIds: [channelId],
-        ...sender,
-      });
       await publishPortalMessage({
         channelId,
         content: event,
         failureCode: "portal_event_publish_failed",
         messageType: OFFICE_EVENT_MESSAGE_TYPE,
-        token: token.token,
+        senderId: sender.userId,
       });
     },
   };
@@ -420,15 +414,14 @@ export function createPortalMessageRemovalInvalidationPublisher({
 
 export function createPortalScriptedSystemEventPublisher({
   secret,
-  apiKey,
   apiUrl = DEFAULT_PORTAL_API_URL,
   fetcher = fetch,
 }: PortalPublisherOptions): ScriptedSystemEventPublisher {
   const controlPlane = createPortalControlPlane({ secret, apiUrl, fetcher });
   const publishPortalMessage = createPortalMessagePublisher({
-    apiKey,
     apiUrl,
     fetcher,
+    secret,
   });
 
   return {
@@ -449,17 +442,13 @@ export function createPortalScriptedSystemEventPublisher({
         channelId: entry.channelId,
         ...sender,
       });
-      const token = await controlPlane.mintToken({
-        channelIds: [entry.channelId],
-        ...sender,
-      });
 
       await publishPortalMessage({
         channelId: entry.channelId,
         content: entry.event,
         failureCode: "portal_system_event_publish_failed",
         messageType: SCRIPTED_SYSTEM_EVENT_MESSAGE_TYPE,
-        token: token.token,
+        senderId: sender.userId,
       });
     },
   };
@@ -467,12 +456,15 @@ export function createPortalScriptedSystemEventPublisher({
 
 export function createPortalHRReportNotificationPublisher({
   secret,
-  apiKey,
   apiUrl = DEFAULT_PORTAL_API_URL,
   fetcher = fetch,
 }: PortalPublisherOptions): HRReportNotificationPublisher {
   const controlPlane = createPortalControlPlane({ secret, apiUrl, fetcher });
-  const baseUrl = apiUrl.replace(/\/$/u, "");
+  const publishPortalMessage = createPortalMessagePublisher({
+    apiUrl,
+    fetcher,
+    secret,
+  });
 
   return {
     async publishHRReportNotification(
@@ -496,42 +488,17 @@ export function createPortalHRReportNotificationPublisher({
           }),
         ),
       ]);
-      const token = await controlPlane.mintToken({
-        channelIds: [HR_REPORT_NOTIFICATION_CHANNEL_ID],
-        ...sender,
-      });
       const content = toHRReportNotificationContent(notification);
 
       for (const operatorId of operatorIds) {
-        let response: Response;
-        try {
-          response = await fetcher(
-            `${baseUrl}/v1/channels/${HR_REPORT_NOTIFICATION_CHANNEL_ID}/messages`,
-            {
-              method: "POST",
-              headers: {
-                authorization: `Bearer ${token.token}`,
-                "content-type": "application/json",
-                "x-portal-key": apiKey,
-              },
-              body: JSON.stringify({
-                type: notification.type,
-                to: operatorId,
-                content,
-              }),
-              cache: "no-store",
-            },
-          );
-        } catch {
-          throw new PortalServiceError(503, "portal_unavailable");
-        }
-        const payload: unknown = await response.json().catch(() => null);
-        if (!response.ok || !isPublishAcknowledgement(payload)) {
-          throw new PortalServiceError(
-            response.ok ? 502 : response.status,
-            "portal_notification_publish_failed",
-          );
-        }
+        await publishPortalMessage({
+          channelId: HR_REPORT_NOTIFICATION_CHANNEL_ID,
+          content,
+          failureCode: "portal_notification_publish_failed",
+          messageType: notification.type,
+          senderId: sender.userId,
+          to: operatorId,
+        });
       }
     },
   };

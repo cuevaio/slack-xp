@@ -73,21 +73,21 @@ describe("Portal control-plane boundary", () => {
 
     expect(requests.map(({ url }) => url)).toEqual([
       "https://api.useportal.co/v1/channels/office-events%3A2026-07-22/members",
-      "https://api.useportal.co/v1/tokens",
       "https://api.useportal.co/v1/channels/office-events%3A2026-07-22/messages",
     ]);
     expect(JSON.parse(String(requests[0]?.init?.body))).toMatchObject({
       userId: "office-events:profiles",
     });
-    expect(JSON.parse(String(requests[1]?.init?.body))).toMatchObject({
-      userId: "office-events:profiles",
-      channels: { "office-events:2026-07-22": ["connect", "publish"] },
+    expect(requests[1]?.init?.headers).toEqual({
+      Authorization: "Bearer sk_portal_test",
+      "Content-Type": "application/json",
     });
-    expect(JSON.parse(String(requests[2]?.init?.body))).toEqual({
+    expect(JSON.parse(String(requests[1]?.init?.body))).toEqual({
+      senderId: "office-events:profiles",
       type: "office.event",
       content: event,
     });
-    expect(String(requests[2]?.init?.body)).not.toMatch(/Pat|image|firstName/i);
+    expect(String(requests[1]?.init?.body)).not.toMatch(/Pat|image|firstName/i);
   });
 
   test("adds every daily membership before minting a 15-minute office-scoped token", async () => {

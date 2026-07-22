@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { type RefObject, useEffect, useRef, useState } from "react";
+import { Badge } from "@/components/ui/badge";
 
 const OFFICE_HREF = "/office";
 const OFFICE_LINK_LABEL = "Enter the Shared Public Office";
@@ -156,7 +157,9 @@ function PreviewWindow({
           <strong># general</strong>
           <span>The hallway, but with more reply-all.</span>
         </div>
-        <span className="static-badge">STATIC PREVIEW</span>
+        <Badge className="static-badge" variant="warning">
+          Static preview
+        </Badge>
       </div>
       <div className="preview-messages">
         {previewMessages.map((message) => (

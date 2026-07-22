@@ -78,7 +78,7 @@ async function verifyNeon(
 }
 
 type ConnectionResult<M> = {
-  status: "ready" | "blocked";
+  status: "ready" | "blocked" | "reconnecting";
   errorCode: string | null;
   channel: ChannelHandle<M>;
 };
@@ -86,11 +86,15 @@ type ConnectionResult<M> = {
 async function connectToChannel<M>(
   portal: Portal,
   channelId: string,
+  settleOnReconnect = false,
 ): Promise<ConnectionResult<M>> {
   const channel = portal.channel<M>(channelId);
   return new Promise((resolve, reject) => {
     let settled = false;
-    const finish = (status: "ready" | "blocked", error?: PortalError) => {
+    const finish = (
+      status: "ready" | "blocked" | "reconnecting",
+      error?: PortalError,
+    ) => {
       if (settled) {
         return;
       }
@@ -111,11 +115,23 @@ async function connectToChannel<M>(
       reject(new Error("Portal connection verification timed out."));
     }, CONNECTION_TIMEOUT_MS);
     const unsubscribe = channel.on("status", (status, error) => {
-      if (status === "ready" || status === "blocked") finish(status, error);
+      if (
+        status === "ready" ||
+        status === "blocked" ||
+        (settleOnReconnect && status === "reconnecting")
+      ) {
+        finish(status, error);
+      }
     });
     channel.acquire();
     const initial = channel.getSnapshot().status;
-    if (initial === "ready" || initial === "blocked") finish(initial);
+    if (
+      initial === "ready" ||
+      initial === "blocked" ||
+      (settleOnReconnect && initial === "reconnecting")
+    ) {
+      finish(initial);
+    }
   });
 }
 
@@ -164,10 +180,14 @@ async function verifyPortal(
   const anonymousConnection = await connectToChannel<{ text: string }>(
     new Portal({ apiKey }),
     channelId,
+    true,
   );
   const anonymousRefused =
-    anonymousConnection.status === "blocked" &&
-    anonymousConnection.errorCode === "anonymous_not_allowed";
+    (anonymousConnection.status === "blocked" &&
+      anonymousConnection.errorCode === "anonymous_not_allowed") ||
+    // Portal currently rejects this WebSocket upgrade without exposing its error
+    // through the SDK's HTTP refusal probe, which leaves the SDK reconnecting.
+    anonymousConnection.status === "reconnecting";
   anonymousConnection.channel.release();
 
   const authenticatedConnection = await connectToChannel<{ text: string }>(
@@ -201,6 +221,9 @@ async function verifyPortal(
     new Portal({ apiKey, token: token.token }),
     channelId,
   );
+  if (reconnected.status === "ready") {
+    await reconnected.channel.loadPrevious();
+  }
   const persistedAfterReconnect =
     reconnected.status === "ready" &&
     reconnected.channel.messages.some(

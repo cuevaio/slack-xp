@@ -111,14 +111,14 @@ describe("Office Day seeding and publishing", () => {
 
     expect(requests.map(({ url }) => url)).toEqual([
       `https://api.useportal.co/v1/channels/${encodeURIComponent(planned.channelId)}/members`,
-      "https://api.useportal.co/v1/tokens",
       `https://api.useportal.co/v1/channels/${encodeURIComponent(planned.channelId)}/messages`,
     ]);
     expect(JSON.parse(String(requests[0]?.init?.body))).toMatchObject({
       userId: planned.characterId,
       claims: { username: expect.stringContaining("Office Character") },
     });
-    expect(JSON.parse(String(requests[2]?.init?.body))).toEqual({
+    expect(JSON.parse(String(requests[1]?.init?.body))).toEqual({
+      senderId: planned.characterId,
       type: "system.event",
       content: planned.event,
     });

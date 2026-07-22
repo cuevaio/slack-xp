@@ -1,4 +1,5 @@
 import { EmployeeRecordDialog } from "@/components/employee-record-dialog";
+import { OfficeWindow } from "@/components/office-window";
 import { PortalChat } from "@/components/portal-chat";
 import type { ServiceAdapters } from "@/lib/adapters";
 import type { AuthenticatedNewHire } from "@/lib/auth/types";
@@ -42,11 +43,7 @@ export async function OfficeFoundation({
       {adapters.kind === "mock" ? (
         <output className="mock-watermark">MOCK SERVICES - NO LIVE DATA</output>
       ) : null}
-      <section className="messenger-window" aria-labelledby="office-title">
-        <header className="window-titlebar">
-          <span id="office-title">Portal Messenger: Corporate Edition</span>
-          <span aria-hidden="true">_ □ ×</span>
-        </header>
+      <OfficeWindow>
         <PortalChat
           canSignOut={identity.authentication === "mock"}
           channels={channels}
@@ -66,7 +63,7 @@ export async function OfficeFoundation({
                   requirePortalPublishableKey(portalPublishableKey),
               })}
         />
-      </section>
+      </OfficeWindow>
     </main>
   );
 }

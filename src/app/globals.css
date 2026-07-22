@@ -1,14 +1,76 @@
 @import "tailwindcss";
 
 :root {
-  --ink: #101424;
-  --navy: #12296c;
-  --blue: #315ac8;
-  --paper: #fffef6;
-  --chrome: #d9d7ce;
-  --desktop: #07656d;
+  --font-geist-mono: var(--font-geist-pixel-square);
+  --background: #07656d;
+  --foreground: #101424;
+  --card: #fffef6;
+  --card-foreground: #101424;
+  --popover: #fffef6;
+  --popover-foreground: #101424;
+  --primary: #12296c;
+  --primary-foreground: #ffffff;
+  --secondary: #d9d7ce;
+  --secondary-foreground: #111111;
+  --muted: #c9c7bf;
+  --muted-foreground: #5f5a4e;
+  --accent: #e8f1ff;
+  --accent-foreground: #173b75;
+  --destructive: #9c271d;
+  --destructive-foreground: #ffffff;
+  --warning: #fff2ad;
+  --warning-foreground: #5b3a00;
+  --border: #7f8793;
+  --input: #ffffff;
+  --ring: #dfff4f;
+  --radius: 0.125rem;
+  --xp-highlight: #ffffff;
+  --xp-shadow: #77736a;
+  --xp-shadow-deep: #333333;
+  --xp-titlebar-end: #315ac8;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ink: var(--foreground);
+  --navy: var(--primary);
+  --blue: var(--xp-titlebar-end);
+  --paper: var(--card);
+  --chrome: var(--secondary);
+  --silver: var(--secondary);
+  --desktop: var(--background);
   --observer-lime: #dfff4f;
   --observer-orange: #ff6b35;
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-pixel-square);
+  --font-mono: var(--font-geist-mono);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-xp-highlight: var(--xp-highlight);
+  --color-xp-shadow: var(--xp-shadow);
+  --color-xp-shadow-deep: var(--xp-shadow-deep);
+  --radius-sm: var(--radius);
+  --radius-md: calc(var(--radius) + 1px);
+  --radius-lg: calc(var(--radius) + 2px);
 }
 
 * {
@@ -24,7 +86,16 @@ body {
   margin: 0;
   color: var(--ink);
   background: var(--desktop);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-pixel-square), monospace;
+}
+
+::selection {
+  background: var(--primary);
+  color: var(--primary-foreground);
+}
+
+:where(input, textarea, select, button) {
+  font: inherit;
 }
 
 a {
@@ -34,6 +105,66 @@ a {
 button,
 a {
   -webkit-tap-highlight-color: transparent;
+}
+
+:where(
+    a[href]:not([aria-disabled="true"]),
+    button:not(:disabled):not([aria-disabled="true"]),
+    summary,
+    [role="button"]:not([aria-disabled="true"])
+  ):active {
+  scale: 0.96;
+}
+
+:where(
+    a[href]:not([aria-disabled="true"]),
+    button:not(:disabled):not([aria-disabled="true"]),
+    summary,
+    [role="button"]:not([aria-disabled="true"])
+  ) {
+  transition: scale 140ms var(--ease-out);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  html,
+  body {
+    cursor:
+      url("/cursors/retro-arrow.svg") 1 1,
+      default;
+  }
+
+  a[href],
+  button:not(:disabled),
+  summary,
+  [role="button"]:not([aria-disabled="true"]) {
+    cursor:
+      url("/cursors/retro-pointer.svg") 11 1,
+      pointer;
+  }
+
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
+
+  html[data-pointer-pressed="true"],
+  html[data-pointer-pressed="true"] body {
+    cursor:
+      url("/cursors/retro-arrow-pressed.svg") 1 1,
+      default;
+  }
+
+  html[data-pointer-pressed="true"]
+    :where(
+      a[href],
+      button:not(:disabled),
+      summary,
+      [role="button"]:not([aria-disabled="true"])
+    ) {
+    cursor:
+      url("/cursors/retro-pointer-pressed.svg") 9 1,
+      pointer;
+  }
 }
 
 .sr-only {
@@ -154,7 +285,7 @@ a {
     inset 0 0 0 3px #8e251e,
     3px 3px 0 rgb(0 31 39 / 45%);
   color: white;
-  font-family: Georgia, serif;
+  font-family: var(--font-geist-pixel-square), monospace;
   font-size: 1.55rem;
   font-style: italic;
   font-weight: 900;
@@ -204,7 +335,7 @@ a {
   display: block;
   margin-top: 0.32em;
   color: var(--observer-lime);
-  font-family: Georgia, serif;
+  font-family: var(--font-geist-pixel-square), monospace;
   font-size: 0.43em;
   font-style: italic;
   letter-spacing: -0.025em;
@@ -226,8 +357,7 @@ a {
   gap: 1rem;
 }
 
-.primary-action,
-.classic-button {
+.primary-action {
   display: inline-block;
   border: 2px solid #fff;
   border-right-color: #333;
@@ -253,7 +383,6 @@ a {
 }
 
 .primary-action:focus-visible,
-.classic-button:focus-visible,
 .channel-panel a:focus-visible,
 .channel-panel button:focus-visible,
 .mobile-directory-trigger:focus-visible,
@@ -360,7 +489,8 @@ a {
   gap: 3px;
 }
 
-.window-controls button {
+.window-controls button,
+.office-fullscreen-control {
   display: grid;
   width: 30px;
   height: 29px;
@@ -368,15 +498,38 @@ a {
   border: 2px outset #eee;
   background: #d9d7ce;
   color: #111;
-  font-family: Arial, sans-serif;
+  font-family: var(--font-geist-pixel-square), monospace;
   font-size: 1rem;
   font-weight: 900;
   line-height: 1;
   text-shadow: none;
 }
 
-.window-controls button:active {
+.office-fullscreen-control {
+  cursor: pointer;
+}
+
+.window-controls button:active,
+.office-fullscreen-control:active {
   border-style: inset;
+}
+
+.office-fullscreen-toggle:focus-visible + .office-fullscreen-control {
+  outline: 3px solid #fff;
+  outline-offset: 2px;
+}
+
+.fullscreen-exit-icon,
+.office-fullscreen-toggle:checked
+  + .office-fullscreen-control
+  .fullscreen-enter-icon {
+  display: none;
+}
+
+.office-fullscreen-toggle:checked
+  + .office-fullscreen-control
+  .fullscreen-exit-icon {
+  display: inline;
 }
 
 .preview-toolbar {
@@ -815,8 +968,8 @@ a {
   border-radius: 50%;
   color: #d5ff48;
   font:
-    900 5rem Georgia,
-    serif;
+    900 5rem var(--font-geist-pixel-square),
+    monospace;
   transform: rotate(-12deg);
 }
 
@@ -828,7 +981,7 @@ a {
 
 .setup-content h1 {
   margin: 0 0 0.7rem;
-  font-family: Georgia, serif;
+  font-family: var(--font-geist-pixel-square), monospace;
   font-size: clamp(2rem, 5vw, 3rem);
   line-height: 1;
 }
@@ -965,8 +1118,8 @@ a {
   background: var(--silver);
   color: #111;
   font:
-    900 0.9rem / 1 Arial,
-    sans-serif;
+    900 0.9rem / 1 var(--font-geist-pixel-square),
+    monospace;
 }
 
 .employee-record-dialog-body {
@@ -975,12 +1128,12 @@ a {
 
 .employee-record-dialog-body h1 {
   margin: 0 0 0.7rem;
-  font-family: Georgia, serif;
+  font-family: var(--font-geist-pixel-square), monospace;
   font-size: clamp(1.8rem, 5vw, 2.6rem);
   line-height: 1;
 }
 
-.employee-record-dialog-body > .classic-button {
+.employee-record-dialog-body > [data-slot="button"] {
   margin-top: 0.8rem;
 }
 
@@ -1045,7 +1198,6 @@ a {
   letter-spacing: 0.08em;
 }
 
-.classic-button:disabled,
 .clock-in-button:disabled {
   cursor: wait;
   opacity: 0.65;
@@ -1057,7 +1209,7 @@ a {
 
 .office-body {
   display: grid;
-  min-height: 620px;
+  height: 620px;
   grid-template-columns: 300px 1fr;
   gap: 3px;
   padding: 3px;
@@ -1070,12 +1222,13 @@ a {
 }
 
 .channel-panel {
+  overflow-y: auto;
   padding: 1.4rem 1rem;
 }
 
 .channel-panel h1 {
   margin: 0;
-  font-family: Georgia, serif;
+  font-family: var(--font-geist-pixel-square), monospace;
   font-size: 1.9rem;
 }
 
@@ -1294,6 +1447,8 @@ a {
 }
 
 .conversation-panel {
+  display: flex;
+  flex-direction: column;
   background: var(--paper);
   min-width: 0;
 }
@@ -1432,8 +1587,9 @@ a {
 
 .general-chat {
   display: grid;
-  height: 620px;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  min-height: 0;
+  flex: 1;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .general-chat[hidden] {
@@ -2150,7 +2306,7 @@ a {
 
 .installation-content h1 {
   margin: 0 0 0.7rem;
-  font-family: Georgia, serif;
+  font-family: var(--font-geist-pixel-square), monospace;
   font-size: clamp(2rem, 5vw, 3.5rem);
 }
 
@@ -2190,23 +2346,13 @@ a {
   text-transform: uppercase;
 }
 
-.classic-button {
-  padding: 0.55rem 0.8rem;
-  box-shadow: none;
-}
-
-button.classic-button {
-  font: inherit;
-  cursor: pointer;
-}
-
 .mock-sign-in-content {
   padding: clamp(1.5rem, 6vw, 3.5rem);
 }
 
 .mock-sign-in-content h1 {
   margin: 0 0 0.8rem;
-  font-family: Georgia, serif;
+  font-family: var(--font-geist-pixel-square), monospace;
   font-size: clamp(2rem, 5vw, 3.4rem);
 }
 
@@ -2436,6 +2582,7 @@ button.classic-button {
 
   .office-body {
     display: block;
+    height: auto;
     min-height: calc(100svh - 52px);
   }
 
@@ -2552,9 +2699,53 @@ button.classic-button {
   }
 }
 
+html:has(.office-fullscreen-toggle:checked),
+body:has(.office-fullscreen-toggle:checked) {
+  overflow: hidden;
+}
+
+.messenger-window:has(.office-fullscreen-toggle:checked) {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: flex;
+  width: 100vw;
+  height: 100dvh;
+  flex-direction: column;
+  border: 0;
+  box-shadow: none;
+}
+
+.messenger-window:has(.office-fullscreen-toggle:checked) > .office-body {
+  height: auto;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.messenger-window:has(.office-fullscreen-toggle:checked) .channel-panel {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.messenger-window:has(.office-fullscreen-toggle:checked) .conversation-panel {
+  height: 100%;
+  min-height: 0;
+}
+
+.messenger-window:has(.office-fullscreen-toggle:checked) .general-chat {
+  height: 100%;
+  min-height: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .primary-action,
   .preview-window {
     transition-duration: 0.01ms;
+  }
+
+  :where(a[href], button, summary, [role="button"]):active {
+    scale: 1;
   }
 }

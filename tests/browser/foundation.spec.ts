@@ -140,6 +140,53 @@ test("Observer mobile teaser keeps sign-in reachable without desktop-only intera
   await expect(page).toHaveURL(/\/sign-in\?redirect_url=%2Foffice$/);
 });
 
+test("office window full screen fills the viewport and locks document scrolling", async ({
+  page,
+}) => {
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+
+  const messengerWindow = page.locator(".messenger-window");
+  const fullScreenToggle = page.getByRole("checkbox", {
+    name: "Toggle full screen",
+  });
+  await fullScreenToggle.check();
+  await expect(fullScreenToggle).toBeChecked();
+
+  const viewport = page.viewportSize();
+  expect(viewport).not.toBeNull();
+  await expect
+    .poll(() => messengerWindow.boundingBox())
+    .toMatchObject({
+      x: 0,
+      y: 0,
+      width: viewport?.width,
+      height: viewport?.height,
+    });
+  expect(
+    await page.evaluate(() => ({
+      body: getComputedStyle(document.body).overflow,
+      html: getComputedStyle(document.documentElement).overflow,
+    })),
+  ).toEqual({ body: "hidden", html: "hidden" });
+  expect(
+    await messengerWindow.evaluate(
+      (element) => getComputedStyle(element).boxShadow,
+    ),
+  ).toBe("none");
+
+  await fullScreenToggle.uncheck();
+  await expect(fullScreenToggle).not.toBeChecked();
+  expect(
+    await page.evaluate(() => ({
+      body: getComputedStyle(document.body).overflow,
+      html: getComputedStyle(document.documentElement).overflow,
+    })),
+  ).toEqual({ body: "visible", html: "visible" });
+});
+
 test("server boundaries reject invalid setup and forged identity", async ({
   page,
 }) => {
@@ -1260,6 +1307,63 @@ test("history paginates backward without duplicates and displays canonical time 
       .filter({ hasText: "Pagination memo 51" })
       .locator("time"),
   ).toHaveText(expectedLocalTime);
+});
+
+test("chat starts at the latest message and follows new messages only from the bottom", async ({
+  page,
+}) => {
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+
+  for (let index = 1; index <= 24; index += 1) {
+    const response = await page.request.post(
+      "/api/office/portal/mock-chat?channel=general",
+      { data: { text: `Realtime follow memo ${index}` } },
+    );
+    expect(response.status()).toBe(200);
+  }
+
+  await page.reload();
+  const historyRegion = page
+    .locator(".chat-scroll-region")
+    .filter({ visible: true });
+  const distanceFromLatest = () =>
+    historyRegion.evaluate(
+      (element) =>
+        element.scrollHeight - element.scrollTop - element.clientHeight,
+    );
+  await expect.poll(distanceFromLatest).toBeLessThanOrEqual(24);
+
+  await historyRegion.evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  const whileReading = await page.request.post(
+    "/api/office/portal/mock-chat?channel=general",
+    { data: { text: "Realtime memo while reading history" } },
+  );
+  expect(whileReading.status()).toBe(200);
+  await expect(
+    page.getByText("Realtime memo while reading history", { exact: true }),
+  ).toBeVisible();
+  await expect
+    .poll(() => historyRegion.evaluate((element) => element.scrollTop))
+    .toBe(0);
+
+  await historyRegion.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect.poll(distanceFromLatest).toBeLessThanOrEqual(24);
+  const whileFollowing = await page.request.post(
+    "/api/office/portal/mock-chat?channel=general",
+    { data: { text: "Realtime memo at the latest message" } },
+  );
+  expect(whileFollowing.status()).toBe(200);
+  await expect(
+    page.getByText("Realtime memo at the latest message", { exact: true }),
+  ).toBeVisible();
+  await expect.poll(distanceFromLatest).toBeLessThanOrEqual(24);
 });
 
 test("interrupted setup resumes and the returning fixture enters the Office Day", async ({

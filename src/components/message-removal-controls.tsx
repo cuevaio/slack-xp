@@ -10,6 +10,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { invalidateHRReportQueue } from "@/lib/hr-reports/client";
 import {
   messageRemovalQueryKey,
@@ -139,7 +141,7 @@ export function MessageRemovalControls({
               authorized direct Portal client may still retrieve it.
             </p>
             <label htmlFor={reasonId}>Private Operator reason</label>
-            <textarea
+            <Textarea
               id={reasonId}
               maxLength={MESSAGE_REMOVAL_PRIVATE_REASON_MAX_LENGTH}
               onChange={(event) => setPrivateReason(event.target.value)}
@@ -158,21 +160,16 @@ export function MessageRemovalControls({
               </p>
             ) : null}
             <div className="hr-report-dialog-actions">
-              <button
-                className="classic-button"
-                disabled={submitting}
-                onClick={closeDialog}
-                type="button"
-              >
+              <Button disabled={submitting} onClick={closeDialog} type="button">
                 Cancel
-              </button>
-              <button
-                className="classic-button"
+              </Button>
+              <Button
                 disabled={submitting || privateReason.trim().length === 0}
                 type="submit"
+                variant="destructive"
               >
                 {submitting ? "Removing…" : "Confirm removal"}
-              </button>
+              </Button>
             </div>
           </form>
         </div>

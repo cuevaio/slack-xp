@@ -8,6 +8,8 @@ import {
   useRef,
   useState,
 } from "react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { requestSendHome } from "@/lib/employment/client";
 import { SEND_HOME_PRIVATE_REASON_MAX_LENGTH } from "@/lib/employment/contract";
 
@@ -94,9 +96,8 @@ export function SendHomeControl({
 
   return (
     <div className="send-home-control">
-      <button
+      <Button
         aria-haspopup="dialog"
-        className="classic-button"
         disabled={completed}
         onClick={() => {
           setError(false);
@@ -106,7 +107,7 @@ export function SendHomeControl({
         type="button"
       >
         {completed ? "Sent Home" : "Send Home"}
-      </button>
+      </Button>
       {open ? (
         <div
           aria-labelledby={titleId}
@@ -122,7 +123,7 @@ export function SendHomeControl({
               boundary. This does not create a Termination.
             </p>
             <label htmlFor={reasonId}>Private Operator reason (required)</label>
-            <textarea
+            <Textarea
               id={reasonId}
               maxLength={SEND_HOME_PRIVATE_REASON_MAX_LENGTH}
               onChange={(event) => setPrivateReason(event.currentTarget.value)}
@@ -137,21 +138,16 @@ export function SendHomeControl({
               </p>
             ) : null}
             <div className="hr-report-dialog-actions">
-              <button
-                className="classic-button"
-                disabled={submitting}
-                onClick={close}
-                type="button"
-              >
+              <Button disabled={submitting} onClick={close} type="button">
                 Cancel
-              </button>
-              <button
-                className="classic-button primary-action"
+              </Button>
+              <Button
                 disabled={submitting || privateReason.trim().length === 0}
                 type="submit"
+                variant="destructive"
               >
                 {submitting ? "Sending Home…" : "Confirm Send Home"}
-              </button>
+              </Button>
             </div>
           </form>
         </div>

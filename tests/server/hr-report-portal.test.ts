@@ -48,6 +48,7 @@ describe("Portal HR Report notification adapter", () => {
       url.endsWith("/messages"),
     );
     expect(publishRequest?.body).toEqual({
+      senderId: "office-events:operations",
       type: "hr-report.ready",
       to: "user_operator",
       content: {
@@ -105,6 +106,7 @@ describe("Portal HR Report notification adapter", () => {
       url.endsWith("/messages"),
     );
     expect(publishRequest?.body).toEqual({
+      senderId: "office-events:operations",
       type: "hr-report.ready",
       to: "user_operator",
       content: {
@@ -160,6 +162,7 @@ describe("Portal HR Report invalidation adapter", () => {
     });
     const publication = requests.find(({ url }) => url.endsWith("/messages"));
     expect(publication?.body).toEqual({
+      senderId: "office-events:operations",
       type: "office.event",
       content: {
         version: 1,

@@ -24,6 +24,9 @@ import { HRReportReviewQueue } from "@/components/hr-report-review-queue";
 import { MessageHRReportControls } from "@/components/message-hr-report-controls";
 import { MessageRemovalControls } from "@/components/message-removal-controls";
 import { NewHireProfileContext } from "@/components/new-hire-profile-context";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { fetchEmploymentAccess } from "@/lib/employment/client";
 import type {
   EmploymentAccessDeniedDecision,
@@ -244,6 +247,7 @@ const REACTION_NAMES: Record<OfficeReaction, string> = {
 };
 
 const FALLBACK_PROFILE_NAME = "New Hire";
+const LATEST_MESSAGE_THRESHOLD = 24;
 
 function sendButtonCopy(isSending: boolean, hasError: boolean): string {
   if (isSending) {
@@ -1093,6 +1097,7 @@ function ChatSurface({
   const [sendError, setSendError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const scrollRegionRef = useRef<HTMLDivElement>(null);
+  const followingLatestMessage = useRef(true);
   const surfaceRef = useRef<HTMLElement>(null);
   const latestOnContentVisible = useRef(onContentVisible);
   const parsedMessages = useMemo(
@@ -1201,6 +1206,7 @@ function ChatSurface({
         candidate.getAttribute("data-message-id") === target.messageId,
     );
     if (!element) return;
+    followingLatestMessage.current = false;
     element.scrollIntoView({ block: "center" });
     element.focus({ preventScroll: true });
   }, [
@@ -1211,6 +1217,23 @@ function ChatSurface({
     status,
     visible,
   ]);
+
+  useEffect(() => {
+    if (
+      !visible ||
+      !messageHistoryReady ||
+      !isChatContentReady(status) ||
+      !latestMessageId ||
+      !followingLatestMessage.current
+    ) {
+      return;
+    }
+
+    const region = scrollRegionRef.current;
+    if (region) {
+      region.scrollTop = region.scrollHeight;
+    }
+  }, [latestMessageId, messageHistoryReady, status, visible]);
 
   useEffect(() => {
     if (
@@ -1322,7 +1345,9 @@ function ChatSurface({
           />
           <strong id={headingId}># {channel.slug}</strong>
           {channel.mode === "broadcast" ? (
-            <span className="channel-mode-badge">Broadcast</span>
+            <Badge className="channel-mode-badge" variant="warning">
+              Broadcast
+            </Badge>
           ) : null}
           <span className="channel-purpose">{channel.purpose}</span>
         </div>
@@ -1331,7 +1356,17 @@ function ChatSurface({
         </output>
       </header>
 
-      <div className="chat-scroll-region" ref={scrollRegionRef}>
+      <div
+        className="chat-scroll-region"
+        onScroll={(event) => {
+          if (!visible || !messageHistoryReady) return;
+          const region = event.currentTarget;
+          followingLatestMessage.current =
+            region.scrollHeight - region.scrollTop - region.clientHeight <=
+            LATEST_MESSAGE_THRESHOLD;
+        }}
+        ref={scrollRegionRef}
+      >
         <LiveActivity
           active={visible}
           channel={channel}
@@ -1349,14 +1384,14 @@ function ChatSurface({
           </aside>
         ) : null}
         {hasPrevious && loadPrevious ? (
-          <button
-            className="classic-button load-history-button"
+          <Button
+            className="load-history-button"
             disabled={isLoadingPrevious}
             onClick={() => void loadEarlier()}
             type="button"
           >
             {isLoadingPrevious ? "Loading…" : "Load earlier messages"}
-          </button>
+          </Button>
         ) : null}
         {status === "blocked" || status === "reconnecting" ? (
           <div className="portal-outage" aria-live="polite">
@@ -1364,13 +1399,9 @@ function ChatSurface({
             <span className="outage-detail">
               Confirmed history will return after the connection recovers.
             </span>
-            <button
-              className="classic-button"
-              onClick={onRetryConnection}
-              type="button"
-            >
+            <Button onClick={onRetryConnection} type="button">
               Retry connection
-            </button>
+            </Button>
           </div>
         ) : null}
         {invalidMessageCount > 0 ? (
@@ -1386,7 +1417,7 @@ function ChatSurface({
         <label htmlFor={`message-${channel.id}`}>
           Message # {channel.name}
         </label>
-        <textarea
+        <Textarea
           disabled={!canPublish}
           id={`message-${channel.id}`}
           maxLength={CHAT_TEXT_LIMIT}
@@ -1412,13 +1443,13 @@ function ChatSurface({
           <span className="character-count">
             {draft.length.toLocaleString()} / 1,000
           </span>
-          <button
-            className="classic-button send-message-button"
+          <Button
+            className="send-message-button"
             disabled={!canPublish || isSending || draft.trim().length === 0}
             type="submit"
           >
             {sendButtonCopy(isSending, sendError !== null)}
-          </button>
+          </Button>
         </div>
         {sendError ? (
           <p className="chat-error" role="alert">
@@ -1488,7 +1519,7 @@ function OfficeWorkspace({
           <h1>Welcome, {currentDisplayName}</h1>
           <p className="job-title">{jobTitle}</p>
           {hasOperatorAccess ? (
-            <p className="operator-badge">Operator access</p>
+            <Badge className="operator-badge">Operator access</Badge>
           ) : null}
           <output className="inbox-status" aria-live="polite">
             {inboxStatusCopy(inboxStatus)}
@@ -1577,9 +1608,9 @@ function OfficeWorkspace({
           {employeeRecord}
           {canSignOut ? (
             <form action="/api/auth/sign-out" method="post">
-              <button className="classic-button sign-out-button" type="submit">
+              <Button className="sign-out-button" type="submit">
                 Sign out
-              </button>
+              </Button>
             </form>
           ) : null}
         </aside>
@@ -2262,14 +2293,14 @@ function ShiftEndedDialog({
             Midnight UTC has passed. Your old desk is disconnected and the new
             Office Day is ready with fresh channels.
           </p>
-          <button
-            className="classic-button primary-action"
+          <Button
             onClick={onContinue}
             ref={continueButtonRef}
             type="button"
+            variant="primary"
           >
             Continue to the new Office Day
-          </button>
+          </Button>
         </div>
       </section>
     </div>

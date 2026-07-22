@@ -1,4 +1,7 @@
-import { clerkMiddleware } from "@clerk/nextjs/server";
+import {
+  type ClerkMiddlewareAuth,
+  clerkMiddleware,
+} from "@clerk/nextjs/server";
 import type { NextFetchEvent, NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 import {
@@ -7,9 +10,27 @@ import {
 } from "@/lib/auth/mock-session";
 import { readAppConfiguration } from "@/lib/config";
 
-const clerkAuthenticationProxy = clerkMiddleware(async (auth) => {
+export async function enforceClerkOfficeAuthentication(
+  auth: ClerkMiddlewareAuth,
+  request: NextRequest,
+): Promise<NextResponse | undefined> {
+  if (isOfficeServerOperation(request.nextUrl.pathname)) {
+    const session = await auth();
+    if (!session.userId || !session.sessionId) {
+      return NextResponse.json(
+        { error: "authentication_required" },
+        { status: 401 },
+      );
+    }
+    return;
+  }
+
   await auth.protect();
-});
+}
+
+const clerkAuthenticationProxy = clerkMiddleware(
+  enforceClerkOfficeAuthentication,
+);
 
 function isOfficeServerOperation(pathname: string): boolean {
   return pathname === "/api/office" || pathname.startsWith("/api/office/");

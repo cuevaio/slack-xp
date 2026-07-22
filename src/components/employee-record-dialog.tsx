@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 import { EmployeeRecordEditor } from "@/components/employee-record-editor";
+import { Button } from "@/components/ui/button";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 
 export function EmployeeRecordDialog({
@@ -38,14 +39,14 @@ export function EmployeeRecordDialog({
 
   return (
     <>
-      <button
-        className="classic-button employee-record-trigger"
+      <Button
+        className="employee-record-trigger"
         onClick={openDialog}
         ref={triggerRef}
         type="button"
       >
         Employee Record
-      </button>
+      </Button>
       <dialog
         aria-labelledby="employee-record-dialog-title"
         className="employee-record-dialog"
@@ -54,13 +55,14 @@ export function EmployeeRecordDialog({
       >
         <header className="window-titlebar">
           <span>Employee Record</span>
-          <button
+          <Button
             aria-label="Close Employee Record"
             onClick={closeDialog}
+            size="icon-sm"
             type="button"
           >
             ×
-          </button>
+          </Button>
         </header>
         <div className="employee-record-dialog-body">
           <EmployeeRecordEditor
@@ -69,13 +71,9 @@ export function EmployeeRecordDialog({
             onProjected={handleProjected}
           />
           {saved ? (
-            <button
-              className="classic-button"
-              onClick={closeDialog}
-              type="button"
-            >
+            <Button onClick={closeDialog} type="button">
               Done
-            </button>
+            </Button>
           ) : null}
         </div>
       </dialog>

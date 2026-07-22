@@ -20,7 +20,9 @@ import {
   useRef,
   useState,
 } from "react";
+import { MessageHRReportControls } from "@/components/message-hr-report-controls";
 import type { SafeScriptedSystemEventMessage } from "@/lib/office-days/contract";
+import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import { useOfficeEventSubscription } from "@/lib/office-events/client";
 import {
   createReactionOfficeEvent,
@@ -47,9 +49,11 @@ import {
 } from "@/lib/portal/chat";
 import { createPortalTokenSource } from "@/lib/portal/client";
 import {
+  type HRReportInboxItem,
   type OfficeInboxEntry,
   type OfficeInboxRow,
-  parseOfficeInboxResponse,
+  parseHRReportInboxItem,
+  parseOfficeInboxSnapshot,
   reconcileOfficeInbox,
 } from "@/lib/portal/inbox";
 import {
@@ -150,10 +154,12 @@ type OfficeWorkspaceProps = Pick<
   activeChannelId: string;
   inboxRows: readonly OfficeInboxRow[];
   inboxStatus: InboxStatus;
+  reportNotifications: readonly HRReportInboxItem[];
   isMobile: boolean | null;
   mobileNavigationOpen: boolean;
   onOpenMobileNavigation(): void;
   onSelectChannel(channelId: string): void;
+  onReadReportNotification(notificationId: string): void;
   children: ReactNode;
 };
 
@@ -177,8 +183,10 @@ type LiveActivityProps = {
 
 type MockOfficeInbox = {
   entries: readonly OfficeInboxEntry[];
+  reportNotifications: readonly HRReportInboxItem[];
   status: InboxStatus;
   markAsRead(channelId: string): Promise<void>;
+  markReportNotificationAsRead(notificationId: string): Promise<void>;
 };
 
 type ResponsiveOfficeNavigation = {
@@ -508,6 +516,9 @@ async function fetchMockHistoryPage(
 
 function useMockOfficeInbox(): MockOfficeInbox {
   const [entries, setEntries] = useState<readonly OfficeInboxEntry[]>([]);
+  const [reportNotifications, setReportNotifications] = useState<
+    readonly HRReportInboxItem[]
+  >([]);
   const [status, setStatus] = useState<InboxStatus>("connecting");
   const requestInFlight = useRef(false);
 
@@ -522,11 +533,12 @@ function useMockOfficeInbox(): MockOfficeInbox {
         cache: "no-store",
       });
       const payload: unknown = await response.json().catch(() => null);
-      const nextEntries = parseOfficeInboxResponse(payload);
-      if (!response.ok || !nextEntries) {
+      const snapshot = parseOfficeInboxSnapshot(payload);
+      if (!response.ok || !snapshot) {
         throw new Error("Mock Portal inbox unavailable");
       }
-      setEntries(nextEntries);
+      setEntries(snapshot.entries);
+      setReportNotifications(snapshot.reportNotifications);
       setStatus("ready");
     } catch {
       setStatus("reconnecting");
@@ -558,10 +570,29 @@ function useMockOfficeInbox(): MockOfficeInbox {
     [refresh],
   );
 
+  const markReportNotificationAsRead = useCallback(
+    async (notificationId: string) => {
+      const response = await fetch("/api/office/portal/mock-inbox", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ notificationId }),
+      });
+      if (!response.ok) {
+        setStatus("reconnecting");
+        return;
+      }
+      await refresh();
+    },
+    [refresh],
+  );
+
   return {
     entries,
+    reportNotifications,
     status,
     markAsRead,
+    markReportNotificationAsRead,
   };
 }
 
@@ -855,6 +886,7 @@ function MessageHistory({
             className={`chat-message chat-message-${message.status}`}
             data-message-id={message.id}
             key={message.id}
+            tabIndex={-1}
           >
             <div className="message-meta">
               <ProfileAvatar
@@ -878,13 +910,16 @@ function MessageHistory({
               </small>
             ) : null}
             {message.status === "sent" ? (
-              <ReactionControls
-                enabled={reactionsEnabled}
-                identityId={identityId}
-                message={message}
-                onReact={onReact}
-                reactions={projection.read(channel.id, message.id)}
-              />
+              <div className="message-actions">
+                <ReactionControls
+                  enabled={reactionsEnabled}
+                  identityId={identityId}
+                  message={message}
+                  onReact={onReact}
+                  reactions={projection.read(channel.id, message.id)}
+                />
+                <MessageHRReportControls message={message} />
+              </div>
             ) : null}
           </li>
         );
@@ -1007,6 +1042,36 @@ function ChatSurface({
   useEffect(() => {
     latestOnContentVisible.current = onContentVisible;
   }, [onContentVisible]);
+
+  useEffect(() => {
+    if (
+      !visible ||
+      !profileContentReady ||
+      !isChatContentReady(status) ||
+      messages.length === 0 ||
+      !latestMessageId
+    ) {
+      return;
+    }
+    const target = parseHRReportReviewTarget(window.location.search);
+    if (!target || target.officeChannelId !== channel.id) return;
+    const element = [
+      ...document.querySelectorAll<HTMLElement>(".chat-message"),
+    ].find(
+      (candidate) =>
+        candidate.getAttribute("data-message-id") === target.messageId,
+    );
+    if (!element) return;
+    element.scrollIntoView({ block: "center" });
+    element.focus({ preventScroll: true });
+  }, [
+    channel.id,
+    latestMessageId,
+    messages.length,
+    profileContentReady,
+    status,
+    visible,
+  ]);
 
   useEffect(() => {
     if (
@@ -1237,10 +1302,12 @@ function OfficeWorkspace({
   activeChannelId,
   inboxRows,
   inboxStatus,
+  reportNotifications,
   isMobile,
   mobileNavigationOpen,
   onOpenMobileNavigation,
   onSelectChannel,
+  onReadReportNotification,
   children,
 }: OfficeWorkspaceProps) {
   const currentProfile = useProfileBatch([identityId]);
@@ -1252,7 +1319,9 @@ function OfficeWorkspace({
   const inboxRowsByChannelId = new Map(
     inboxRows.map((row) => [row.channelId, row]),
   );
-  const totalUnread = inboxRows.reduce((total, row) => total + row.unread, 0);
+  const totalUnread =
+    inboxRows.reduce((total, row) => total + row.unread, 0) +
+    reportNotifications.filter(({ read }) => !read).length;
 
   useEffect(() => {
     if (isMobile !== true) return;
@@ -1327,6 +1396,37 @@ function OfficeWorkspace({
               );
             })}
           </nav>
+          {isOperator ? (
+            <section
+              aria-label="HR Report notifications"
+              className="hr-report-inbox"
+            >
+              <h2>HR Inbox</h2>
+              {reportNotifications.length === 0 ? (
+                <p>No open HR Report notifications.</p>
+              ) : (
+                <ul>
+                  {reportNotifications.map((notification) => (
+                    <li key={notification.id}>
+                      <a
+                        aria-label={`${notification.title}, open message context`}
+                        className={notification.read ? "is-read" : undefined}
+                        href={notification.href}
+                        onClick={() =>
+                          onReadReportNotification(notification.id)
+                        }
+                      >
+                        <strong>{notification.title}</strong>
+                        <small>
+                          {notification.officeDay} · Open message context
+                        </small>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          ) : null}
           {employeeRecord}
           {canSignOut ? (
             <form action="/api/auth/sign-out" method="post">
@@ -1455,12 +1555,33 @@ function useReactionPublisher({
   );
 }
 
+function useActiveOfficeChannel(
+  channels: readonly OfficeChannel[],
+  currentOfficeDay: string,
+) {
+  const [activeChannelId, setActiveChannelId] = useState(channels[0]?.id ?? "");
+
+  useEffect(() => {
+    const target = parseHRReportReviewTarget(window.location.search);
+    const targetsCurrentOfficeDay = target?.officeDay === currentOfficeDay;
+    const targetsKnownChannel = channels.some(
+      ({ id }) => id === target?.officeChannelId,
+    );
+    if (target && targetsCurrentOfficeDay && targetsKnownChannel) {
+      setActiveChannelId(target.officeChannelId);
+    }
+  }, [channels, currentOfficeDay]);
+
+  return { activeChannelId, setActiveChannelId };
+}
+
 function LivePortalWorkspace({
   channels,
   identityId,
   displayName,
   employeeRecord,
   eventChannelId,
+  officeDay: currentOfficeDay,
   jobTitle,
   isOperator,
   canSignOut,
@@ -1484,7 +1605,10 @@ function LivePortalWorkspace({
     },
     onInvalidation: handleInvalidation,
   });
-  const [activeChannelId, setActiveChannelId] = useState(channels[0]?.id ?? "");
+  const { activeChannelId, setActiveChannelId } = useActiveOfficeChannel(
+    channels,
+    currentOfficeDay,
+  );
   const navigation = useResponsiveOfficeNavigation();
   const inbox = useInbox();
   const inboxRows = useMemo(
@@ -1496,6 +1620,14 @@ function LivePortalWorkspace({
         displayName,
       }),
     [channels, displayName, identityId, inbox.channels],
+  );
+  const reportNotifications = useMemo(
+    () =>
+      inbox.items.flatMap((item) => {
+        const parsed = parseHRReportInboxItem(item);
+        return parsed ? [parsed] : [];
+      }),
+    [inbox.items],
   );
   const markInboxRead = useCallback(
     (channelId: string) => {
@@ -1511,7 +1643,7 @@ function LivePortalWorkspace({
       setActiveChannelId(channelId);
       navigation.showConversation();
     },
-    [navigation.showConversation],
+    [navigation.showConversation, setActiveChannelId],
   );
   const updateReaction = useReactionPublisher({
     identityId,
@@ -1533,12 +1665,16 @@ function LivePortalWorkspace({
       identityId={identityId}
       inboxRows={inboxRows}
       inboxStatus={inbox.status}
+      reportNotifications={reportNotifications}
       isMobile={navigation.isMobile}
       isOperator={isOperator}
       jobTitle={jobTitle}
       mobileNavigationOpen={navigation.mobileNavigationOpen}
       onOpenMobileNavigation={navigation.openMobileNavigation}
       onSelectChannel={selectChannel}
+      onReadReportNotification={(notificationId) => {
+        inbox.items.find(({ id }) => id === notificationId)?.markAsRead();
+      }}
     >
       {channels.map((channel) => (
         <LiveOfficeChannel
@@ -1760,7 +1896,10 @@ function MockPortalOffice(
     canSignOut,
     onOfficeDayExpired,
   } = props;
-  const [activeChannelId, setActiveChannelId] = useState(channels[0]?.id ?? "");
+  const { activeChannelId, setActiveChannelId } = useActiveOfficeChannel(
+    channels,
+    currentOfficeDay,
+  );
   const navigation = useResponsiveOfficeNavigation();
   const inbox = useMockOfficeInbox();
   const inboxRows = useMemo(
@@ -1781,7 +1920,7 @@ function MockPortalOffice(
       setActiveChannelId(channelId);
       navigation.showConversation();
     },
-    [navigation.showConversation],
+    [navigation.showConversation, setActiveChannelId],
   );
   const markInboxRead = useCallback(
     (channelId: string) => void inbox.markAsRead(channelId),
@@ -1851,12 +1990,16 @@ function MockPortalOffice(
       identityId={identityId}
       inboxRows={inboxRows}
       inboxStatus={inbox.status}
+      reportNotifications={inbox.reportNotifications}
       isMobile={navigation.isMobile}
       isOperator={isOperator}
       jobTitle={jobTitle}
       mobileNavigationOpen={navigation.mobileNavigationOpen}
       onOpenMobileNavigation={navigation.openMobileNavigation}
       onSelectChannel={selectChannel}
+      onReadReportNotification={(notificationId) => {
+        void inbox.markReportNotificationAsRead(notificationId);
+      }}
     >
       {channels.map((channel) => (
         <MockOfficeChannel

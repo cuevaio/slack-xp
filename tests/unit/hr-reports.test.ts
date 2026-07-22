@@ -1,0 +1,85 @@
+import { describe, expect, test } from "bun:test";
+import {
+  createHRReportDeepLink,
+  HR_REPORT_CATEGORIES,
+  parseHRReportReviewTarget,
+  parseMessageHRReportRequest,
+} from "@/lib/hr-reports/domain";
+
+describe("message HR Report contract", () => {
+  test("accepts only approved private categories and current Office Channel references", () => {
+    const now = new Date("2026-07-22T12:00:00.000Z");
+
+    for (const category of HR_REPORT_CATEGORIES) {
+      expect(
+        parseMessageHRReportRequest(
+          {
+            category,
+            officeChannelId: "general:2026-07-22",
+            messageId: "message-17",
+          },
+          now,
+        ),
+      ).toEqual({
+        category,
+        officeDay: "2026-07-22",
+        officeChannelId: "general:2026-07-22",
+        messageId: "message-17",
+      });
+    }
+
+    expect(
+      parseMessageHRReportRequest(
+        {
+          category: "other",
+          officeChannelId: "general:2026-07-22",
+          messageId: "message-17",
+        },
+        now,
+      ),
+    ).toBeNull();
+    expect(
+      parseMessageHRReportRequest(
+        {
+          category: HR_REPORT_CATEGORIES[0],
+          officeChannelId: "general:2026-07-21",
+          messageId: "message-17",
+        },
+        now,
+      ),
+    ).toBeNull();
+    expect(
+      parseMessageHRReportRequest(
+        {
+          category: HR_REPORT_CATEGORIES[0],
+          officeChannelId: "made-up:2026-07-22",
+          messageId: "message-17",
+        },
+        now,
+      ),
+    ).toBeNull();
+  });
+
+  test("builds and parses a same-origin review deep link without private report details", () => {
+    const href = createHRReportDeepLink("https://office.example.com", {
+      officeDay: "2026-07-22",
+      officeChannelId: "urgent:2026-07-22",
+      messageId: "message-urgent-17",
+    });
+
+    expect(href).toBe(
+      "https://office.example.com/office?officeDay=2026-07-22&channel=urgent&message=message-urgent-17",
+    );
+    expect(parseHRReportReviewTarget(new URL(href).search)).toEqual({
+      officeDay: "2026-07-22",
+      officeChannelId: "urgent:2026-07-22",
+      messageId: "message-urgent-17",
+    });
+    expect(href).not.toMatch(/category|reporter|harassment/i);
+    expect(
+      parseHRReportReviewTarget(
+        "?officeDay=2026-07-22&channel=unknown&message=message-17",
+      ),
+    ).toBeNull();
+  });
+});

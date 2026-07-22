@@ -1,4 +1,9 @@
 import { officeCharacterById } from "@/lib/office-days/contract";
+import {
+  HR_REPORT_NOTIFICATION_TITLE,
+  HR_REPORT_NOTIFICATION_TYPE,
+} from "@/lib/hr-reports/contract";
+import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import type { OfficeChannel } from "@/lib/portal/channels";
 import { parseChatContent } from "@/lib/portal/chat";
 
@@ -18,6 +23,22 @@ export type OfficeInboxRow = {
   preview: OfficeInboxPreview | null;
 };
 
+export type HRReportInboxItem = {
+  id: string;
+  title: string;
+  href: string;
+  officeDay: string;
+  officeChannelId: string;
+  messageId: string;
+  at: number;
+  read: boolean;
+};
+
+export type OfficeInboxSnapshot = {
+  entries: OfficeInboxEntry[];
+  reportNotifications: HRReportInboxItem[];
+};
+
 type OfficeInboxPreview = {
   sender: string;
   text: string;
@@ -26,6 +47,91 @@ type OfficeInboxPreview = {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+export function parseHRReportInboxItem(
+  value: unknown,
+): HRReportInboxItem | null {
+  if (
+    !isObject(value) ||
+    typeof value.id !== "string" ||
+    value.type !== HR_REPORT_NOTIFICATION_TYPE ||
+    typeof value.at !== "number" ||
+    !Number.isFinite(value.at) ||
+    typeof value.read !== "boolean" ||
+    !isObject(value.data)
+  ) {
+    return null;
+  }
+  const data = value.data;
+  if (
+    Object.keys(data).some(
+      (key) =>
+        ![
+          "title",
+          "href",
+          "officeDay",
+          "officeChannelId",
+          "messageId",
+        ].includes(key),
+    )
+  ) {
+    return null;
+  }
+  const title = typeof value.title === "string" ? value.title : data.title;
+  if (
+    title !== HR_REPORT_NOTIFICATION_TITLE ||
+    typeof data.href !== "string" ||
+    typeof data.officeDay !== "string" ||
+    typeof data.officeChannelId !== "string" ||
+    typeof data.messageId !== "string"
+  ) {
+    return null;
+  }
+  let url: URL;
+  try {
+    url = new URL(data.href);
+  } catch {
+    return null;
+  }
+  if (url.pathname !== "/office" || url.hash || url.username || url.password) {
+    return null;
+  }
+  const target = parseHRReportReviewTarget(url.search);
+  if (
+    !target ||
+    target.officeDay !== data.officeDay ||
+    target.officeChannelId !== data.officeChannelId ||
+    target.messageId !== data.messageId
+  ) {
+    return null;
+  }
+  return {
+    id: value.id,
+    title,
+    href: `${url.pathname}${url.search}`,
+    officeDay: data.officeDay,
+    officeChannelId: data.officeChannelId,
+    messageId: data.messageId,
+    at: value.at,
+    read: value.read,
+  };
+}
+
+function parseHRReportInboxItems(value: unknown): HRReportInboxItem[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const notifications: HRReportInboxItem[] = [];
+  for (const candidate of value) {
+    const notification = parseHRReportInboxItem(candidate);
+    if (!notification) {
+      return null;
+    }
+    notifications.push(notification);
+  }
+  return notifications;
 }
 
 function parseOfficeInboxEntry(value: unknown): OfficeInboxEntry | null {
@@ -81,6 +187,22 @@ export function parseOfficeInboxResponse(
     entries.push(entry);
   }
   return entries;
+}
+
+export function parseOfficeInboxSnapshot(
+  value: unknown,
+): OfficeInboxSnapshot | null {
+  if (!isObject(value) || !("notifications" in value)) {
+    return null;
+  }
+
+  const entries = parseOfficeInboxResponse(value);
+  const reportNotifications = parseHRReportInboxItems(value.notifications);
+  if (!entries || !reportNotifications) {
+    return null;
+  }
+
+  return { entries, reportNotifications };
 }
 
 function createInboxPreview(

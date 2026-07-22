@@ -117,7 +117,23 @@ export async function GET() {
     const channels = getMockPortalAdapter()
       .inbox(context.identity.id, context.session.channelIds)
       .map(toOfficeInboxEntry);
-    return Response.json({ channels });
+    const notifications = getMockPortalAdapter()
+      .hrReportNotifications(context.identity.id)
+      .map((notification) => ({
+        id: notification.notificationId,
+        type: notification.type,
+        title: notification.title,
+        data: {
+          title: notification.title,
+          href: notification.href,
+          officeDay: notification.officeDay,
+          officeChannelId: notification.officeChannelId,
+          messageId: notification.messageId,
+        },
+        at: notification.at,
+        read: notification.read,
+      }));
+    return Response.json({ channels, notifications });
   } catch (error) {
     return handleMockPortalError(error);
   }
@@ -130,6 +146,22 @@ export async function POST(request: Request) {
   }
 
   const body: unknown = await request.json().catch(() => null);
+  if (
+    typeof body === "object" &&
+    body !== null &&
+    "notificationId" in body &&
+    typeof body.notificationId === "string"
+  ) {
+    try {
+      getMockPortalAdapter().markHRReportNotificationRead(
+        context.identity.id,
+        body.notificationId,
+      );
+      return new Response(null, { status: 204 });
+    } catch (error) {
+      return handleMockPortalError(error);
+    }
+  }
   const channelId = readRequestedChannelId(body, context.session.channelIds);
   if (!channelId) {
     return Response.json({ error: "invalid_channel" }, { status: 422 });

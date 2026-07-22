@@ -12,6 +12,8 @@ import type { NeonAdapter } from "@/lib/adapters/types";
 import type { Database } from "@/lib/db/client";
 import {
   clerkProfiles,
+  hrReportNotificationOutbox,
+  hrReports,
   newHireOnboarding,
   officeDays,
   profileInvalidationOutbox,
@@ -22,6 +24,7 @@ import {
   planOfficeDay,
 } from "@/lib/office-days/contract";
 import type { ScriptedSystemEventOutboxEntry } from "@/lib/office-days/types";
+import type { CreateMessageHRReportInput } from "@/lib/hr-reports/contract";
 import { OFFICE_EVENT_VERSION } from "@/lib/office-events/contract";
 import {
   assignJobTitle,
@@ -198,6 +201,55 @@ function matchesPlannedSystemEvent(
     planned.characterId === stored.characterId &&
     planned.dueAt.getTime() === stored.dueAt.getTime()
   );
+}
+
+export function buildHRReportInsertQuery(
+  database: Database,
+  input: CreateMessageHRReportInput,
+) {
+  return database
+    .insert(hrReports)
+    .values({
+      reportId: input.reportId,
+      reporterId: input.reporterId,
+      officeDay: input.officeDay,
+      officeChannelId: input.officeChannelId,
+      messageId: input.messageId,
+      category: input.category,
+      state: "open",
+      createdAt: input.createdAt,
+      updatedAt: input.createdAt,
+    })
+    .onConflictDoNothing({
+      target: [
+        hrReports.reporterId,
+        hrReports.officeChannelId,
+        hrReports.messageId,
+      ],
+      where: sql`${hrReports.state} = 'open'`,
+    })
+    .returning({ reportId: hrReports.reportId });
+}
+
+export function buildHRReportOutboxQuery(
+  database: Database,
+  input: CreateMessageHRReportInput,
+) {
+  const outboxId = `hr-report-notification:${input.reportId}`;
+  return database
+    .insert(hrReportNotificationOutbox)
+    .select(
+      database
+        .select({
+          outboxId: sql<string>`${outboxId}`.as("outbox_id"),
+          reportId: hrReports.reportId,
+          publishedAt: sql<Date | null>`null`.as("published_at"),
+          createdAt: sql<Date>`${input.createdAt}`.as("created_at"),
+        })
+        .from(hrReports)
+        .where(eq(hrReports.reportId, input.reportId)),
+    )
+    .onConflictDoNothing({ target: hrReportNotificationOutbox.outboxId });
 }
 
 export function createNeonRepository(database: Database): NeonAdapter {
@@ -382,6 +434,60 @@ export function createNeonRepository(database: Database): NeonAdapter {
           and(
             eq(profileInvalidationOutbox.eventKey, outboxId),
             isNull(profileInvalidationOutbox.publishedAt),
+          ),
+        );
+    },
+    async createMessageHRReport(input) {
+      const [createdRows] = await database.batch([
+        buildHRReportInsertQuery(database, input),
+        buildHRReportOutboxQuery(database, input),
+      ]);
+      const created = createdRows[0];
+      if (created) {
+        return { reportId: created.reportId, status: "created" };
+      }
+      const [existing] = await database
+        .select({ reportId: hrReports.reportId })
+        .from(hrReports)
+        .where(
+          and(
+            eq(hrReports.reporterId, input.reporterId),
+            eq(hrReports.officeChannelId, input.officeChannelId),
+            eq(hrReports.messageId, input.messageId),
+            eq(hrReports.state, "open"),
+          ),
+        )
+        .limit(1);
+      if (!existing) {
+        throw new Error("HR Report uniqueness could not be resolved.");
+      }
+      return { reportId: existing.reportId, status: "already-reported" };
+    },
+    async pendingHRReportNotifications(limit) {
+      return database
+        .select({
+          outboxId: hrReportNotificationOutbox.outboxId,
+          officeDay: hrReports.officeDay,
+          officeChannelId: hrReports.officeChannelId,
+          messageId: hrReports.messageId,
+        })
+        .from(hrReportNotificationOutbox)
+        .innerJoin(
+          hrReports,
+          eq(hrReportNotificationOutbox.reportId, hrReports.reportId),
+        )
+        .where(isNull(hrReportNotificationOutbox.publishedAt))
+        .orderBy(asc(hrReportNotificationOutbox.createdAt))
+        .limit(limit);
+    },
+    async markHRReportNotificationPublished(outboxId, publishedAt) {
+      await database
+        .update(hrReportNotificationOutbox)
+        .set({ publishedAt })
+        .where(
+          and(
+            eq(hrReportNotificationOutbox.outboxId, outboxId),
+            isNull(hrReportNotificationOutbox.publishedAt),
           ),
         );
     },

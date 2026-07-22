@@ -1450,6 +1450,7 @@ a {
   display: flex;
   flex-direction: column;
   background: var(--paper);
+  min-height: 0;
   min-width: 0;
 }
 

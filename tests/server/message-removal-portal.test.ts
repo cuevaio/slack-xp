@@ -41,6 +41,7 @@ describe("Portal Removed Message invalidation adapter", () => {
     ).toMatchObject({ userId: "office-events:operations" });
     const publication = requests.find(({ url }) => url.endsWith("/messages"));
     expect(publication?.body).toEqual({
+      senderId: "office-events:operations",
       type: "office.event",
       content: {
         version: 1,

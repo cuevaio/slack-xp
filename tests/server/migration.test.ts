@@ -12,7 +12,9 @@ import {
   buildOperatorActionInsertQuery,
   buildProfileOutboxQuery,
   buildProfileProjectionQuery,
+  buildReinstatementQueries,
   buildSendHomeQueries,
+  buildTerminationQueries,
 } from "@/lib/onboarding/neon";
 
 describe("initial Neon migration", () => {
@@ -294,5 +296,56 @@ describe("initial Neon migration", () => {
     expect(queries.insertOutbox.toSQL().sql).not.toContain(
       "Private audit reason",
     );
+  });
+
+  test("adds one active Termination with linked reversal audits and retryable effects", async () => {
+    const migration = await Bun.file(
+      new URL("../../drizzle/0008_salty_selene.sql", import.meta.url),
+    ).text();
+    expect(migration).toContain('CREATE TABLE "employment_terminations"');
+    expect(migration).toContain('CREATE TABLE "employment_reinstatements"');
+    expect(migration).toContain(
+      'CREATE TABLE "employment_termination_effect_outbox"',
+    );
+    expect(migration).toContain("employment_terminations_one_active_idx");
+    expect(migration).toContain(
+      'CONSTRAINT "employment_reinstatements_termination_id_unique"',
+    );
+    expect(migration).toContain("portal_access_reconciled_at");
+    expect(migration).not.toMatch(/message[_ ]?(body|content)|preview/iu);
+
+    const database = createDatabase("postgresql://test:test@localhost/test");
+    const termination = buildTerminationQueries(database, {
+      terminationId: "termination-sql-22",
+      requestId: "termination-request-sql-22",
+      operatorId: "user-operator",
+      targetNewHireId: "user-target",
+      reportId: "report-22",
+      privateReason: "Private termination reason.",
+      terminatedAt: new Date("2026-07-22T20:00:00.000Z"),
+    });
+    const reinstatement = buildReinstatementQueries(database, {
+      reinstatementId: "reinstatement-sql-22",
+      requestId: "reinstatement-request-sql-22",
+      terminationId: "termination-sql-22",
+      operatorId: "user-second-operator",
+      targetNewHireId: "user-target",
+      privateReason: "Private reversal reason.",
+      reinstatedAt: new Date("2026-07-22T21:00:00.000Z"),
+    });
+    expect(termination.insertTermination.toSQL().sql).toContain(
+      "on conflict do nothing",
+    );
+    expect(termination.insertAudit.toSQL().sql).toContain("operator_actions");
+    expect(termination.insertOutbox.toSQL().sql).not.toContain(
+      "Private termination reason",
+    );
+    expect(reinstatement.insertReinstatement.toSQL().sql).toContain(
+      '"termination_id"',
+    );
+    expect(reinstatement.reverseTermination.toSQL().sql).toContain(
+      '"reinstated_at"',
+    );
+    expect(reinstatement.insertAudit.toSQL().sql).toContain("operator_actions");
   });
 });

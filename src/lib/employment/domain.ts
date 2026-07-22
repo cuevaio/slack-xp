@@ -1,12 +1,19 @@
 import {
+  EMPLOYMENT_PRIVATE_REASON_MAX_LENGTH,
   EMPLOYMENT_SYSTEM_EVENT_MESSAGE_TYPE,
   EMPLOYMENT_SYSTEM_EVENT_VERSION,
   type EmploymentAccessDecision,
   type PublicSendHomeSystemEvent,
+  type PublicTerminationSystemEvent,
+  REINSTATEMENT_SYSTEM_EVENT_TEXT,
+  type ReinstatementRequest,
   type SafePublicSendHomeSystemEventMessage,
+  type SafePublicTerminationSystemEventMessage,
   SEND_HOME_PRIVATE_REASON_MAX_LENGTH,
   SEND_HOME_SYSTEM_EVENT_TEXT,
   type SendHomeRequest,
+  TERMINATION_SYSTEM_EVENT_TEXT,
+  type TerminationRequest,
 } from "@/lib/employment/contract";
 import { OFFICE_EVENT_SENDERS } from "@/lib/office-events/contract";
 import { isOfficeDay, officeDay } from "@/lib/portal/office-day";
@@ -90,6 +97,85 @@ export function parseSendHomeRequest(value: unknown): SendHomeRequest | null {
     privateReason,
     ...(typeof value.reportId === "string" ? { reportId: value.reportId } : {}),
   };
+}
+
+const REINSTATEMENT_REQUEST_FIELDS = new Set([
+  "requestId",
+  "targetNewHireId",
+  "privateReason",
+]);
+const TERMINATION_REQUEST_FIELDS = new Set([
+  ...REINSTATEMENT_REQUEST_FIELDS,
+  "reportId",
+]);
+
+function parseEmploymentReasonFields(
+  value: Record<string, unknown>,
+): ReinstatementRequest | null {
+  if (
+    !isEmploymentIdentifier(value.requestId) ||
+    !isEmploymentIdentifier(value.targetNewHireId) ||
+    typeof value.privateReason !== "string"
+  ) {
+    return null;
+  }
+  const privateReason = value.privateReason.trim();
+  if (
+    privateReason.length === 0 ||
+    privateReason.length > EMPLOYMENT_PRIVATE_REASON_MAX_LENGTH
+  ) {
+    return null;
+  }
+  return {
+    requestId: value.requestId,
+    targetNewHireId: value.targetNewHireId,
+    privateReason,
+  };
+}
+
+export function parseTerminationRequest(
+  value: unknown,
+): TerminationRequest | null {
+  if (
+    !isObject(value) ||
+    Object.keys(value).some((key) => !TERMINATION_REQUEST_FIELDS.has(key)) ||
+    (value.reportId !== undefined && !isEmploymentIdentifier(value.reportId))
+  ) {
+    return null;
+  }
+
+  const request = parseEmploymentReasonFields(value);
+  if (!request) return null;
+
+  return typeof value.reportId === "string"
+    ? { ...request, reportId: value.reportId }
+    : request;
+}
+
+export function parseReinstatementRequest(
+  value: unknown,
+): ReinstatementRequest | null {
+  if (
+    !isObject(value) ||
+    Object.keys(value).some((key) => !REINSTATEMENT_REQUEST_FIELDS.has(key))
+  ) {
+    return null;
+  }
+
+  return parseEmploymentReasonFields(value);
+}
+
+export function createTerminationSystemEventKey(
+  action: "terminated" | "reinstated",
+  currentOfficeDay: string,
+  effectId: string,
+): string {
+  if (!isOfficeDay(currentOfficeDay) || !isEmploymentIdentifier(effectId)) {
+    throw new TypeError(
+      "A valid employment action and Office Day are required.",
+    );
+  }
+  return `employment-event:v1:${currentOfficeDay}:${action}:${effectId}`;
 }
 
 export function createSendHomeSystemEventKey(
@@ -181,6 +267,98 @@ export function parsePublicSendHomeSystemEventMessage(
     eventKey: event.eventKey,
     operatorId: event.operatorId,
     targetNewHireId: event.targetNewHireId,
+    content: event,
+    status: "sent",
+  };
+}
+
+function parsePublicTerminationSystemEvent(
+  value: unknown,
+  expectedChannelId: string,
+): PublicTerminationSystemEvent | null {
+  if (!isObject(value)) return null;
+
+  let action: "terminated" | "reinstated";
+  let expectedText: string;
+  if (value.type === "employment.terminated") {
+    action = "terminated";
+    expectedText = TERMINATION_SYSTEM_EVENT_TEXT;
+  } else if (value.type === "employment.reinstated") {
+    action = "reinstated";
+    expectedText = REINSTATEMENT_SYSTEM_EVENT_TEXT;
+  } else {
+    return null;
+  }
+
+  if (
+    Object.keys(value).length !== 8 ||
+    value.version !== EMPLOYMENT_SYSTEM_EVENT_VERSION ||
+    typeof value.eventKey !== "string" ||
+    typeof value.officeDay !== "string" ||
+    !isOfficeDay(value.officeDay) ||
+    expectedChannelId !== `all-hands:${value.officeDay}` ||
+    !isEmploymentIdentifier(value.operatorId) ||
+    !isEmploymentIdentifier(value.targetNewHireId) ||
+    !isEmploymentIdentifier(value.terminationId) ||
+    value.text !== expectedText ||
+    !value.eventKey.startsWith(
+      `employment-event:v1:${value.officeDay}:${action}:`,
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    version: EMPLOYMENT_SYSTEM_EVENT_VERSION,
+    type: value.type,
+    eventKey: value.eventKey,
+    officeDay: value.officeDay,
+    operatorId: value.operatorId,
+    targetNewHireId: value.targetNewHireId,
+    terminationId: value.terminationId,
+    text: expectedText,
+  };
+}
+
+export function parsePublicTerminationSystemEventMessage(
+  value: unknown,
+  expectedChannelId: string,
+): SafePublicTerminationSystemEventMessage | null {
+  if (
+    !isObject(value) ||
+    !isEmploymentIdentifier(value.id) ||
+    value.channelId !== expectedChannelId ||
+    !expectedChannelId.startsWith("all-hands:") ||
+    !isObject(value.sender) ||
+    value.sender.id !== OFFICE_EVENT_SENDERS.operations ||
+    value.sender.anon !== false ||
+    typeof value.timestamp !== "number" ||
+    !Number.isSafeInteger(value.timestamp) ||
+    value.timestamp < 0 ||
+    value.kind !== "text" ||
+    value.type !== EMPLOYMENT_SYSTEM_EVENT_MESSAGE_TYPE ||
+    value.ephemeral !== false ||
+    value.retracted !== false ||
+    value.status !== "sent"
+  ) {
+    return null;
+  }
+  const event = parsePublicTerminationSystemEvent(
+    value.content,
+    expectedChannelId,
+  );
+  if (!event) return null;
+  return {
+    id: value.id,
+    channelId: expectedChannelId,
+    senderId: OFFICE_EVENT_SENDERS.operations,
+    timestamp: value.timestamp,
+    eventKey: event.eventKey,
+    operatorId: event.operatorId,
+    targetNewHireId: event.targetNewHireId,
+    terminationId: event.terminationId,
+    action:
+      event.type === "employment.terminated" ? "terminated" : "reinstated",
     content: event,
     status: "sent",
   };

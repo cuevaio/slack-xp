@@ -306,11 +306,11 @@ export const operatorActions = pgTable(
     ),
     check(
       "operator_actions_kind_check",
-      sql`(${table.targetType} = 'hr_report' and ${table.action} = 'dismissed') or (${table.targetType} = 'message_removal' and ${table.action} = 'removed') or (${table.targetType} = 'new_hire' and ${table.action} = 'sent_home')`,
+      sql`(${table.targetType} = 'hr_report' and ${table.action} = 'dismissed') or (${table.targetType} = 'message_removal' and ${table.action} = 'removed') or (${table.targetType} = 'new_hire' and ${table.action} in ('sent_home', 'terminated', 'reinstated'))`,
     ),
     check(
       "operator_actions_private_note_check",
-      sql`(${table.action} = 'dismissed' and (${table.privateNote} is null or char_length(${table.privateNote}) between 1 and 1000)) or (${table.action} in ('removed', 'sent_home') and char_length(${table.privateNote}) between 1 and 1000)`,
+      sql`(${table.action} = 'dismissed' and (${table.privateNote} is null or char_length(${table.privateNote}) between 1 and 1000)) or (${table.action} in ('removed', 'sent_home', 'terminated', 'reinstated') and char_length(${table.privateNote}) between 1 and 1000)`,
     ),
     uniqueIndex("operator_actions_one_report_dismissal_idx")
       .on(table.targetType, table.targetId, table.action)
@@ -422,6 +422,107 @@ export const employmentEffectOutbox = pgTable(
   },
   (table) => [
     index("employment_effect_outbox_pending_idx").on(table.createdAt),
+  ],
+);
+
+export const employmentTerminations = pgTable(
+  "employment_terminations",
+  {
+    terminationId: text("termination_id").primaryKey(),
+    requestId: text("request_id").notNull().unique(),
+    operatorId: text("operator_id").notNull(),
+    targetNewHireId: text("target_new_hire_id")
+      .notNull()
+      .references(() => clerkProfiles.clerkUserId, { onDelete: "cascade" }),
+    reportId: text("report_id").references(() => hrReports.reportId, {
+      onDelete: "set null",
+    }),
+    terminatedAt: timestamp("terminated_at", { withTimezone: true }).notNull(),
+    reinstatedAt: timestamp("reinstated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "employment_terminations_id_check",
+      sql`char_length(${table.terminationId}) between 1 and 255 and char_length(${table.requestId}) between 1 and 255`,
+    ),
+    uniqueIndex("employment_terminations_one_active_idx")
+      .on(table.targetNewHireId)
+      .where(sql`${table.reinstatedAt} is null`),
+    index("employment_terminations_target_idx").on(
+      table.targetNewHireId,
+      table.terminatedAt,
+    ),
+  ],
+);
+
+export const employmentReinstatements = pgTable(
+  "employment_reinstatements",
+  {
+    reinstatementId: text("reinstatement_id").primaryKey(),
+    requestId: text("request_id").notNull().unique(),
+    terminationId: text("termination_id")
+      .notNull()
+      .unique()
+      .references(() => employmentTerminations.terminationId, {
+        onDelete: "cascade",
+      }),
+    operatorId: text("operator_id").notNull(),
+    targetNewHireId: text("target_new_hire_id")
+      .notNull()
+      .references(() => clerkProfiles.clerkUserId, { onDelete: "cascade" }),
+    reinstatedAt: timestamp("reinstated_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "employment_reinstatements_id_check",
+      sql`char_length(${table.reinstatementId}) between 1 and 255 and char_length(${table.requestId}) between 1 and 255`,
+    ),
+    index("employment_reinstatements_target_idx").on(
+      table.targetNewHireId,
+      table.reinstatedAt,
+    ),
+  ],
+);
+
+export const employmentTerminationEffectOutbox = pgTable(
+  "employment_termination_effect_outbox",
+  {
+    effectId: text("effect_id").primaryKey(),
+    action: text("action").notNull(),
+    terminationId: text("termination_id")
+      .notNull()
+      .references(() => employmentTerminations.terminationId, {
+        onDelete: "cascade",
+      }),
+    operatorId: text("operator_id").notNull(),
+    targetNewHireId: text("target_new_hire_id").notNull(),
+    officeDay: text("office_day").notNull(),
+    actedAt: timestamp("acted_at", { withTimezone: true }).notNull(),
+    portalAccessReconciledAt: timestamp("portal_access_reconciled_at", {
+      withTimezone: true,
+    }),
+    publicEventPublishedAt: timestamp("public_event_published_at", {
+      withTimezone: true,
+    }),
+    invalidationPublishedAt: timestamp("invalidation_published_at", {
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "employment_termination_effect_kind_check",
+      sql`${table.action} in ('terminated', 'reinstated') and ${table.officeDay} ~ '^\\d{4}-\\d{2}-\\d{2}$'`,
+    ),
+    index("employment_termination_effect_pending_idx").on(table.createdAt),
   ],
 );
 

@@ -7,6 +7,7 @@ import type {
   EmploymentInvalidationEvent,
   EmploymentPortalAuthority,
   PublicSendHomeSystemEvent,
+  PublicTerminationSystemEvent,
 } from "@/lib/employment/contract";
 import type {
   HRReportInvalidationEvent,
@@ -132,9 +133,10 @@ export type MockPortalAdapter = PortalAuthority &
     membershipCount(channelId: string): number;
     activeBans(userId: string): readonly {
       channelId: string;
-      expiresAt: string;
+      expiresAt: string | null;
     }[];
     publicSendHomeEvents(): readonly PublicSendHomeSystemEvent[];
+    publicTerminationEvents(): readonly PublicTerminationSystemEvent[];
     connect(input: {
       clientId: string;
       channelId: string;
@@ -186,8 +188,9 @@ export function createMockPortalAdapter({
     string,
     Map<string, MockHRReportNotification>
   >();
-  const bans = new Map<string, Map<string, Date>>();
+  const bans = new Map<string, Map<string, Date | null>>();
   const sendHomeEvents = new Map<string, PublicSendHomeSystemEvent>();
+  const terminationEvents = new Map<string, PublicTerminationSystemEvent>();
   let online = true;
   let rejectNextSend = false;
   let tokenSequence = 0;
@@ -200,7 +203,10 @@ export function createMockPortalAdapter({
   }
 
   function isBanned(channelId: string, userId: string): boolean {
-    const expiresAt = bans.get(channelId)?.get(userId);
+    const channelBans = bans.get(channelId);
+    if (!channelBans?.has(userId)) return false;
+    const expiresAt = channelBans.get(userId);
+    if (expiresAt === null) return true;
     if (!expiresAt) return false;
     if (expiresAt.getTime() <= now().getTime()) {
       bans.get(channelId)?.delete(userId);
@@ -318,6 +324,36 @@ export function createMockPortalAdapter({
             deactivateConnection(connection, false);
           }
         }
+      }
+    },
+
+    async applyTerminationBans({ channelIds, newHireId }) {
+      requireOnline();
+      for (const channelId of channelIds) {
+        const channelBans = bans.get(channelId) ?? new Map();
+        channelBans.set(newHireId, null);
+        bans.set(channelId, channelBans);
+        for (const connection of connections.values()) {
+          if (
+            connection.channelId === channelId &&
+            connection.userId === newHireId
+          ) {
+            deactivateConnection(connection, false);
+          }
+        }
+      }
+    },
+
+    async reconcileReinstatementBans({ channelIds, newHireId, sentHomeUntil }) {
+      requireOnline();
+      for (const channelId of channelIds) {
+        if (sentHomeUntil) {
+          const channelBans = bans.get(channelId) ?? new Map();
+          channelBans.set(newHireId, new Date(sentHomeUntil));
+          bans.set(channelId, channelBans);
+          continue;
+        }
+        bans.get(channelId)?.delete(newHireId);
       }
     },
 
@@ -451,6 +487,30 @@ export function createMockPortalAdapter({
       requireOnline();
       if (sendHomeEvents.has(event.eventKey)) return;
       sendHomeEvents.set(event.eventKey, event);
+      const channelId = `all-hands:${event.officeDay}`;
+      const message: PortalEmploymentSystemEventMessage = {
+        id: `mock_system_event_${++messageSequence}`,
+        channelId,
+        sender: { id: OFFICE_EVENT_SENDERS.operations, anon: false },
+        timestamp: now().getTime(),
+        retracted: false,
+        ephemeral: false,
+        kind: "text",
+        type: "system.event",
+        content: event,
+        unread: false,
+        status: "sent",
+      };
+      const channelMessages = messages.get(channelId) ?? [];
+      channelMessages.push(message);
+      messages.set(channelId, channelMessages);
+      incrementUnread(channelId, message.sender.id);
+    },
+
+    async publishTerminationSystemEvent(event: PublicTerminationSystemEvent) {
+      requireOnline();
+      if (terminationEvents.has(event.eventKey)) return;
+      terminationEvents.set(event.eventKey, event);
       const channelId = `all-hands:${event.officeDay}`;
       const message: PortalEmploymentSystemEventMessage = {
         id: `mock_system_event_${++messageSequence}`,
@@ -693,13 +753,14 @@ export function createMockPortalAdapter({
     },
 
     activeBans(userId) {
-      const active: { channelId: string; expiresAt: string }[] = [];
+      const active: { channelId: string; expiresAt: string | null }[] = [];
       for (const [channelId, channelBans] of bans) {
         if (isBanned(channelId, userId)) {
           const expiresAt = channelBans.get(userId);
-          if (expiresAt) {
-            active.push({ channelId, expiresAt: expiresAt.toISOString() });
-          }
+          active.push({
+            channelId,
+            expiresAt: expiresAt ? expiresAt.toISOString() : null,
+          });
         }
       }
       return active;
@@ -707,6 +768,10 @@ export function createMockPortalAdapter({
 
     publicSendHomeEvents() {
       return [...sendHomeEvents.values()];
+    },
+
+    publicTerminationEvents() {
+      return [...terminationEvents.values()];
     },
 
     connect({ clientId, channelId, userId, mode }) {
@@ -809,6 +874,7 @@ export function createMockPortalAdapter({
       hrReportNotifications.clear();
       bans.clear();
       sendHomeEvents.clear();
+      terminationEvents.clear();
       online = true;
       rejectNextSend = false;
       tokenSequence = 0;

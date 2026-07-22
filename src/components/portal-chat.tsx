@@ -31,6 +31,7 @@ import { fetchEmploymentAccess } from "@/lib/employment/client";
 import type {
   EmploymentAccessDeniedDecision,
   SafePublicSendHomeSystemEventMessage,
+  SafePublicTerminationSystemEventMessage,
 } from "@/lib/employment/contract";
 import { invalidateHRReportQueue } from "@/lib/hr-reports/client";
 import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
@@ -92,6 +93,7 @@ import {
 import {
   isNewHireMessage,
   isPublicSendHomeSystemEventMessage,
+  isPublicTerminationSystemEventMessage,
   isScriptedSystemEventMessage,
   parseOfficeChannelMessages,
   type SafeOfficeChannelMessage,
@@ -905,6 +907,35 @@ function SendHomeSystemEventListItem({
   );
 }
 
+function TerminationSystemEventListItem({
+  message,
+}: {
+  message: SafePublicTerminationSystemEventMessage;
+}) {
+  return (
+    <li
+      className="chat-message system-event-message"
+      data-event-key={message.eventKey}
+      data-message-id={message.id}
+    >
+      <div className="message-meta system-event-meta">
+        <span aria-hidden="true" className="system-event-icon">
+          !
+        </span>
+        <strong>Portal Systems Operations</strong>
+        <time dateTime={new Date(message.timestamp).toISOString()}>
+          {formatOfficeTimestamp(message.timestamp)}
+        </time>
+      </div>
+      <p>
+        Operator {message.operatorId}{" "}
+        {message.action === "terminated" ? "terminated" : "reinstated"} New Hire{" "}
+        {message.targetNewHireId}.
+      </p>
+    </li>
+  );
+}
+
 function MessageHistory({
   channel,
   messages,
@@ -953,6 +984,14 @@ function MessageHistory({
       aria-label={`${channel.name} message history`}
     >
       {messages.map((message) => {
+        if (isPublicTerminationSystemEventMessage(message)) {
+          return (
+            <TerminationSystemEventListItem
+              key={message.id}
+              message={message}
+            />
+          );
+        }
         if (isPublicSendHomeSystemEventMessage(message)) {
           return (
             <SendHomeSystemEventListItem key={message.id} message={message} />
@@ -1313,12 +1352,14 @@ function ChatSurface({
     const previousTop = region?.scrollTop ?? 0;
     await loadPrevious();
     if (!region) return;
-    let remainingFrames = 10;
+    let remainingFrames = 60;
     const restoreScrollPosition = () => {
       const nextHeight = region.scrollHeight;
-      if (nextHeight === previousHeight && remainingFrames > 0) {
-        remainingFrames -= 1;
-        requestAnimationFrame(restoreScrollPosition);
+      if (nextHeight <= previousHeight) {
+        if (remainingFrames > 0) {
+          remainingFrames -= 1;
+          requestAnimationFrame(restoreScrollPosition);
+        }
         return;
       }
       region.scrollTop = previousTop + nextHeight - previousHeight;
@@ -1359,7 +1400,8 @@ function ChatSurface({
       <div
         className="chat-scroll-region"
         onScroll={(event) => {
-          if (!visible || !messageHistoryReady) return;
+          if (!visible || !messageHistoryReady || !isChatContentReady(status))
+            return;
           const region = event.currentTarget;
           followingLatestMessage.current =
             region.scrollHeight - region.scrollTop - region.clientHeight <=

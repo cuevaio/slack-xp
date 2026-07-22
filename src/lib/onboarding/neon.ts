@@ -17,6 +17,9 @@ import {
   clerkProfiles,
   employmentActions,
   employmentEffectOutbox,
+  employmentReinstatements,
+  employmentTerminationEffectOutbox,
+  employmentTerminations,
   hrReportNotificationOutbox,
   hrReports,
   messageRemovalInvalidationOutbox,
@@ -31,7 +34,10 @@ import {
   EmploymentActionError,
   type EmploymentActionRecord,
   type PendingEmploymentEffect,
+  type PendingTerminationEffect,
+  type RecordReinstatementInput,
   type RecordSendHomeInput,
+  type RecordTerminationInput,
 } from "@/lib/employment/contract";
 import { employmentAccessDecision } from "@/lib/employment/domain";
 import type {
@@ -60,6 +66,7 @@ import type {
   NewHireProfile,
   OnboardingSnapshot,
 } from "@/lib/onboarding/types";
+import { officeDay } from "@/lib/portal/office-day";
 import { toProfileAttribution } from "@/lib/profiles/domain";
 import { createProfileInvalidationOutboxEntry } from "@/lib/profiles/outbox";
 import type {
@@ -540,6 +547,178 @@ export function buildSendHomeQueries(
   return { insertAction, insertAudit, insertOutbox, transitionReport };
 }
 
+export function buildTerminationQueries(
+  database: Database,
+  input: RecordTerminationInput,
+) {
+  const insertTermination = database
+    .insert(employmentTerminations)
+    .values({
+      terminationId: input.terminationId,
+      requestId: input.requestId,
+      operatorId: input.operatorId,
+      targetNewHireId: input.targetNewHireId,
+      reportId: input.reportId,
+      terminatedAt: input.terminatedAt,
+      createdAt: input.terminatedAt,
+    })
+    .onConflictDoNothing()
+    .returning({ terminationId: employmentTerminations.terminationId });
+  const insertAudit = database
+    .insert(operatorActions)
+    .select(
+      database
+        .select({
+          actionId: employmentTerminations.terminationId,
+          operatorId: employmentTerminations.operatorId,
+          targetType: sql<string>`'new_hire'`.as("target_type"),
+          targetId: employmentTerminations.targetNewHireId,
+          action: sql<string>`'terminated'`.as("action"),
+          privateNote: sql<string>`${input.privateReason}`.as("private_note"),
+          actedAt: employmentTerminations.terminatedAt,
+          createdAt: employmentTerminations.createdAt,
+        })
+        .from(employmentTerminations)
+        .where(eq(employmentTerminations.terminationId, input.terminationId)),
+    )
+    .onConflictDoNothing({ target: operatorActions.actionId });
+  const insertOutbox = database
+    .insert(employmentTerminationEffectOutbox)
+    .select(
+      database
+        .select({
+          effectId: employmentTerminations.terminationId,
+          action: sql<string>`'terminated'`.as("action"),
+          terminationId: employmentTerminations.terminationId,
+          operatorId: employmentTerminations.operatorId,
+          targetNewHireId: employmentTerminations.targetNewHireId,
+          officeDay: sql<string>`${officeDay(input.terminatedAt)}`.as(
+            "office_day",
+          ),
+          actedAt: employmentTerminations.terminatedAt,
+          portalAccessReconciledAt: sql<Date | null>`null`.as(
+            "portal_access_reconciled_at",
+          ),
+          publicEventPublishedAt: sql<Date | null>`null`.as(
+            "public_event_published_at",
+          ),
+          invalidationPublishedAt: sql<Date | null>`null`.as(
+            "invalidation_published_at",
+          ),
+          createdAt: employmentTerminations.createdAt,
+        })
+        .from(employmentTerminations)
+        .where(eq(employmentTerminations.terminationId, input.terminationId)),
+    )
+    .onConflictDoNothing({
+      target: employmentTerminationEffectOutbox.effectId,
+    });
+  const transitionReport = database
+    .update(hrReports)
+    .set({ state: "actioned", updatedAt: input.terminatedAt })
+    .where(
+      and(
+        eq(hrReports.reportId, input.reportId ?? ""),
+        eq(hrReports.state, "open"),
+        or(
+          eq(hrReports.subjectNewHireId, input.targetNewHireId),
+          and(
+            eq(hrReports.subjectType, "profile"),
+            eq(hrReports.profileId, input.targetNewHireId),
+          ),
+        ),
+      ),
+    );
+  return { insertTermination, insertAudit, insertOutbox, transitionReport };
+}
+
+export function buildReinstatementQueries(
+  database: Database,
+  input: RecordReinstatementInput & { terminationId: string },
+) {
+  const insertReinstatement = database
+    .insert(employmentReinstatements)
+    .values({
+      reinstatementId: input.reinstatementId,
+      requestId: input.requestId,
+      terminationId: input.terminationId,
+      operatorId: input.operatorId,
+      targetNewHireId: input.targetNewHireId,
+      reinstatedAt: input.reinstatedAt,
+      createdAt: input.reinstatedAt,
+    })
+    .onConflictDoNothing()
+    .returning({ reinstatementId: employmentReinstatements.reinstatementId });
+  const reverseTermination = database
+    .update(employmentTerminations)
+    .set({ reinstatedAt: input.reinstatedAt })
+    .where(
+      and(
+        eq(employmentTerminations.terminationId, input.terminationId),
+        isNull(employmentTerminations.reinstatedAt),
+      ),
+    );
+  const insertAudit = database
+    .insert(operatorActions)
+    .select(
+      database
+        .select({
+          actionId: employmentReinstatements.reinstatementId,
+          operatorId: employmentReinstatements.operatorId,
+          targetType: sql<string>`'new_hire'`.as("target_type"),
+          targetId: employmentReinstatements.targetNewHireId,
+          action: sql<string>`'reinstated'`.as("action"),
+          privateNote: sql<string>`${input.privateReason}`.as("private_note"),
+          actedAt: employmentReinstatements.reinstatedAt,
+          createdAt: employmentReinstatements.createdAt,
+        })
+        .from(employmentReinstatements)
+        .where(
+          eq(employmentReinstatements.reinstatementId, input.reinstatementId),
+        ),
+    )
+    .onConflictDoNothing({ target: operatorActions.actionId });
+  const insertOutbox = database
+    .insert(employmentTerminationEffectOutbox)
+    .select(
+      database
+        .select({
+          effectId: employmentReinstatements.reinstatementId,
+          action: sql<string>`'reinstated'`.as("action"),
+          terminationId: employmentReinstatements.terminationId,
+          operatorId: employmentReinstatements.operatorId,
+          targetNewHireId: employmentReinstatements.targetNewHireId,
+          officeDay: sql<string>`${officeDay(input.reinstatedAt)}`.as(
+            "office_day",
+          ),
+          actedAt: employmentReinstatements.reinstatedAt,
+          portalAccessReconciledAt: sql<Date | null>`null`.as(
+            "portal_access_reconciled_at",
+          ),
+          publicEventPublishedAt: sql<Date | null>`null`.as(
+            "public_event_published_at",
+          ),
+          invalidationPublishedAt: sql<Date | null>`null`.as(
+            "invalidation_published_at",
+          ),
+          createdAt: employmentReinstatements.createdAt,
+        })
+        .from(employmentReinstatements)
+        .where(
+          eq(employmentReinstatements.reinstatementId, input.reinstatementId),
+        ),
+    )
+    .onConflictDoNothing({
+      target: employmentTerminationEffectOutbox.effectId,
+    });
+  return {
+    insertReinstatement,
+    reverseTermination,
+    insertAudit,
+    insertOutbox,
+  };
+}
+
 async function selectHRReportReviewRows(
   database: Database,
   limit: number,
@@ -956,7 +1135,7 @@ export function createNeonRepository(database: Database): NeonAdapter {
       };
     },
     async getEmploymentAccess(newHireId, checkedAt) {
-      const [[profile], [active]] = await Promise.all([
+      const [[profile], [active], [activeTermination]] = await Promise.all([
         database
           .select({ deletedAt: clerkProfiles.deletedAt })
           .from(clerkProfiles)
@@ -974,11 +1153,22 @@ export function createNeonRepository(database: Database): NeonAdapter {
           )
           .orderBy(desc(employmentActions.expiresAt))
           .limit(1),
+        database
+          .select({ terminatedAt: employmentTerminations.terminatedAt })
+          .from(employmentTerminations)
+          .where(
+            and(
+              eq(employmentTerminations.targetNewHireId, newHireId),
+              isNull(employmentTerminations.reinstatedAt),
+            ),
+          )
+          .orderBy(desc(employmentTerminations.terminatedAt))
+          .limit(1),
       ]);
       return employmentAccessDecision({
         now: checkedAt,
         sentHomeUntil: active?.expiresAt ?? null,
-        terminatedAt: null,
+        terminatedAt: activeTermination?.terminatedAt ?? null,
         deletedAt: profile?.deletedAt ?? (profile ? null : checkedAt),
       });
     },
@@ -1050,6 +1240,247 @@ export function createNeonRepository(database: Database): NeonAdapter {
           and(
             eq(employmentEffectOutbox.actionId, actionId),
             isNull(employmentEffectOutbox.invalidationPublishedAt),
+          ),
+        );
+    },
+    async recordTermination(input) {
+      const [target] = await database
+        .select({ deletedAt: clerkProfiles.deletedAt })
+        .from(clerkProfiles)
+        .where(eq(clerkProfiles.clerkUserId, input.targetNewHireId))
+        .limit(1);
+      if (!target || target.deletedAt) {
+        throw new EmploymentActionError(
+          "new_hire_not_found",
+          "The requested New Hire does not exist.",
+        );
+      }
+      const [requested] = await database
+        .select()
+        .from(employmentTerminations)
+        .where(eq(employmentTerminations.requestId, input.requestId))
+        .limit(1);
+      if (requested) {
+        if (requested.targetNewHireId !== input.targetNewHireId) {
+          throw new EmploymentActionError(
+            "request_conflict",
+            "The Termination request was already used for another target.",
+          );
+        }
+        return {
+          status: "existing",
+          termination: requested,
+        };
+      }
+      if (input.reportId) {
+        const [report] = await database
+          .select({
+            subjectType: hrReports.subjectType,
+            profileId: hrReports.profileId,
+            subjectNewHireId: hrReports.subjectNewHireId,
+          })
+          .from(hrReports)
+          .where(eq(hrReports.reportId, input.reportId))
+          .limit(1);
+        const reportTarget =
+          report?.subjectNewHireId ??
+          (report?.subjectType === "profile" ? report.profileId : null);
+        if (!report || reportTarget !== input.targetNewHireId) {
+          throw new EmploymentActionError(
+            "report_not_found",
+            "The HR Report does not match the requested New Hire.",
+          );
+        }
+      }
+      const queries = buildTerminationQueries(database, input);
+      const [createdRows] = await database.batch([
+        queries.insertTermination,
+        queries.insertAudit,
+        queries.insertOutbox,
+        queries.transitionReport,
+      ]);
+      const [termination] = await database
+        .select()
+        .from(employmentTerminations)
+        .where(
+          and(
+            eq(employmentTerminations.targetNewHireId, input.targetNewHireId),
+            isNull(employmentTerminations.reinstatedAt),
+          ),
+        )
+        .orderBy(desc(employmentTerminations.terminatedAt))
+        .limit(1);
+      if (!termination) {
+        throw new EmploymentActionError(
+          "request_conflict",
+          "The Termination request could not be resolved.",
+        );
+      }
+      const status = createdRows.length > 0 ? "created" : "existing";
+      return {
+        status,
+        termination,
+      };
+    },
+    async recordReinstatement(input) {
+      const [target] = await database
+        .select({ deletedAt: clerkProfiles.deletedAt })
+        .from(clerkProfiles)
+        .where(eq(clerkProfiles.clerkUserId, input.targetNewHireId))
+        .limit(1);
+      if (!target || target.deletedAt) {
+        throw new EmploymentActionError(
+          "new_hire_deleted",
+          "A deleted New Hire cannot be reinstated.",
+        );
+      }
+      const [requested] = await database
+        .select()
+        .from(employmentReinstatements)
+        .where(eq(employmentReinstatements.requestId, input.requestId))
+        .limit(1);
+      if (requested) {
+        if (requested.targetNewHireId !== input.targetNewHireId) {
+          throw new EmploymentActionError(
+            "request_conflict",
+            "The reinstatement request was already used for another target.",
+          );
+        }
+        return {
+          status: "existing",
+          reinstatement: requested,
+        };
+      }
+      const [termination] = await database
+        .select({ terminationId: employmentTerminations.terminationId })
+        .from(employmentTerminations)
+        .where(
+          and(
+            eq(employmentTerminations.targetNewHireId, input.targetNewHireId),
+            isNull(employmentTerminations.reinstatedAt),
+          ),
+        )
+        .orderBy(desc(employmentTerminations.terminatedAt))
+        .limit(1);
+      if (!termination) {
+        throw new EmploymentActionError(
+          "termination_not_found",
+          "The New Hire has no active Termination.",
+        );
+      }
+      const queries = buildReinstatementQueries(database, {
+        ...input,
+        terminationId: termination.terminationId,
+      });
+      const [createdRows] = await database.batch([
+        queries.insertReinstatement,
+        queries.reverseTermination,
+        queries.insertAudit,
+        queries.insertOutbox,
+      ]);
+      const [reinstatement] = await database
+        .select()
+        .from(employmentReinstatements)
+        .where(
+          eq(employmentReinstatements.terminationId, termination.terminationId),
+        )
+        .limit(1);
+      if (!reinstatement) {
+        throw new EmploymentActionError(
+          "request_conflict",
+          "The reinstatement request could not be resolved.",
+        );
+      }
+      const status = createdRows.length > 0 ? "created" : "existing";
+      return {
+        status,
+        reinstatement,
+      };
+    },
+    async getEmploymentState(newHireId, checkedAt) {
+      const [access, [activeTermination]] = await Promise.all([
+        this.getEmploymentAccess(newHireId, checkedAt),
+        database
+          .select({
+            terminationId: employmentTerminations.terminationId,
+            operatorId: employmentTerminations.operatorId,
+            terminatedAt: employmentTerminations.terminatedAt,
+          })
+          .from(employmentTerminations)
+          .where(
+            and(
+              eq(employmentTerminations.targetNewHireId, newHireId),
+              isNull(employmentTerminations.reinstatedAt),
+            ),
+          )
+          .limit(1),
+      ]);
+      return { access, activeTermination: activeTermination ?? null };
+    },
+    async pendingTerminationEffects(limit) {
+      const rows = await database
+        .select({
+          effectId: employmentTerminationEffectOutbox.effectId,
+          action: employmentTerminationEffectOutbox.action,
+          terminationId: employmentTerminationEffectOutbox.terminationId,
+          operatorId: employmentTerminationEffectOutbox.operatorId,
+          targetNewHireId: employmentTerminationEffectOutbox.targetNewHireId,
+          officeDay: employmentTerminationEffectOutbox.officeDay,
+          actedAt: employmentTerminationEffectOutbox.actedAt,
+          portalAccessReconciledAt:
+            employmentTerminationEffectOutbox.portalAccessReconciledAt,
+          publicEventPublishedAt:
+            employmentTerminationEffectOutbox.publicEventPublishedAt,
+          invalidationPublishedAt:
+            employmentTerminationEffectOutbox.invalidationPublishedAt,
+        })
+        .from(employmentTerminationEffectOutbox)
+        .where(
+          or(
+            isNull(employmentTerminationEffectOutbox.portalAccessReconciledAt),
+            isNull(employmentTerminationEffectOutbox.publicEventPublishedAt),
+            isNull(employmentTerminationEffectOutbox.invalidationPublishedAt),
+          ),
+        )
+        .orderBy(asc(employmentTerminationEffectOutbox.createdAt))
+        .limit(limit);
+      return rows.map(
+        (row): PendingTerminationEffect => ({
+          ...row,
+          action: row.action === "reinstated" ? "reinstated" : "terminated",
+        }),
+      );
+    },
+    async markTerminationPortalAccessReconciled(effectId, reconciledAt) {
+      await database
+        .update(employmentTerminationEffectOutbox)
+        .set({ portalAccessReconciledAt: reconciledAt })
+        .where(
+          and(
+            eq(employmentTerminationEffectOutbox.effectId, effectId),
+            isNull(employmentTerminationEffectOutbox.portalAccessReconciledAt),
+          ),
+        );
+    },
+    async markTerminationPublicEventPublished(effectId, publishedAt) {
+      await database
+        .update(employmentTerminationEffectOutbox)
+        .set({ publicEventPublishedAt: publishedAt })
+        .where(
+          and(
+            eq(employmentTerminationEffectOutbox.effectId, effectId),
+            isNull(employmentTerminationEffectOutbox.publicEventPublishedAt),
+          ),
+        );
+    },
+    async markTerminationInvalidationPublished(effectId, publishedAt) {
+      await database
+        .update(employmentTerminationEffectOutbox)
+        .set({ invalidationPublishedAt: publishedAt })
+        .where(
+          and(
+            eq(employmentTerminationEffectOutbox.effectId, effectId),
+            isNull(employmentTerminationEffectOutbox.invalidationPublishedAt),
           ),
         );
     },

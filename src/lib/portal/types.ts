@@ -1,4 +1,7 @@
-import type { PublicSendHomeSystemEvent } from "@/lib/employment/contract";
+import type {
+  PublicSendHomeSystemEvent,
+  PublicTerminationSystemEvent,
+} from "@/lib/employment/contract";
 import type { ScriptedSystemEvent } from "@/lib/office-days/contract";
 import type { OfficeEvent } from "@/lib/office-events/contract";
 import type { PortalChatContent } from "@/lib/portal/chat";
@@ -66,7 +69,7 @@ export type PortalEmploymentSystemEventMessage = Omit<
   PortalScriptedSystemEventMessage,
   "content"
 > & {
-  content: PublicSendHomeSystemEvent;
+  content: PublicSendHomeSystemEvent | PublicTerminationSystemEvent;
 };
 
 export type PortalVisibleMessage =

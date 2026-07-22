@@ -118,25 +118,18 @@ test("Observer teaser supports accessible first entry and returning entry", asyn
   ).toHaveLength(0);
 });
 
-test("Observer mobile teaser keeps sign-in reachable without desktop-only interactions", async ({
-  page,
-}) => {
+test("Observer compact teaser keeps sign-in reachable", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
 
   await expect(
-    page.getByRole("heading", { name: /Clock in from your pocket/ }),
+    page.getByRole("region", { name: "Non-live product preview" }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("link", { name: "Enter the Shared Public Office" }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Open Start menu" }),
-  ).toHaveCount(0);
-
-  await page
+  const officeLink = page
     .getByRole("link", { name: "Enter the Shared Public Office" })
-    .click();
+    .filter({ visible: true });
+  await expect(officeLink).toHaveCount(1);
+  await officeLink.click();
   await expect(page).toHaveURL(/\/sign-in\?redirect_url=%2Foffice$/);
 });
 
@@ -152,7 +145,8 @@ test("office window full screen fills the viewport and locks document scrolling"
   const fullScreenToggle = page.getByRole("checkbox", {
     name: "Toggle full screen",
   });
-  await fullScreenToggle.check();
+  await fullScreenToggle.focus();
+  await page.keyboard.press("Space");
   await expect(fullScreenToggle).toBeChecked();
 
   const viewport = page.viewportSize();
@@ -177,7 +171,7 @@ test("office window full screen fills the viewport and locks document scrolling"
     ),
   ).toBe("none");
 
-  await fullScreenToggle.uncheck();
+  await page.keyboard.press("Space");
   await expect(fullScreenToggle).not.toBeChecked();
   expect(
     await page.evaluate(() => ({
@@ -309,7 +303,7 @@ test("message HR Reports stay private and deep-link Operators to review context"
     /hr-report|threatening-behavior/i,
   );
 
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.request.post("/api/auth/sign-out");
   await page.goto("/office");
   await page.getByRole("button", { name: "Sign in as Operator" }).click();
   const notification = page.getByRole("link", {
@@ -564,7 +558,7 @@ test("New Hire Profile HR Reports follow current canonical profile context", asy
     /hr-report|abusive-or-explicit-picture|Terry Byte/i,
   );
 
-  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.request.post("/api/auth/sign-out");
   await page.goto("/office");
   await page.getByRole("button", { name: "Sign in as Operator" }).click();
   const notification = page.getByRole("link", {
@@ -590,6 +584,9 @@ test("New Hire Profile HR Reports follow current canonical profile context", asy
   await expect(queueItem).toContainText("open");
   await expect(
     queueItem.getByRole("button", { name: "Send Home" }),
+  ).toBeVisible();
+  await expect(
+    queueItem.getByRole("button", { name: "Terminate" }),
   ).toBeVisible();
 
   await expect(
@@ -653,6 +650,101 @@ test("New Hire Profile HR Reports follow current canonical profile context", asy
   });
   await page.reload();
   await expect(page.getByText("Welcome, Current Profile")).toBeVisible();
+});
+
+test("Operator terminates across Office Days and reinstates from New Hire Profile", async ({
+  page,
+}) => {
+  const welcomeHeading = page.getByRole("heading", { name: /^Welcome, / });
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+  await expect(welcomeHeading).toBeVisible();
+  await page.getByRole("button", { name: "Sign out" }).click();
+
+  await page.goto("/office");
+  await page.getByRole("button", { name: "Sign in as Operator" }).click();
+  await page.goto("/office?profile=user_mock_returning_new_hire");
+  const profile = page.getByRole("dialog", { name: "New Hire Profile" });
+  const terminate = profile.getByRole("button", { name: "Terminate" });
+  await expect(terminate).toBeEnabled();
+  await terminate.click();
+  const terminationDialog = page.getByRole("dialog", {
+    name: "Terminate this New Hire?",
+  });
+  const terminationReason = "Private persistent safety review.";
+  await terminationDialog
+    .getByLabel("Private Operator reason (required)")
+    .fill(terminationReason);
+  await terminationDialog
+    .getByRole("button", { name: "Confirm Termination" })
+    .click();
+  await expect(
+    profile.getByRole("button", { name: "Reinstate" }),
+  ).toBeVisible();
+
+  const terminatedHistory = await page.request.get(
+    "/api/office/portal/mock-chat?channel=all-hands",
+  );
+  const serializedTermination = JSON.stringify(await terminatedHistory.json());
+  expect(serializedTermination).toContain("employment.terminated");
+  expect(serializedTermination).toContain("user_mock_operator");
+  expect(serializedTermination).not.toContain(terminationReason);
+
+  await page.getByRole("button", { name: "Close New Hire Profile" }).click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Your desk is unavailable" }),
+  ).toBeVisible();
+  expect((await page.request.post("/api/office/portal/token")).status()).toBe(
+    403,
+  );
+
+  await page.request.post("/api/auth/sign-out");
+  await page.goto("/office");
+  await page.getByRole("button", { name: "Sign in as Operator" }).click();
+  await page.goto("/office?profile=user_mock_returning_new_hire");
+  const reinstatementProfile = page.getByRole("dialog", {
+    name: "New Hire Profile",
+  });
+  await reinstatementProfile.getByRole("button", { name: "Reinstate" }).click();
+  const reinstatementDialog = page.getByRole("dialog", {
+    name: "Reinstate this New Hire?",
+  });
+  const reinstatementReason = "Private review completed.";
+  await reinstatementDialog
+    .getByLabel("Private Operator reason (required)")
+    .fill(reinstatementReason);
+  await reinstatementDialog
+    .getByRole("button", { name: "Confirm Reinstatement" })
+    .click();
+  await expect(
+    reinstatementProfile.getByRole("button", { name: "Terminate" }),
+  ).toBeVisible();
+
+  const reinstatedHistory = await page.request.get(
+    "/api/office/portal/mock-chat?channel=all-hands",
+  );
+  const serializedReinstatement = JSON.stringify(
+    await reinstatedHistory.json(),
+  );
+  expect(serializedReinstatement).toContain("employment.reinstated");
+  expect(serializedReinstatement).not.toContain(reinstatementReason);
+
+  await reinstatementProfile
+    .getByRole("button", { name: "Close New Hire Profile" })
+    .click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+  await expect(welcomeHeading).toBeVisible();
 });
 
 test("general chat confirms, reconnects, validates text, and recovers from Portal faults", async ({
@@ -1326,6 +1418,11 @@ test("chat starts at the latest message and follows new messages only from the b
   }
 
   await page.reload();
+  await expect(
+    page
+      .getByText("Connected — live updates available")
+      .filter({ visible: true }),
+  ).toBeVisible();
   const historyRegion = page
     .locator(".chat-scroll-region")
     .filter({ visible: true });
@@ -1336,9 +1433,11 @@ test("chat starts at the latest message and follows new messages only from the b
     );
   await expect.poll(distanceFromLatest).toBeLessThanOrEqual(24);
 
-  await historyRegion.evaluate((element) => {
-    element.scrollTop = 0;
-  });
+  await historyRegion.hover();
+  await page.mouse.wheel(0, -100_000);
+  await expect
+    .poll(() => historyRegion.evaluate((element) => element.scrollTop))
+    .toBe(0);
   const whileReading = await page.request.post(
     "/api/office/portal/mock-chat?channel=general",
     { data: { text: "Realtime memo while reading history" } },

@@ -2,7 +2,10 @@
 
 import type {
   EmploymentAccessDecision,
+  EmploymentState,
+  ReinstatementRequest,
   SendHomeRequest,
+  TerminationRequest,
 } from "@/lib/employment/contract";
 
 export type SendHomeResponse = {
@@ -55,6 +58,26 @@ function parseEmploymentAccessDecision(
   return { eligible: false, reason: value.reason, until };
 }
 
+function parseActiveTermination(
+  value: unknown,
+): EmploymentState["activeTermination"] | undefined {
+  if (value === null) return null;
+  if (
+    !isObject(value) ||
+    typeof value.terminationId !== "string" ||
+    typeof value.operatorId !== "string" ||
+    typeof value.terminatedAt !== "string"
+  ) {
+    return undefined;
+  }
+
+  return {
+    terminationId: value.terminationId,
+    operatorId: value.operatorId,
+    terminatedAt: new Date(value.terminatedAt),
+  };
+}
+
 export async function requestSendHome(
   input: SendHomeRequest,
 ): Promise<SendHomeResponse> {
@@ -82,4 +105,49 @@ export async function fetchEmploymentAccess(): Promise<EmploymentAccessDecision>
   if (!access) throw new Error("Employment access is unavailable.");
 
   return access;
+}
+
+export async function fetchNewHireEmploymentState(
+  targetNewHireId: string,
+): Promise<EmploymentState> {
+  const response = await fetch(
+    `/api/office/operator/termination?targetNewHireId=${encodeURIComponent(targetNewHireId)}`,
+    { credentials: "include", cache: "no-store" },
+  );
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok || !isObject(payload) || !isObject(payload.access)) {
+    throw new Error("Employment state is unavailable.");
+  }
+  const access = parseEmploymentAccessDecision(payload.access);
+  const activeTermination = parseActiveTermination(payload.activeTermination);
+  if (!access || activeTermination === undefined) {
+    throw new Error("Employment state is unavailable.");
+  }
+  return { access, activeTermination };
+}
+
+async function requestEmploymentChange(
+  method: "POST" | "PATCH",
+  input: TerminationRequest | ReinstatementRequest,
+): Promise<void> {
+  const response = await fetch("/api/office/operator/termination", {
+    method,
+    credentials: "include",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw new Error("The employment action could not be completed.");
+  }
+}
+
+export function requestTermination(input: TerminationRequest): Promise<void> {
+  return requestEmploymentChange("POST", input);
+}
+
+export function requestReinstatement(
+  input: ReinstatementRequest,
+): Promise<void> {
+  return requestEmploymentChange("PATCH", input);
 }

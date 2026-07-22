@@ -13,6 +13,7 @@ import {
 import {
   CHAT_TEXT_LIMIT,
   linkifyChatText,
+  type PortalChatContent,
   parsePortalChatMessage,
   type SafePortalChatMessage,
   validateChatDraft,
@@ -28,16 +29,35 @@ type ChatConnectionStatus =
   | "degraded-http"
   | "blocked";
 
-type PortalChatProps = {
+type PortalChatBaseProps = {
   channelId: string;
   identityId: string;
   displayName: string;
-} & (
-  | { mode: "mock"; publishableKey?: never }
-  | { mode: "live"; publishableKey: string }
-);
+};
 
-function statusCopy(status: ChatConnectionStatus): string {
+type MockPortalChatProps = PortalChatBaseProps & {
+  mode: "mock";
+  publishableKey?: never;
+};
+
+type LivePortalChatProps = PortalChatBaseProps & {
+  mode: "live";
+  publishableKey: string;
+};
+
+type PortalChatProps = MockPortalChatProps | LivePortalChatProps;
+
+type ChatSurfaceProps = PortalChatBaseProps & {
+  messages: readonly unknown[];
+  status: ChatConnectionStatus;
+  onSend(text: string): Promise<void>;
+  onRetryConnection(): void;
+  loadPrevious?: () => Promise<unknown>;
+  hasPrevious?: boolean;
+  isLoadingPrevious?: boolean;
+};
+
+function connectionStatusCopy(status: ChatConnectionStatus): string {
   switch (status) {
     case "ready":
       return "Online — messages are persistent";
@@ -53,6 +73,35 @@ function statusCopy(status: ChatConnectionStatus): string {
     case "connecting":
       return "Connecting to Portal…";
   }
+}
+
+function sendButtonCopy(isSending: boolean, hasError: boolean): string {
+  if (isSending) {
+    return "Sending…";
+  }
+  if (hasError) {
+    return "Retry send";
+  }
+  return "Send";
+}
+
+function hasMessageId(message: unknown, id: string): boolean {
+  return (
+    typeof message === "object" &&
+    message !== null &&
+    "id" in message &&
+    message.id === id
+  );
+}
+
+function replaceMessage(
+  messages: readonly unknown[],
+  id: string,
+  replacement: unknown,
+): unknown[] {
+  return messages.map((message) =>
+    hasMessageId(message, id) ? replacement : message,
+  );
 }
 
 function SafeMessageText({ text }: { text: string }) {
@@ -132,18 +181,7 @@ function ChatSurface({
   loadPrevious,
   hasPrevious = false,
   isLoadingPrevious = false,
-}: {
-  channelId: string;
-  identityId: string;
-  displayName: string;
-  messages: readonly unknown[];
-  status: ChatConnectionStatus;
-  onSend(text: string): Promise<void>;
-  onRetryConnection(): void;
-  loadPrevious?: () => Promise<unknown>;
-  hasPrevious?: boolean;
-  isLoadingPrevious?: boolean;
-}) {
+}: ChatSurfaceProps) {
   const [draft, setDraft] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
@@ -161,7 +199,7 @@ function ChatSurface({
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSendError(null);
-    let content: { text: string };
+    let content: PortalChatContent;
     try {
       content = validateChatDraft(draft);
     } catch (error) {
@@ -196,7 +234,7 @@ function ChatSurface({
           <span className="channel-purpose">Company-wide conversation</span>
         </div>
         <output className="connection-status" aria-live="polite">
-          {statusCopy(status)}
+          {connectionStatusCopy(status)}
         </output>
       </header>
 
@@ -261,7 +299,7 @@ function ChatSurface({
             disabled={!canPublish || isSending || draft.trim().length === 0}
             type="submit"
           >
-            {isSending ? "Sending…" : sendError ? "Retry send" : "Send"}
+            {sendButtonCopy(isSending, sendError !== null)}
           </button>
         </div>
         {sendError ? (
@@ -279,7 +317,7 @@ function LiveGeneralChat({
   identityId,
   displayName,
   publishableKey,
-}: Omit<PortalChatProps, "mode"> & { publishableKey: string }) {
+}: Omit<LivePortalChatProps, "mode">) {
   const [portal] = useState(
     () =>
       new Portal({
@@ -290,7 +328,7 @@ function LiveGeneralChat({
 
   return (
     <PortalProvider client={portal}>
-      <LiveChannel
+      <LiveGeneralChannel
         channelId={channelId}
         displayName={displayName}
         identityId={identityId}
@@ -299,7 +337,7 @@ function LiveGeneralChat({
   );
 }
 
-function LiveChannel({
+function LiveGeneralChannel({
   channelId,
   identityId,
   displayName,
@@ -336,14 +374,15 @@ function MockGeneralChat({
   channelId,
   identityId,
   displayName,
-}: Omit<PortalChatProps, "mode">) {
+}: PortalChatBaseProps) {
   const [messages, setMessages] = useState<unknown[]>([]);
   const [status, setStatus] = useState<ChatConnectionStatus>("connecting");
 
-  const loadHistory = useCallback(async () => {
+  const loadMockHistory = useCallback(async () => {
     setStatus("connecting");
     try {
-      await createPortalTokenSource()();
+      const fetchPortalToken = createPortalTokenSource();
+      await fetchPortalToken();
       const response = await fetch("/api/office/portal/mock-chat", {
         credentials: "include",
         cache: "no-store",
@@ -367,13 +406,13 @@ function MockGeneralChat({
   }, []);
 
   useEffect(() => {
-    void loadHistory();
-  }, [loadHistory]);
+    void loadMockHistory();
+  }, [loadMockHistory]);
 
-  async function send(text: string): Promise<void> {
+  async function sendMessage(text: string): Promise<void> {
     const content = validateChatDraft(text);
     const temporaryId = `pending-${crypto.randomUUID()}`;
-    const pending = {
+    const pendingMessage = {
       id: temporaryId,
       channelId,
       sender: { id: identityId, anon: false },
@@ -385,7 +424,7 @@ function MockGeneralChat({
       status: "pending",
       content,
     };
-    setMessages((current) => [...current, pending]);
+    setMessages((current) => [...current, pendingMessage]);
 
     try {
       const response = await fetch("/api/office/portal/mock-chat", {
@@ -398,26 +437,13 @@ function MockGeneralChat({
       if (!response.ok || !parsePortalChatMessage(confirmed)) {
         throw new Error("Mock Portal publish unavailable");
       }
-      setMessages((current) =>
-        current.map((message) =>
-          typeof message === "object" &&
-          message !== null &&
-          "id" in message &&
-          message.id === temporaryId
-            ? confirmed
-            : message,
-        ),
-      );
+      setMessages((current) => replaceMessage(current, temporaryId, confirmed));
     } catch (error) {
       setMessages((current) =>
-        current.map((message) =>
-          typeof message === "object" &&
-          message !== null &&
-          "id" in message &&
-          message.id === temporaryId
-            ? { ...pending, status: "failed" }
-            : message,
-        ),
+        replaceMessage(current, temporaryId, {
+          ...pendingMessage,
+          status: "failed",
+        }),
       );
       throw error;
     }
@@ -429,8 +455,8 @@ function MockGeneralChat({
       displayName={displayName}
       identityId={identityId}
       messages={messages}
-      onRetryConnection={() => void loadHistory()}
-      onSend={send}
+      onRetryConnection={() => void loadMockHistory()}
+      onSend={sendMessage}
       status={status}
     />
   );

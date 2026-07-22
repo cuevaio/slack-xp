@@ -15,6 +15,8 @@ type PortalSessionIdentity = {
   imageUrl: string | null;
 };
 
+export type GeneralPortalSession = PortalToken & { channelId: string };
+
 export async function issueGeneralPortalSession({
   identity,
   onboarding,
@@ -25,7 +27,7 @@ export async function issueGeneralPortalSession({
   onboarding: OnboardingSnapshot | null;
   portal: PortalAuthority;
   now?: Date;
-}): Promise<PortalToken & { channelId: string }> {
+}): Promise<GeneralPortalSession> {
   if (
     !onboarding ||
     onboarding.clerkUserId !== identity.id ||

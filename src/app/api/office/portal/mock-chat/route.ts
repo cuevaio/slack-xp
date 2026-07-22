@@ -1,30 +1,45 @@
 import { createServiceAdapters } from "@/lib/adapters";
 import { getMockPortalAdapter } from "@/lib/adapters/mock";
 import { authenticateOfficeRequest } from "@/lib/auth/server";
+import type { AuthenticatedNewHire } from "@/lib/auth/types";
 import { readAppConfiguration } from "@/lib/config";
 import { parseChatContent } from "@/lib/portal/chat";
 import { MockPortalUnavailableError } from "@/lib/portal/mock";
 import {
+  type GeneralPortalSession,
   issueGeneralPortalSession,
   PortalEligibilityError,
 } from "@/lib/portal/session";
 
 export const runtime = "nodejs";
 
-async function mockChatContext() {
+type MockChatContext =
+  | { errorResponse: Response }
+  | {
+      identity: AuthenticatedNewHire;
+      session: GeneralPortalSession;
+    };
+
+function portalUnavailableResponse(): Response {
+  return Response.json({ error: "portal_unavailable" }, { status: 503 });
+}
+
+async function getMockChatContext(): Promise<MockChatContext> {
   const configuration = readAppConfiguration();
   if (
     configuration.status !== "ready" ||
     configuration.serviceMode !== "mock" ||
     configuration.environment === "production"
   ) {
-    return { response: Response.json({ error: "not_found" }, { status: 404 }) };
+    return {
+      errorResponse: Response.json({ error: "not_found" }, { status: 404 }),
+    };
   }
 
   const identity = await authenticateOfficeRequest(configuration);
   if (!identity) {
     return {
-      response: Response.json(
+      errorResponse: Response.json(
         { error: "authentication_required" },
         { status: 401 },
       ),
@@ -42,27 +57,24 @@ async function mockChatContext() {
   } catch (error) {
     if (error instanceof PortalEligibilityError) {
       return {
-        response: Response.json(
+        errorResponse: Response.json(
           { error: "new_hire_ineligible" },
           { status: 403 },
         ),
       };
     }
     if (error instanceof MockPortalUnavailableError) {
-      return {
-        response: Response.json(
-          { error: "portal_unavailable" },
-          { status: 503 },
-        ),
-      };
+      return { errorResponse: portalUnavailableResponse() };
     }
     throw error;
   }
 }
 
 export async function GET() {
-  const context = await mockChatContext();
-  if ("response" in context) return context.response;
+  const context = await getMockChatContext();
+  if ("errorResponse" in context) {
+    return context.errorResponse;
+  }
 
   try {
     return Response.json({
@@ -70,15 +82,17 @@ export async function GET() {
     });
   } catch (error) {
     if (error instanceof MockPortalUnavailableError) {
-      return Response.json({ error: "portal_unavailable" }, { status: 503 });
+      return portalUnavailableResponse();
     }
     throw error;
   }
 }
 
 export async function POST(request: Request) {
-  const context = await mockChatContext();
-  if ("response" in context) return context.response;
+  const context = await getMockChatContext();
+  if ("errorResponse" in context) {
+    return context.errorResponse;
+  }
 
   const body: unknown = await request.json().catch(() => null);
   const content = parseChatContent(body);
@@ -96,7 +110,7 @@ export async function POST(request: Request) {
     );
   } catch (error) {
     if (error instanceof MockPortalUnavailableError) {
-      return Response.json({ error: "portal_unavailable" }, { status: 503 });
+      return portalUnavailableResponse();
     }
     throw error;
   }

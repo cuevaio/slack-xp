@@ -17,17 +17,19 @@ export type SafePortalChatMessage = {
   status: "pending" | "sent" | "failed";
 };
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
 export function generalChannelId(now: Date = new Date()): string {
   return `${now.toISOString().slice(0, 10)}:general`;
 }
 
 export function parseChatContent(value: unknown): PortalChatContent | null {
   if (
-    typeof value !== "object" ||
-    value === null ||
+    !isObject(value) ||
     Array.isArray(value) ||
     Object.keys(value).length !== 1 ||
-    !("text" in value) ||
     typeof value.text !== "string" ||
     value.text.trim().length === 0 ||
     value.text.length > CHAT_TEXT_LIMIT
@@ -52,39 +54,25 @@ export function parsePortalChatMessage(
   value: unknown,
 ): SafePortalChatMessage | null {
   if (
-    typeof value !== "object" ||
-    value === null ||
-    !("id" in value) ||
+    !isObject(value) ||
     typeof value.id !== "string" ||
     value.id.length === 0 ||
-    !("channelId" in value) ||
     typeof value.channelId !== "string" ||
     value.channelId.length === 0 ||
-    !("sender" in value) ||
-    typeof value.sender !== "object" ||
-    value.sender === null ||
-    !("id" in value.sender) ||
+    !isObject(value.sender) ||
     typeof value.sender.id !== "string" ||
     value.sender.id.length === 0 ||
-    !("anon" in value.sender) ||
     value.sender.anon !== false ||
-    !("timestamp" in value) ||
     typeof value.timestamp !== "number" ||
     !Number.isFinite(value.timestamp) ||
     !Number.isFinite(new Date(value.timestamp).getTime()) ||
-    !("kind" in value) ||
     value.kind !== "text" ||
-    !("type" in value) ||
     value.type !== "message" ||
-    !("ephemeral" in value) ||
     value.ephemeral !== false ||
-    !("retracted" in value) ||
     value.retracted !== false ||
-    !("status" in value) ||
     (value.status !== "pending" &&
       value.status !== "sent" &&
-      value.status !== "failed") ||
-    !("content" in value)
+      value.status !== "failed")
   ) {
     return null;
   }
@@ -105,7 +93,7 @@ export function parsePortalChatMessage(
 const URL_PATTERN = /https?:\/\/[^\s<>]+/giu;
 const TRAILING_PUNCTUATION = /[.,!?;:]+$/u;
 
-function trimUnsafeUrlEnding(candidate: string): {
+function splitTrailingUrlPunctuation(candidate: string): {
   url: string;
   trailing: string;
 } {
@@ -150,7 +138,7 @@ export function linkifyChatText(text: string): ChatTextPart[] {
       pushText(text.slice(cursor, index));
     }
 
-    const { url, trailing } = trimUnsafeUrlEnding(candidate);
+    const { url, trailing } = splitTrailingUrlPunctuation(candidate);
     try {
       const parsed = new URL(url);
       if (parsed.protocol === "http:" || parsed.protocol === "https:") {

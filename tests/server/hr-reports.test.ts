@@ -65,6 +65,7 @@ describe("message HR Report workflow", () => {
       "reportId",
       "reporterId",
       "state",
+      "subjectNewHireId",
       "subjectType",
       "updatedAt",
     ]);
@@ -202,6 +203,7 @@ describe("New Hire Profile HR Report workflow", () => {
       "reportId",
       "reporterId",
       "state",
+      "subjectNewHireId",
       "subjectType",
       "updatedAt",
     ]);

@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { ProfileHRReportControls } from "@/components/message-hr-report-controls";
+import { SendHomeControl } from "@/components/send-home-control";
 import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import { useProfileBatch } from "@/lib/profiles/client";
 import type { ProfileAttribution } from "@/lib/profiles/types";
@@ -12,11 +13,13 @@ function ProfileContextContent({
   isPending,
   profile,
   profileId,
+  canSendHome,
 }: {
   isError: boolean;
   isPending: boolean;
   profile: ProfileAttribution | undefined;
   profileId: string;
+  canSendHome: boolean;
 }) {
   if (isError) {
     return (
@@ -58,7 +61,10 @@ function ProfileContextContent({
         </div>
       </div>
       {current ? (
-        <ProfileHRReportControls profileId={profileId} />
+        <>
+          <ProfileHRReportControls profileId={profileId} />
+          {canSendHome ? <SendHomeControl targetNewHireId={profileId} /> : null}
+        </>
       ) : (
         <p>
           This account no longer has public profile attributes. The stable
@@ -69,7 +75,11 @@ function ProfileContextContent({
   );
 }
 
-export function NewHireProfileContext() {
+export function NewHireProfileContext({
+  canSendHome,
+}: {
+  canSendHome: boolean;
+}) {
   const [profileId, setProfileId] = useState<string | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const query = useProfileBatch(profileId ? [profileId] : []);
@@ -148,6 +158,7 @@ export function NewHireProfileContext() {
             isPending={query.isPending}
             profile={profile}
             profileId={profileId}
+            canSendHome={canSendHome}
           />
         </div>
       </section>

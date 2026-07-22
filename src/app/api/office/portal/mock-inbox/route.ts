@@ -9,6 +9,7 @@ import {
   type MockPortalInboxEntry,
   MockPortalUnavailableError,
 } from "@/lib/portal/mock";
+import { officeNowForRequest } from "@/lib/portal/request-time";
 import {
   issueOfficePortalSession,
   type OfficePortalSession,
@@ -63,7 +64,9 @@ function readRequestedChannelId(
   return channelId;
 }
 
-async function getMockInboxContext(): Promise<MockInboxContext> {
+async function getMockInboxContext(
+  request: Request,
+): Promise<MockInboxContext> {
   const configuration = readAppConfiguration();
   if (
     configuration.status !== "ready" ||
@@ -87,12 +90,18 @@ async function getMockInboxContext(): Promise<MockInboxContext> {
 
   const adapters = createServiceAdapters(configuration);
   try {
+    const now = officeNowForRequest(request.headers, configuration);
     return {
       identity,
       session: await issueOfficePortalSession({
         identity,
         onboarding: await adapters.neon.getNewHire(identity.id),
         portal: adapters.portal,
+        now,
+        employmentAccess: await adapters.neon.getEmploymentAccess(
+          identity.id,
+          now,
+        ),
       }),
     };
   } catch (error) {
@@ -108,8 +117,8 @@ async function getMockInboxContext(): Promise<MockInboxContext> {
   }
 }
 
-export async function GET() {
-  const context = await getMockInboxContext();
+export async function GET(request: Request) {
+  const context = await getMockInboxContext(request);
   if ("errorResponse" in context) {
     return context.errorResponse;
   }
@@ -135,7 +144,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const context = await getMockInboxContext();
+  const context = await getMockInboxContext(request);
   if ("errorResponse" in context) {
     return context.errorResponse;
   }

@@ -1,3 +1,4 @@
+import type { EmploymentAccessDecision } from "@/lib/employment/contract";
 import { HR_REPORT_NOTIFICATION_CHANNEL_ID } from "@/lib/hr-reports/contract";
 import { officeEventChannelId } from "@/lib/office-events/contract";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
@@ -28,17 +29,20 @@ export async function issueOfficePortalSession({
   onboarding,
   portal,
   now = new Date(),
+  employmentAccess,
 }: {
   identity: PortalSessionIdentity;
   onboarding: OnboardingSnapshot | null;
   portal: PortalAuthority;
   now?: Date;
+  employmentAccess: EmploymentAccessDecision;
 }): Promise<OfficePortalSession> {
   if (
     !onboarding ||
     onboarding.clerkUserId !== identity.id ||
     onboarding.step !== "complete" ||
-    !onboarding.completedAt
+    !onboarding.completedAt ||
+    !employmentAccess.eligible
   ) {
     throw new PortalEligibilityError();
   }

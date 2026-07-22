@@ -13,7 +13,12 @@ export const PROFILE_HR_REPORT_CATEGORIES = [
   "impersonation",
 ] as const;
 
-export const HR_REPORT_STATES = ["open", "dismissed", "removed"] as const;
+export const HR_REPORT_STATES = [
+  "open",
+  "dismissed",
+  "removed",
+  "actioned",
+] as const;
 
 export const HR_REPORT_NOTIFICATION_CHANNEL_ID = "hr-reports";
 export const HR_REPORT_NOTIFICATION_TYPE = "hr-report.ready";
@@ -73,6 +78,7 @@ type CreateHRReportBase = {
   reporterId: string;
   reportId: string;
   createdAt: Date;
+  subjectNewHireId?: string | null;
 };
 
 export type CreateMessageHRReportInput = CreateHRReportBase &
@@ -116,6 +122,7 @@ type HRReportReviewRecordBase = {
   createdAt: Date;
   updatedAt: Date;
   resolution: HRReportResolution | null;
+  subjectNewHireId: string | null;
 };
 
 export type HRReportReviewRecord =
@@ -181,6 +188,7 @@ export type OperatorActionRecord = OperatorActionRecordBase &
   (
     | { targetType: "hr_report"; action: HRReportOperatorAction }
     | { targetType: "message_removal"; action: "removed" }
+    | { targetType: "new_hire"; action: "sent_home" }
   );
 
 type HRReportNotificationBase = {

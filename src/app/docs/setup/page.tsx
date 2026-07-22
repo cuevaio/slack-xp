@@ -103,10 +103,12 @@ export default function SetupPage() {
               review migration also adds one-way report dismissal fields and
               uniquely constrained private Operator audit records containing
               stable actor and target IDs, timestamps, action, and an optional
-              private note. The latest migration adds body-free Removed Message
-              projections, matching HR Report resolution, required private
-              Operator reasons, and a retryable removal-invalidation outbox in
-              the same transaction. Message and New Hire Profile reports use
+              private note. Later migrations add body-free Removed Message
+              projections with matching HR Report resolution and an invalidation
+              outbox, plus expiring Send Home employment actions. Send Home
+              stores stable actor and target IDs, the UTC Office Day and
+              next-midnight expiry, a required private reason, and retry-safe
+              effect delivery state. Message and New Hire Profile reports use
               separate open-report uniqueness rules. Profile reports retain only
               stable Clerk IDs, so later edits or deletion do not copy or
               preserve public names and pictures. The outboxes contain stable

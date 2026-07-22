@@ -31,6 +31,13 @@ export async function POST(request: Request) {
   try {
     await flushProfileInvalidations(adapters.neon, adapters.portal);
     const now = officeNowForRequest(request.headers, configuration);
+    const employmentAccess = await adapters.neon.getEmploymentAccess(
+      identity.id,
+      now,
+    );
+    if (!employmentAccess.eligible) {
+      throw new PortalEligibilityError();
+    }
     await repairOfficeDayOnEntry({ adapters, now });
     try {
       await flushMessageRemovalInvalidations({
@@ -71,6 +78,7 @@ export async function POST(request: Request) {
       onboarding: await adapters.neon.getNewHire(identity.id),
       now,
       portal: adapters.portal,
+      employmentAccess,
     });
     return Response.json(session, {
       headers: { "Cache-Control": "no-store, private" },

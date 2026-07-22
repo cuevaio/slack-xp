@@ -1,4 +1,10 @@
 import {
+  EMPLOYMENT_SYSTEM_EVENT_MESSAGE_TYPE,
+  type EmploymentInvalidationEvent,
+  type EmploymentPortalAuthority,
+  type PublicSendHomeSystemEvent,
+} from "@/lib/employment/contract";
+import {
   HR_REPORT_NOTIFICATION_CHANNEL_ID,
   type HRReportInvalidationEvent,
   type HRReportInvalidationPublisher,
@@ -23,6 +29,7 @@ import {
   OFFICE_EVENT_SENDERS,
   officeEventChannelId,
 } from "@/lib/office-events/contract";
+import { officeChannelId } from "@/lib/portal/channels";
 import type {
   PortalAuthority,
   PortalMembershipInput,
@@ -72,7 +79,8 @@ export function createPortalControlPlane({
   secret,
   apiUrl = DEFAULT_PORTAL_API_URL,
   fetcher = fetch,
-}: PortalControlPlaneOptions): PortalAuthority {
+}: PortalControlPlaneOptions): PortalAuthority &
+  Pick<EmploymentPortalAuthority, "applySendHomeBans"> {
   const baseUrl = apiUrl.replace(/\/$/u, "");
 
   async function post(path: string, body: unknown): Promise<unknown> {
@@ -106,6 +114,17 @@ export function createPortalControlPlane({
   }
 
   return {
+    async applySendHomeBans({ channelIds, newHireId, expiresAt }) {
+      await Promise.all(
+        channelIds.map((channelId) =>
+          post(`/v1/channels/${encodeURIComponent(channelId)}/bans`, {
+            userId: newHireId,
+            expiresAt: expiresAt.toISOString(),
+          }),
+        ),
+      );
+    },
+
     async ensureMembership({
       channelId,
       userId,
@@ -133,6 +152,64 @@ export function createPortalControlPlane({
         throw new PortalServiceError(502, "invalid_portal_response");
       }
       return token;
+    },
+  };
+}
+
+export function createPortalEmploymentPublisher({
+  secret,
+  apiKey,
+  apiUrl = DEFAULT_PORTAL_API_URL,
+  fetcher = fetch,
+}: PortalPublisherOptions): Pick<
+  EmploymentPortalAuthority,
+  "publishEmploymentInvalidation" | "publishSendHomeSystemEvent"
+> {
+  const controlPlane = createPortalControlPlane({ secret, apiUrl, fetcher });
+  const publishPortalMessage = createPortalMessagePublisher({
+    apiKey,
+    apiUrl,
+    fetcher,
+  });
+  const sender = {
+    userId: OFFICE_EVENT_SENDERS.operations,
+    claims: { username: "Portal Systems Operations", avatar: null },
+  };
+
+  return {
+    async publishEmploymentInvalidation(event: EmploymentInvalidationEvent) {
+      const channelId = officeEventChannelId(new Date(event.occurredAt));
+      await controlPlane.ensureMembership({ channelId, ...sender });
+      const token = await controlPlane.mintToken({
+        channelIds: [channelId],
+        ...sender,
+      });
+      await publishPortalMessage({
+        channelId,
+        content: event,
+        failureCode: "portal_event_publish_failed",
+        messageType: OFFICE_EVENT_MESSAGE_TYPE,
+        token: token.token,
+      });
+    },
+
+    async publishSendHomeSystemEvent(event: PublicSendHomeSystemEvent) {
+      const channelId = officeChannelId(
+        "all-hands",
+        new Date(`${event.officeDay}T00:00:00.000Z`),
+      );
+      await controlPlane.ensureMembership({ channelId, ...sender });
+      const token = await controlPlane.mintToken({
+        channelIds: [channelId],
+        ...sender,
+      });
+      await publishPortalMessage({
+        channelId,
+        content: event,
+        failureCode: "portal_system_event_publish_failed",
+        messageType: EMPLOYMENT_SYSTEM_EVENT_MESSAGE_TYPE,
+        token: token.token,
+      });
     },
   };
 }

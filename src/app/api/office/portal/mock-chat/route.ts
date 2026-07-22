@@ -50,11 +50,16 @@ async function getMockChatContext(request: Request): Promise<MockChatContext> {
 
   const adapters = createServiceAdapters(configuration);
   try {
+    const now = officeNowForRequest(request.headers, configuration);
     const session = await issueOfficePortalSession({
       identity,
       onboarding: await adapters.neon.getNewHire(identity.id),
-      now: officeNowForRequest(request.headers, configuration),
+      now,
       portal: adapters.portal,
+      employmentAccess: await adapters.neon.getEmploymentAccess(
+        identity.id,
+        now,
+      ),
     });
     return { identity, session };
   } catch (error) {

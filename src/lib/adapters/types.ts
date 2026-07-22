@@ -1,4 +1,8 @@
 import type {
+  EmploymentPortalAuthority,
+  EmploymentRepository,
+} from "@/lib/employment/contract";
+import type {
   HRReportInvalidationPublisher,
   HRReportNotificationPublisher,
   HRReportRepository,
@@ -20,6 +24,7 @@ import type {
 } from "@/lib/profiles/types";
 
 export type PortalAdapter = PortalAuthority &
+  EmploymentPortalAuthority &
   ProfileInvalidationPublisher &
   ScriptedSystemEventPublisher &
   HRReportInvalidationPublisher &
@@ -29,6 +34,7 @@ export type PortalAdapter = PortalAuthority &
   };
 
 export type NeonAdapter = OnboardingRepository &
+  EmploymentRepository &
   ProfileRepository &
   OfficeDayRepository &
   HRReportRepository &

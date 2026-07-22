@@ -184,6 +184,7 @@ export const hrReports = pgTable(
     officeChannelId: text("office_channel_id"),
     messageId: text("message_id"),
     profileId: text("profile_id"),
+    subjectNewHireId: text("subject_new_hire_id"),
     category: text("category").notNull(),
     state: text("state").default("open").notNull(),
     dismissedBy: text("dismissed_by"),
@@ -224,11 +225,11 @@ export const hrReports = pgTable(
     ),
     check(
       "hr_reports_state_check",
-      sql`${table.state} in ('open', 'dismissed', 'removed')`,
+      sql`${table.state} in ('open', 'dismissed', 'removed', 'actioned')`,
     ),
     check(
       "hr_reports_resolution_check",
-      sql`(${table.state} = 'open' and ${table.dismissedBy} is null and ${table.dismissedAt} is null and ${table.removedBy} is null and ${table.removedAt} is null) or (${table.state} = 'dismissed' and char_length(${table.dismissedBy}) between 1 and 255 and ${table.dismissedAt} is not null and ${table.removedBy} is null and ${table.removedAt} is null) or (${table.state} = 'removed' and ${table.dismissedBy} is null and ${table.dismissedAt} is null and char_length(${table.removedBy}) between 1 and 255 and ${table.removedAt} is not null)`,
+      sql`(${table.state} in ('open', 'actioned') and ${table.dismissedBy} is null and ${table.dismissedAt} is null and ${table.removedBy} is null and ${table.removedAt} is null) or (${table.state} = 'dismissed' and char_length(${table.dismissedBy}) between 1 and 255 and ${table.dismissedAt} is not null and ${table.removedBy} is null and ${table.removedAt} is null) or (${table.state} = 'removed' and ${table.dismissedBy} is null and ${table.dismissedAt} is null and char_length(${table.removedBy}) between 1 and 255 and ${table.removedAt} is not null)`,
     ),
     uniqueIndex("hr_reports_one_open_message_per_reporter_idx")
       .on(table.reporterId, table.officeChannelId, table.messageId)
@@ -304,18 +305,23 @@ export const operatorActions = pgTable(
       sql`char_length(${table.operatorId}) between 1 and 255`,
     ),
     check(
-      "operator_actions_target_action_check",
-      sql`(${table.targetType} = 'hr_report' and ${table.action} = 'dismissed') or (${table.targetType} = 'message_removal' and ${table.action} = 'removed')`,
+      "operator_actions_kind_check",
+      sql`(${table.targetType} = 'hr_report' and ${table.action} = 'dismissed') or (${table.targetType} = 'message_removal' and ${table.action} = 'removed') or (${table.targetType} = 'new_hire' and ${table.action} = 'sent_home')`,
     ),
     check(
       "operator_actions_private_note_check",
-      sql`${table.privateNote} is null or char_length(${table.privateNote}) between 1 and 1000`,
+      sql`(${table.action} = 'dismissed' and (${table.privateNote} is null or char_length(${table.privateNote}) between 1 and 1000)) or (${table.action} in ('removed', 'sent_home') and char_length(${table.privateNote}) between 1 and 1000)`,
     ),
-    uniqueIndex("operator_actions_one_target_action_idx").on(
-      table.targetType,
-      table.targetId,
-      table.action,
-    ),
+    uniqueIndex("operator_actions_one_report_dismissal_idx")
+      .on(table.targetType, table.targetId, table.action)
+      .where(
+        sql`${table.targetType} = 'hr_report' and ${table.action} = 'dismissed'`,
+      ),
+    uniqueIndex("operator_actions_one_message_removal_idx")
+      .on(table.targetType, table.targetId, table.action)
+      .where(
+        sql`${table.targetType} = 'message_removal' and ${table.action} = 'removed'`,
+      ),
     index("operator_actions_target_idx").on(table.targetType, table.targetId),
   ],
 );
@@ -341,6 +347,81 @@ export const messageRemovalInvalidationOutbox = pgTable(
     index("message_removal_invalidation_outbox_pending_idx")
       .on(table.createdAt)
       .where(sql`${table.publishedAt} is null`),
+  ],
+);
+
+export const employmentActions = pgTable(
+  "employment_actions",
+  {
+    actionId: text("action_id").primaryKey(),
+    requestId: text("request_id").notNull().unique(),
+    action: text("action").notNull(),
+    operatorId: text("operator_id").notNull(),
+    targetNewHireId: text("target_new_hire_id")
+      .notNull()
+      .references(() => clerkProfiles.clerkUserId, { onDelete: "cascade" }),
+    officeDay: text("office_day").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    reportId: text("report_id").references(() => hrReports.reportId, {
+      onDelete: "set null",
+    }),
+    actedAt: timestamp("acted_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "employment_actions_action_id_check",
+      sql`char_length(${table.actionId}) between 1 and 255`,
+    ),
+    check(
+      "employment_actions_request_id_check",
+      sql`char_length(${table.requestId}) between 1 and 255`,
+    ),
+    check(
+      "employment_actions_send_home_check",
+      sql`${table.action} = 'sent_home'`,
+    ),
+    check(
+      "employment_actions_office_day_check",
+      sql`${table.officeDay} ~ '^\\d{4}-\\d{2}-\\d{2}$'`,
+    ),
+    check(
+      "employment_actions_expiry_check",
+      sql`${table.expiresAt} > ${table.actedAt} and ${table.expiresAt} = (${table.officeDay}::date + interval '1 day')::timestamptz`,
+    ),
+    uniqueIndex("employment_actions_one_send_home_per_day_idx").on(
+      table.action,
+      table.targetNewHireId,
+      table.officeDay,
+    ),
+    index("employment_actions_active_idx").on(
+      table.targetNewHireId,
+      table.expiresAt,
+    ),
+  ],
+);
+
+export const employmentEffectOutbox = pgTable(
+  "employment_effect_outbox",
+  {
+    actionId: text("action_id")
+      .primaryKey()
+      .references(() => employmentActions.actionId, { onDelete: "cascade" }),
+    bansAppliedAt: timestamp("bans_applied_at", { withTimezone: true }),
+    publicEventPublishedAt: timestamp("public_event_published_at", {
+      withTimezone: true,
+    }),
+    invalidationPublishedAt: timestamp("invalidation_published_at", {
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    index("employment_effect_outbox_pending_idx").on(table.createdAt),
   ],
 );
 

@@ -24,6 +24,11 @@ import { HRReportReviewQueue } from "@/components/hr-report-review-queue";
 import { MessageHRReportControls } from "@/components/message-hr-report-controls";
 import { MessageRemovalControls } from "@/components/message-removal-controls";
 import { NewHireProfileContext } from "@/components/new-hire-profile-context";
+import { fetchEmploymentAccess } from "@/lib/employment/client";
+import type {
+  EmploymentAccessDeniedDecision,
+  SafePublicSendHomeSystemEventMessage,
+} from "@/lib/employment/contract";
 import { invalidateHRReportQueue } from "@/lib/hr-reports/client";
 import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import {
@@ -83,6 +88,7 @@ import {
 } from "@/lib/portal/presence";
 import {
   isNewHireMessage,
+  isPublicSendHomeSystemEventMessage,
   isScriptedSystemEventMessage,
   parseOfficeChannelMessages,
   type SafeOfficeChannelMessage,
@@ -867,6 +873,34 @@ function ScriptedSystemEventListItem({
   );
 }
 
+function SendHomeSystemEventListItem({
+  message,
+}: {
+  message: SafePublicSendHomeSystemEventMessage;
+}) {
+  return (
+    <li
+      className="chat-message system-event-message"
+      data-event-key={message.eventKey}
+      data-message-id={message.id}
+    >
+      <div className="message-meta system-event-meta">
+        <span aria-hidden="true" className="system-event-icon">
+          !
+        </span>
+        <strong>Portal Systems Operations</strong>
+        <time dateTime={new Date(message.timestamp).toISOString()}>
+          {formatOfficeTimestamp(message.timestamp)}
+        </time>
+      </div>
+      <p>
+        Operator {message.operatorId} sent New Hire {message.targetNewHireId}{" "}
+        home until the next Office Day.
+      </p>
+    </li>
+  );
+}
+
 function MessageHistory({
   channel,
   messages,
@@ -915,6 +949,11 @@ function MessageHistory({
       aria-label={`${channel.name} message history`}
     >
       {messages.map((message) => {
+        if (isPublicSendHomeSystemEventMessage(message)) {
+          return (
+            <SendHomeSystemEventListItem key={message.id} message={message} />
+          );
+        }
         if (isScriptedSystemEventMessage(message)) {
           return (
             <ScriptedSystemEventListItem key={message.id} message={message} />
@@ -1557,7 +1596,7 @@ function OfficeWorkspace({
           {children}
         </section>
       </div>
-      <NewHireProfileContext />
+      <NewHireProfileContext canSendHome={hasOperatorAccess} />
       <footer className="office-taskbar">
         <button
           aria-label={`Focus Office Channel directory, ${totalUnread} unread`}
@@ -1700,7 +1739,10 @@ function LivePortalWorkspace({
   jobTitle,
   isOperator,
   canSignOut,
-}: Omit<LivePortalOfficeProps, "mode" | "publishableKey">) {
+  onEmploymentAccessEnded,
+}: Omit<LivePortalOfficeProps, "mode" | "publishableKey"> & {
+  onEmploymentAccessEnded(access: EmploymentAccessDeniedDecision): void;
+}) {
   const queryClient = useQueryClient();
   const [reactionEvents, setReactionEvents] = useState<ReactionOfficeEvent[]>(
     [],
@@ -1717,6 +1759,17 @@ function LivePortalWorkspace({
         case "message-removal.invalidated":
           void invalidateMessageRemovals(queryClient);
           break;
+        case "employment.invalidated":
+          if (event.newHireId === identityId) {
+            void fetchEmploymentAccess()
+              .then((access) => {
+                if (!access.eligible) {
+                  onEmploymentAccessEnded(access);
+                }
+              })
+              .catch(() => window.location.reload());
+          }
+          break;
         case "operator.invalidated":
           if (event.operatorId === identityId) {
             void invalidateOperatorState(queryClient);
@@ -1724,7 +1777,7 @@ function LivePortalWorkspace({
           break;
       }
     },
-    [identityId, queryClient],
+    [identityId, onEmploymentAccessEnded, queryClient],
   );
   const { status: eventStatus, publishReaction } = useOfficeEventSubscription({
     channelId: eventChannelId,
@@ -1825,6 +1878,7 @@ function LivePortalWorkspace({
 function LivePortalOffice(
   props: Omit<LivePortalOfficeProps, "mode"> & {
     onOfficeDayExpired(): void;
+    onEmploymentAccessEnded(access: EmploymentAccessDeniedDecision): void;
   },
 ) {
   const {
@@ -2222,6 +2276,41 @@ function ShiftEndedDialog({
   );
 }
 
+function SentHomeDialog({
+  access,
+}: {
+  access: EmploymentAccessDeniedDecision;
+}) {
+  return (
+    <div className="shift-ended-backdrop">
+      <section
+        aria-labelledby="sent-home-title"
+        aria-modal="true"
+        className="shift-ended-dialog"
+        role="dialog"
+      >
+        <header className="window-titlebar">
+          <span>Portal Messenger</span>
+          <span aria-hidden="true">×</span>
+        </header>
+        <div className="shift-ended-content">
+          <p className="eyebrow">Shared Public Office access ended</p>
+          <h2 id="sent-home-title">You were sent home for this Office Day</h2>
+          <p>
+            Your Portal connections were closed. You can return automatically at
+            the next midnight UTC Office Day boundary.
+          </p>
+          {access.until ? (
+            <time dateTime={access.until.toISOString()}>
+              {access.until.toISOString()}
+            </time>
+          ) : null}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function createOfficeDayWorkspace(
   currentOfficeDay: string,
 ): OfficeDayWorkspace {
@@ -2240,6 +2329,8 @@ function PortalChatWorkspace(props: PortalChatProps): ReactNode {
   }));
   const [endedOfficeDay, setEndedOfficeDay] = useState<string | null>(null);
   const [focusNewOffice, setFocusNewOffice] = useState(false);
+  const [employmentAccessEnded, setEmploymentAccessEnded] =
+    useState<EmploymentAccessDeniedDecision | null>(null);
 
   const endOfficeDay = useCallback(() => {
     setEndedOfficeDay((current) => current ?? workspace.officeDay);
@@ -2286,6 +2377,10 @@ function PortalChatWorkspace(props: PortalChatProps): ReactNode {
     setFocusNewOffice(true);
   }
 
+  if (employmentAccessEnded) {
+    return <SentHomeDialog access={employmentAccessEnded} />;
+  }
+
   if (endedOfficeDay) {
     return (
       <ShiftEndedDialog
@@ -2302,6 +2397,7 @@ function PortalChatWorkspace(props: PortalChatProps): ReactNode {
         {...workspace}
         key={workspace.officeDay}
         onOfficeDayExpired={endOfficeDay}
+        onEmploymentAccessEnded={setEmploymentAccessEnded}
       />
     );
   }

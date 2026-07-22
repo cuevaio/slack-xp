@@ -50,6 +50,7 @@ function hasConsistentResolution(report: Partial<HRReportReviewItem>): boolean {
   switch (report.state) {
     case "open":
     case "removed":
+    case "actioned":
       return report.resolution === null;
     case "dismissed":
       return isResolution(report.resolution);
@@ -66,6 +67,8 @@ function isHRReportReviewItem(value: unknown): value is HRReportReviewItem {
     typeof report.reporterId === "string" &&
     typeof report.href === "string" &&
     isHRReportState(report.state) &&
+    (report.subjectNewHireId === null ||
+      typeof report.subjectNewHireId === "string") &&
     isIsoTimestamp(report.createdAt) &&
     isIsoTimestamp(report.updatedAt) &&
     hasConsistentResolution(report);

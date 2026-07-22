@@ -5,6 +5,7 @@ import type { AuthenticatedNewHire } from "@/lib/auth/types";
 import { readAppConfiguration } from "@/lib/config";
 import { parseOfficeEvent } from "@/lib/office-events/contract";
 import { MockPortalUnavailableError } from "@/lib/portal/mock";
+import { officeNowForRequest } from "@/lib/portal/request-time";
 import {
   issueOfficePortalSession,
   type OfficePortalSession,
@@ -24,7 +25,9 @@ function portalUnavailableResponse(): Response {
   return Response.json({ error: "portal_unavailable" }, { status: 503 });
 }
 
-async function getMockEventContext(): Promise<MockEventContext> {
+async function getMockEventContext(
+  request: Request,
+): Promise<MockEventContext> {
   const configuration = readAppConfiguration();
   if (
     configuration.status !== "ready" ||
@@ -48,10 +51,16 @@ async function getMockEventContext(): Promise<MockEventContext> {
 
   const adapters = createServiceAdapters(configuration);
   try {
+    const now = officeNowForRequest(request.headers, configuration);
     const session = await issueOfficePortalSession({
       identity,
       onboarding: await adapters.neon.getNewHire(identity.id),
       portal: adapters.portal,
+      now,
+      employmentAccess: await adapters.neon.getEmploymentAccess(
+        identity.id,
+        now,
+      ),
     });
     return { identity, session };
   } catch (error) {
@@ -70,8 +79,8 @@ async function getMockEventContext(): Promise<MockEventContext> {
   }
 }
 
-export async function GET() {
-  const context = await getMockEventContext();
+export async function GET(request: Request) {
+  const context = await getMockEventContext(request);
   if ("errorResponse" in context) {
     return context.errorResponse;
   }
@@ -89,7 +98,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const context = await getMockEventContext();
+  const context = await getMockEventContext(request);
   if ("errorResponse" in context) {
     return context.errorResponse;
   }

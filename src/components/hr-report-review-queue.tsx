@@ -2,6 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
+import { SendHomeControl } from "@/components/send-home-control";
 import {
   invalidateHRReportQueue,
   requestHRReportDismissal,
@@ -59,6 +60,12 @@ function HRReportResolution({ report }: { report: HRReportReviewItem }) {
           </p>
         </div>
       );
+    case "actioned":
+      return (
+        <div className="hr-review-resolution">
+          <small>Employment action recorded by an Operator</small>
+        </div>
+      );
     default:
       return null;
   }
@@ -105,28 +112,39 @@ function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
       </small>
       <a href={report.href}>{presentation.contextLabel}</a>
       {report.state === "open" ? (
-        <form onSubmit={submit}>
-          <label htmlFor={privateNoteId}>
-            Private Operator note (optional)
-          </label>
-          <textarea
-            id={privateNoteId}
-            maxLength={HR_REPORT_PRIVATE_NOTE_MAX_LENGTH}
-            onChange={(event) => setPrivateNote(event.currentTarget.value)}
-            rows={3}
-            value={privateNote}
-          />
-          <button
-            className="classic-button"
-            disabled={dismissal.isPending}
-            type="submit"
-          >
-            {dismissal.isPending ? "Dismissing…" : "Dismiss HR Report"}
-          </button>
-          {dismissal.isError ? (
-            <p role="alert">Dismissal failed. Operator access was rechecked.</p>
+        <>
+          <form onSubmit={submit}>
+            <label htmlFor={privateNoteId}>
+              Private Operator note (optional)
+            </label>
+            <textarea
+              id={privateNoteId}
+              maxLength={HR_REPORT_PRIVATE_NOTE_MAX_LENGTH}
+              onChange={(event) => setPrivateNote(event.currentTarget.value)}
+              rows={3}
+              value={privateNote}
+            />
+            <button
+              className="classic-button"
+              disabled={dismissal.isPending}
+              type="submit"
+            >
+              {dismissal.isPending ? "Dismissing…" : "Dismiss HR Report"}
+            </button>
+            {dismissal.isError ? (
+              <p role="alert">
+                Dismissal failed. Operator access was rechecked.
+              </p>
+            ) : null}
+          </form>
+          {report.subjectNewHireId ? (
+            <SendHomeControl
+              onCompleted={() => void invalidateHRReportQueue(queryClient)}
+              reportId={report.reportId}
+              targetNewHireId={report.subjectNewHireId}
+            />
           ) : null}
-        </form>
+        </>
       ) : (
         <HRReportResolution report={report} />
       )}

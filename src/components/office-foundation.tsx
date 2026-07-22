@@ -2,6 +2,7 @@ import { PortalChat } from "@/components/portal-chat";
 import type { ServiceAdapters } from "@/lib/adapters";
 import type { AuthenticatedNewHire } from "@/lib/auth/types";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
+import { OFFICE_CHANNEL_DEFINITIONS } from "@/lib/portal/channels";
 
 function requirePortalPublishableKey(value: string | undefined): string {
   if (!value) {
@@ -22,7 +23,7 @@ export async function OfficeFoundation({
   portalPublishableKey?: string;
 }) {
   const channels = await adapters.portal.listChannels();
-  if (channels.length !== 5) {
+  if (channels.length !== OFFICE_CHANNEL_DEFINITIONS.length) {
     throw new Error("The Office Channel directory is incomplete.");
   }
 

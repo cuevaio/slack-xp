@@ -15,7 +15,9 @@ type PortalSessionIdentity = {
   imageUrl: string | null;
 };
 
-export type OfficePortalSession = PortalToken & { channelIds: string[] };
+export type OfficePortalSession = PortalToken & {
+  channelIds: readonly string[];
+};
 
 export async function issueOfficePortalSession({
   identity,
@@ -38,7 +40,7 @@ export async function issueOfficePortalSession({
   }
 
   const channelIds = listOfficeChannels(now).map(({ id }) => id);
-  const identityClaims = {
+  const portalIdentity = {
     userId: identity.id,
     claims: {
       username: identity.fullName,
@@ -47,11 +49,11 @@ export async function issueOfficePortalSession({
   };
   await Promise.all(
     channelIds.map((channelId) =>
-      portal.ensureMembership({ channelId, ...identityClaims }),
+      portal.ensureMembership({ channelId, ...portalIdentity }),
     ),
   );
   return {
     channelIds,
-    ...(await portal.mintToken({ channelIds, ...identityClaims })),
+    ...(await portal.mintToken({ channelIds, ...portalIdentity })),
   };
 }

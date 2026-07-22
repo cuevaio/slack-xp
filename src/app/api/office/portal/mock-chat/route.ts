@@ -72,11 +72,10 @@ async function getMockChatContext(): Promise<MockChatContext> {
 }
 
 function resolveRequestedChannel(
-  request: Request,
+  searchParams: URLSearchParams,
   session: OfficePortalSession,
 ): string | null {
-  const requestedSlug =
-    new URL(request.url).searchParams.get("channel") ?? "general";
+  const requestedSlug = searchParams.get("channel") ?? "general";
   if (!isOfficeChannelSlug(requestedSlug)) {
     return null;
   }
@@ -92,11 +91,12 @@ export async function GET(request: Request) {
   if ("errorResponse" in context) {
     return context.errorResponse;
   }
-  const channelId = resolveRequestedChannel(request, context.session);
+  const searchParams = new URL(request.url).searchParams;
+  const channelId = resolveRequestedChannel(searchParams, context.session);
   if (!channelId) {
     return Response.json({ error: "invalid_channel" }, { status: 404 });
   }
-  const before = new URL(request.url).searchParams.get("before") ?? undefined;
+  const before = searchParams.get("before") ?? undefined;
 
   try {
     return Response.json(
@@ -118,7 +118,10 @@ export async function POST(request: Request) {
   if ("errorResponse" in context) {
     return context.errorResponse;
   }
-  const channelId = resolveRequestedChannel(request, context.session);
+  const channelId = resolveRequestedChannel(
+    new URL(request.url).searchParams,
+    context.session,
+  );
   if (!channelId) {
     return Response.json({ error: "invalid_channel" }, { status: 404 });
   }

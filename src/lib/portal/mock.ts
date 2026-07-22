@@ -49,7 +49,9 @@ export function createMockPortalAdapter({
   let messageSequence = 0;
 
   function requireOnline(): void {
-    if (!online) throw new MockPortalUnavailableError();
+    if (!online) {
+      throw new MockPortalUnavailableError();
+    }
   }
 
   return {
@@ -84,8 +86,8 @@ export function createMockPortalAdapter({
       const channelMessages = messages.get(channelId) ?? [];
       const beforeIndex = before
         ? channelMessages.findIndex(({ id }) => id === before)
-        : channelMessages.length;
-      const end = beforeIndex < 0 ? channelMessages.length : beforeIndex;
+        : -1;
+      const end = beforeIndex >= 0 ? beforeIndex : channelMessages.length;
       const start = Math.max(0, end - limit);
       return {
         messages: channelMessages.slice(start, end),

@@ -66,11 +66,19 @@ type ChatSurfaceProps = {
   isLoadingPrevious?: boolean;
 };
 
-type OfficeWorkspaceProps = PortalOfficeBaseProps & {
+type OfficeWorkspaceProps = Pick<
+  PortalOfficeBaseProps,
+  "channels" | "displayName" | "jobTitle" | "isOperator" | "canSignOut"
+> & {
   activeChannelId: string;
   unreadCounts: Readonly<Record<string, number>>;
   onSelectChannel(channelId: string): void;
   children: ReactNode;
+};
+
+type MockHistoryPage = {
+  messages: unknown[];
+  hasPrevious: boolean;
 };
 
 function connectionStatusCopy(status: ChatConnectionStatus): string {
@@ -92,18 +100,25 @@ function connectionStatusCopy(status: ChatConnectionStatus): string {
 }
 
 function sendButtonCopy(isSending: boolean, hasError: boolean): string {
-  if (isSending) return "Sending…";
-  if (hasError) return "Retry send";
+  if (isSending) {
+    return "Sending…";
+  }
+  if (hasError) {
+    return "Retry send";
+  }
   return "Send";
 }
 
-function hasMessageId(message: unknown, id: string): boolean {
-  return (
-    typeof message === "object" &&
-    message !== null &&
-    "id" in message &&
-    message.id === id
-  );
+function getMessageId(message: unknown): string | undefined {
+  if (
+    typeof message !== "object" ||
+    message === null ||
+    !("id" in message) ||
+    typeof message.id !== "string"
+  ) {
+    return undefined;
+  }
+  return message.id;
 }
 
 function replaceMessage(
@@ -112,7 +127,7 @@ function replaceMessage(
   replacement: unknown,
 ): unknown[] {
   return messages.map((message) =>
-    hasMessageId(message, id) ? replacement : message,
+    getMessageId(message) === id ? replacement : message,
   );
 }
 
@@ -121,38 +136,57 @@ function prependUniqueMessages(
   previous: readonly unknown[],
 ): unknown[] {
   const currentIds = new Set(
-    current.flatMap((message) =>
-      typeof message === "object" &&
-      message !== null &&
-      "id" in message &&
-      typeof message.id === "string"
-        ? [message.id]
-        : [],
-    ),
+    current.map(getMessageId).filter((id): id is string => id !== undefined),
   );
   return [
-    ...previous.filter(
-      (message) =>
-        !(
-          typeof message === "object" &&
-          message !== null &&
-          "id" in message &&
-          typeof message.id === "string" &&
-          currentIds.has(message.id)
-        ),
-    ),
+    ...previous.filter((message) => {
+      const id = getMessageId(message);
+      return id === undefined || !currentIds.has(id);
+    }),
     ...current,
   ];
 }
 
 function firstMessageId(messages: readonly unknown[]): string | undefined {
-  const first = messages[0];
-  return typeof first === "object" &&
-    first !== null &&
-    "id" in first &&
-    typeof first.id === "string"
-    ? first.id
-    : undefined;
+  return getMessageId(messages[0]);
+}
+
+function parseMockHistoryPage(value: unknown): MockHistoryPage | null {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("messages" in value) ||
+    !Array.isArray(value.messages) ||
+    !("hasPrevious" in value) ||
+    typeof value.hasPrevious !== "boolean"
+  ) {
+    return null;
+  }
+  return {
+    messages: value.messages,
+    hasPrevious: value.hasPrevious,
+  };
+}
+
+async function fetchMockHistoryPage(
+  channelSlug: OfficeChannel["slug"],
+  before?: string,
+): Promise<MockHistoryPage> {
+  const searchParams = new URLSearchParams({ channel: channelSlug });
+  if (before) {
+    searchParams.set("before", before);
+  }
+
+  const response = await fetch(
+    `/api/office/portal/mock-chat?${searchParams.toString()}`,
+    { credentials: "include", cache: "no-store" },
+  );
+  const payload: unknown = await response.json().catch(() => null);
+  const historyPage = parseMockHistoryPage(payload);
+  if (!response.ok || !historyPage) {
+    throw new Error("Mock Portal history unavailable");
+  }
+  return historyPage;
 }
 
 function SafeMessageText({ text }: { text: string }) {
@@ -407,7 +441,6 @@ function ChatSurface({
 
 function OfficeWorkspace({
   channels,
-  identityId: _identityId,
   displayName,
   jobTitle,
   isOperator,
@@ -508,7 +541,15 @@ function LiveOfficeChannel({
 }
 
 function LivePortalOffice(props: Omit<LivePortalOfficeProps, "mode">) {
-  const { channels, publishableKey } = props;
+  const {
+    channels,
+    identityId,
+    displayName,
+    jobTitle,
+    isOperator,
+    canSignOut,
+    publishableKey,
+  } = props;
   const [activeChannelId, setActiveChannelId] = useState(channels[0]?.id ?? "");
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const [portal] = useState(
@@ -519,18 +560,23 @@ function LivePortalOffice(props: Omit<LivePortalOfficeProps, "mode">) {
       }),
   );
   const updateUnread = useCallback((channelId: string, count: number) => {
-    setUnreadCounts((current) =>
-      current[channelId] === count
-        ? current
-        : { ...current, [channelId]: count },
-    );
+    setUnreadCounts((current) => {
+      if (current[channelId] === count) {
+        return current;
+      }
+      return { ...current, [channelId]: count };
+    });
   }, []);
 
   return (
     <PortalProvider client={portal}>
       <OfficeWorkspace
-        {...props}
         activeChannelId={activeChannelId}
+        canSignOut={canSignOut}
+        channels={channels}
+        displayName={displayName}
+        isOperator={isOperator}
+        jobTitle={jobTitle}
         onSelectChannel={setActiveChannelId}
         unreadCounts={unreadCounts}
       >
@@ -538,8 +584,8 @@ function LivePortalOffice(props: Omit<LivePortalOfficeProps, "mode">) {
           <LiveOfficeChannel
             active={channel.id === activeChannelId}
             channel={channel}
-            displayName={props.displayName}
-            identityId={props.identityId}
+            displayName={displayName}
+            identityId={identityId}
             key={channel.id}
             onUnread={updateUnread}
           />
@@ -569,24 +615,9 @@ function MockOfficeChannel({
     setStatus("connecting");
     try {
       await createPortalTokenSource()();
-      const response = await fetch(
-        `/api/office/portal/mock-chat?channel=${encodeURIComponent(channel.slug)}`,
-        { credentials: "include", cache: "no-store" },
-      );
-      const payload: unknown = await response.json().catch(() => null);
-      if (
-        !response.ok ||
-        typeof payload !== "object" ||
-        payload === null ||
-        !("messages" in payload) ||
-        !Array.isArray(payload.messages) ||
-        !("hasPrevious" in payload) ||
-        typeof payload.hasPrevious !== "boolean"
-      ) {
-        throw new Error("Mock Portal history unavailable");
-      }
-      setMessages(payload.messages);
-      setHasPrevious(payload.hasPrevious);
+      const historyPage = await fetchMockHistoryPage(channel.slug);
+      setMessages(historyPage.messages);
+      setHasPrevious(historyPage.hasPrevious);
       setStatus("ready");
     } catch {
       setMessages([]);
@@ -604,27 +635,11 @@ function MockOfficeChannel({
     if (!before) return;
     setIsLoadingPrevious(true);
     try {
-      const response = await fetch(
-        `/api/office/portal/mock-chat?channel=${encodeURIComponent(channel.slug)}&before=${encodeURIComponent(before)}`,
-        { credentials: "include", cache: "no-store" },
-      );
-      const payload: unknown = await response.json().catch(() => null);
-      if (
-        !response.ok ||
-        typeof payload !== "object" ||
-        payload === null ||
-        !("messages" in payload) ||
-        !Array.isArray(payload.messages) ||
-        !("hasPrevious" in payload) ||
-        typeof payload.hasPrevious !== "boolean"
-      ) {
-        throw new Error("Mock Portal history unavailable");
-      }
-      const previousMessages = payload.messages;
+      const historyPage = await fetchMockHistoryPage(channel.slug, before);
       setMessages((current) =>
-        prependUniqueMessages(current, previousMessages),
+        prependUniqueMessages(current, historyPage.messages),
       );
-      setHasPrevious(payload.hasPrevious);
+      setHasPrevious(historyPage.hasPrevious);
     } finally {
       setIsLoadingPrevious(false);
     }
@@ -691,13 +706,24 @@ function MockOfficeChannel({
 }
 
 function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
-  const { channels } = props;
+  const {
+    channels,
+    identityId,
+    displayName,
+    jobTitle,
+    isOperator,
+    canSignOut,
+  } = props;
   const [activeChannelId, setActiveChannelId] = useState(channels[0]?.id ?? "");
 
   return (
     <OfficeWorkspace
-      {...props}
       activeChannelId={activeChannelId}
+      canSignOut={canSignOut}
+      channels={channels}
+      displayName={displayName}
+      isOperator={isOperator}
+      jobTitle={jobTitle}
       onSelectChannel={setActiveChannelId}
       unreadCounts={{}}
     >
@@ -705,8 +731,8 @@ function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
         <MockOfficeChannel
           active={channel.id === activeChannelId}
           channel={channel}
-          displayName={props.displayName}
-          identityId={props.identityId}
+          displayName={displayName}
+          identityId={identityId}
           key={channel.id}
         />
       ))}

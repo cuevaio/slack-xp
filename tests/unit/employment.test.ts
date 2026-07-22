@@ -2,13 +2,18 @@ import { describe, expect, test } from "bun:test";
 import {
   EMPLOYMENT_SYSTEM_EVENT_MESSAGE_TYPE,
   EMPLOYMENT_SYSTEM_EVENT_VERSION,
+  REINSTATEMENT_SYSTEM_EVENT_TEXT,
   SEND_HOME_SYSTEM_EVENT_TEXT,
+  TERMINATION_SYSTEM_EVENT_TEXT,
 } from "@/lib/employment/contract";
 import {
   employmentAccessDecision,
   officeDayExpiry,
   parsePublicSendHomeSystemEventMessage,
+  parsePublicTerminationSystemEventMessage,
+  parseReinstatementRequest,
   parseSendHomeRequest,
+  parseTerminationRequest,
 } from "@/lib/employment/domain";
 import { OFFICE_EVENT_SENDERS } from "@/lib/office-events/contract";
 
@@ -112,5 +117,73 @@ describe("Send Home policy", () => {
         "all-hands:2026-07-22",
       ),
     ).toBeNull();
+  });
+
+  test("validates private Termination and reinstatement mutation contracts", () => {
+    expect(
+      parseTerminationRequest({
+        requestId: "terminate-22",
+        targetNewHireId: "user_target",
+        privateReason: "  Private reason.  ",
+        reportId: "report-22",
+      }),
+    ).toEqual({
+      requestId: "terminate-22",
+      targetNewHireId: "user_target",
+      privateReason: "Private reason.",
+      reportId: "report-22",
+    });
+    expect(
+      parseReinstatementRequest({
+        requestId: "reinstate-22",
+        targetNewHireId: "user_target",
+        privateReason: "Resolved privately.",
+        reportId: "must-not-be-accepted",
+      }),
+    ).toBeNull();
+  });
+
+  test("accepts privacy-safe Termination events and rejects private fields", () => {
+    const base = {
+      id: "termination-message-22",
+      channelId: "all-hands:2026-07-22",
+      sender: { id: OFFICE_EVENT_SENDERS.operations, anon: false },
+      timestamp: 1_753_219_800_000,
+      kind: "text",
+      type: EMPLOYMENT_SYSTEM_EVENT_MESSAGE_TYPE,
+      ephemeral: false,
+      retracted: false,
+      status: "sent",
+    };
+    const event = {
+      version: EMPLOYMENT_SYSTEM_EVENT_VERSION,
+      type: "employment.terminated",
+      eventKey:
+        "employment-event:v1:2026-07-22:terminated:termination-action-22",
+      officeDay: "2026-07-22",
+      operatorId: "user_operator",
+      targetNewHireId: "user_target",
+      terminationId: "termination-action-22",
+      text: TERMINATION_SYSTEM_EVENT_TEXT,
+    };
+    expect(
+      parsePublicTerminationSystemEventMessage(
+        { ...base, content: event },
+        base.channelId,
+      ),
+    ).toMatchObject({
+      action: "terminated",
+      terminationId: event.terminationId,
+    });
+    expect(
+      parsePublicTerminationSystemEventMessage(
+        {
+          ...base,
+          content: { ...event, privateReason: "must stay private" },
+        },
+        base.channelId,
+      ),
+    ).toBeNull();
+    expect(REINSTATEMENT_SYSTEM_EVENT_TEXT).not.toContain("reason");
   });
 });

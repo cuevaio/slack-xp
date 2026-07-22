@@ -1,5 +1,11 @@
-import type { SafePublicSendHomeSystemEventMessage } from "@/lib/employment/contract";
-import { parsePublicSendHomeSystemEventMessage } from "@/lib/employment/domain";
+import type {
+  SafePublicSendHomeSystemEventMessage,
+  SafePublicTerminationSystemEventMessage,
+} from "@/lib/employment/contract";
+import {
+  parsePublicSendHomeSystemEventMessage,
+  parsePublicTerminationSystemEventMessage,
+} from "@/lib/employment/domain";
 import {
   parseScriptedSystemEventMessage,
   type SafeScriptedSystemEventMessage,
@@ -12,7 +18,8 @@ import {
 export type SafeOfficeChannelMessage =
   | SafePortalChatMessage
   | SafeScriptedSystemEventMessage
-  | SafePublicSendHomeSystemEventMessage;
+  | SafePublicSendHomeSystemEventMessage
+  | SafePublicTerminationSystemEventMessage;
 
 export function isScriptedSystemEventMessage(
   message: SafeOfficeChannelMessage,
@@ -23,7 +30,13 @@ export function isScriptedSystemEventMessage(
 export function isPublicSendHomeSystemEventMessage(
   message: SafeOfficeChannelMessage,
 ): message is SafePublicSendHomeSystemEventMessage {
-  return "operatorId" in message;
+  return "operatorId" in message && "expiresAt" in message.content;
+}
+
+export function isPublicTerminationSystemEventMessage(
+  message: SafeOfficeChannelMessage,
+): message is SafePublicTerminationSystemEventMessage {
+  return "operatorId" in message && "terminationId" in message;
 }
 
 export function isNewHireMessage(
@@ -31,7 +44,8 @@ export function isNewHireMessage(
 ): message is SafePortalChatMessage {
   return (
     !isScriptedSystemEventMessage(message) &&
-    !isPublicSendHomeSystemEventMessage(message)
+    !isPublicSendHomeSystemEventMessage(message) &&
+    !isPublicTerminationSystemEventMessage(message)
   );
 }
 
@@ -67,6 +81,18 @@ export function parseOfficeChannelMessages(
       if (!seenSystemEventKeys.has(sendHomeEvent.eventKey)) {
         seenSystemEventKeys.add(sendHomeEvent.eventKey);
         messages.push(sendHomeEvent);
+      }
+      continue;
+    }
+
+    const terminationEvent = parsePublicTerminationSystemEventMessage(
+      rawMessage,
+      channelId,
+    );
+    if (terminationEvent) {
+      if (!seenSystemEventKeys.has(terminationEvent.eventKey)) {
+        seenSystemEventKeys.add(terminationEvent.eventKey);
+        messages.push(terminationEvent);
       }
       continue;
     }

@@ -2,11 +2,16 @@ import {
   EMPLOYMENT_SYSTEM_EVENT_VERSION,
   type EmploymentPortalAuthority,
   type EmploymentRepository,
+  REINSTATEMENT_SYSTEM_EVENT_TEXT,
+  type ReinstatementResult,
   SEND_HOME_SYSTEM_EVENT_TEXT,
   type SendHomeResult,
+  TERMINATION_SYSTEM_EVENT_TEXT,
+  type TerminationResult,
 } from "@/lib/employment/contract";
 import {
   createSendHomeSystemEventKey,
+  createTerminationSystemEventKey,
   officeDayExpiry,
 } from "@/lib/employment/domain";
 import {
@@ -137,5 +142,180 @@ export async function sendHomeNewHire({
     status: recorded.status === "created" ? "sent-home" : "already-sent-home",
     officeDay: recorded.action.officeDay,
     expiresAt: new Date(recorded.action.expiresAt),
+  };
+}
+
+export async function flushTerminationEffects({
+  repository,
+  portal,
+  now = new Date(),
+}: {
+  repository: EmploymentRepository;
+  portal: EmploymentPortalAuthority;
+  now?: Date;
+}): Promise<number> {
+  const pending = await repository.pendingTerminationEffects(
+    EMPLOYMENT_EFFECT_BATCH_SIZE,
+  );
+  let firstFailure: unknown;
+  for (const effect of pending) {
+    const channelIds = [
+      ...listOfficeChannelsForDay(effect.officeDay).map(({ id }) => id),
+      officeEventChannelIdForDay(effect.officeDay),
+    ];
+    if (!effect.invalidationPublishedAt) {
+      try {
+        await portal.publishEmploymentInvalidation({
+          version: OFFICE_EVENT_VERSION,
+          type: "employment.invalidated",
+          eventKey: createOfficeEventKey(
+            "employment.invalidated",
+            effect.effectId,
+          ),
+          occurredAt: effect.actedAt.toISOString(),
+          newHireId: effect.targetNewHireId,
+        });
+        await repository.markTerminationInvalidationPublished(
+          effect.effectId,
+          now,
+        );
+      } catch (error) {
+        firstFailure ??= error;
+      }
+    }
+    if (!effect.portalAccessReconciledAt) {
+      try {
+        if (effect.action === "terminated") {
+          await portal.applyTerminationBans({
+            channelIds,
+            newHireId: effect.targetNewHireId,
+          });
+        } else {
+          const state = await repository.getEmploymentState(
+            effect.targetNewHireId,
+            now,
+          );
+          if (
+            state.access.reason !== "deleted" &&
+            state.access.reason !== "terminated"
+          ) {
+            await portal.reconcileReinstatementBans({
+              channelIds,
+              newHireId: effect.targetNewHireId,
+              sentHomeUntil:
+                state.access.reason === "sent-home" ? state.access.until : null,
+            });
+          }
+        }
+        await repository.markTerminationPortalAccessReconciled(
+          effect.effectId,
+          now,
+        );
+      } catch (error) {
+        firstFailure ??= error;
+      }
+    }
+    if (!effect.publicEventPublishedAt) {
+      try {
+        await portal.publishTerminationSystemEvent({
+          version: EMPLOYMENT_SYSTEM_EVENT_VERSION,
+          type:
+            effect.action === "terminated"
+              ? "employment.terminated"
+              : "employment.reinstated",
+          eventKey: createTerminationSystemEventKey(
+            effect.action,
+            effect.officeDay,
+            effect.effectId,
+          ),
+          officeDay: effect.officeDay,
+          operatorId: effect.operatorId,
+          targetNewHireId: effect.targetNewHireId,
+          terminationId: effect.terminationId,
+          text:
+            effect.action === "terminated"
+              ? TERMINATION_SYSTEM_EVENT_TEXT
+              : REINSTATEMENT_SYSTEM_EVENT_TEXT,
+        });
+        await repository.markTerminationPublicEventPublished(
+          effect.effectId,
+          now,
+        );
+      } catch (error) {
+        firstFailure ??= error;
+      }
+    }
+  }
+  if (firstFailure) throw firstFailure;
+  return pending.length;
+}
+
+export async function terminateNewHire({
+  repository,
+  portal,
+  requestId,
+  operatorId,
+  targetNewHireId,
+  privateReason,
+  reportId,
+  now = new Date(),
+}: {
+  repository: EmploymentRepository;
+  portal: EmploymentPortalAuthority;
+  requestId: string;
+  operatorId: string;
+  targetNewHireId: string;
+  privateReason: string;
+  reportId?: string;
+  now?: Date;
+}): Promise<TerminationResult> {
+  const recorded = await repository.recordTermination({
+    terminationId: crypto.randomUUID(),
+    requestId,
+    operatorId,
+    targetNewHireId,
+    reportId: reportId ?? null,
+    privateReason,
+    terminatedAt: now,
+  });
+  await flushTerminationEffects({ repository, portal, now });
+  return {
+    terminationId: recorded.termination.terminationId,
+    status: recorded.status === "created" ? "terminated" : "already-terminated",
+    terminatedAt: new Date(recorded.termination.terminatedAt),
+  };
+}
+
+export async function reinstateNewHire({
+  repository,
+  portal,
+  requestId,
+  operatorId,
+  targetNewHireId,
+  privateReason,
+  now = new Date(),
+}: {
+  repository: EmploymentRepository;
+  portal: EmploymentPortalAuthority;
+  requestId: string;
+  operatorId: string;
+  targetNewHireId: string;
+  privateReason: string;
+  now?: Date;
+}): Promise<ReinstatementResult> {
+  const recorded = await repository.recordReinstatement({
+    reinstatementId: crypto.randomUUID(),
+    requestId,
+    operatorId,
+    targetNewHireId,
+    privateReason,
+    reinstatedAt: now,
+  });
+  await flushTerminationEffects({ repository, portal, now });
+  return {
+    reinstatementId: recorded.reinstatement.reinstatementId,
+    terminationId: recorded.reinstatement.terminationId,
+    status: recorded.status === "created" ? "reinstated" : "already-reinstated",
+    reinstatedAt: new Date(recorded.reinstatement.reinstatedAt),
   };
 }

@@ -28,6 +28,7 @@ import { fetchEmploymentAccess } from "@/lib/employment/client";
 import type {
   EmploymentAccessDeniedDecision,
   SafePublicSendHomeSystemEventMessage,
+  SafePublicTerminationSystemEventMessage,
 } from "@/lib/employment/contract";
 import { invalidateHRReportQueue } from "@/lib/hr-reports/client";
 import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
@@ -89,6 +90,7 @@ import {
 import {
   isNewHireMessage,
   isPublicSendHomeSystemEventMessage,
+  isPublicTerminationSystemEventMessage,
   isScriptedSystemEventMessage,
   parseOfficeChannelMessages,
   type SafeOfficeChannelMessage,
@@ -901,6 +903,35 @@ function SendHomeSystemEventListItem({
   );
 }
 
+function TerminationSystemEventListItem({
+  message,
+}: {
+  message: SafePublicTerminationSystemEventMessage;
+}) {
+  return (
+    <li
+      className="chat-message system-event-message"
+      data-event-key={message.eventKey}
+      data-message-id={message.id}
+    >
+      <div className="message-meta system-event-meta">
+        <span aria-hidden="true" className="system-event-icon">
+          !
+        </span>
+        <strong>Portal Systems Operations</strong>
+        <time dateTime={new Date(message.timestamp).toISOString()}>
+          {formatOfficeTimestamp(message.timestamp)}
+        </time>
+      </div>
+      <p>
+        Operator {message.operatorId}{" "}
+        {message.action === "terminated" ? "terminated" : "reinstated"} New Hire{" "}
+        {message.targetNewHireId}.
+      </p>
+    </li>
+  );
+}
+
 function MessageHistory({
   channel,
   messages,
@@ -949,6 +980,14 @@ function MessageHistory({
       aria-label={`${channel.name} message history`}
     >
       {messages.map((message) => {
+        if (isPublicTerminationSystemEventMessage(message)) {
+          return (
+            <TerminationSystemEventListItem
+              key={message.id}
+              message={message}
+            />
+          );
+        }
         if (isPublicSendHomeSystemEventMessage(message)) {
           return (
             <SendHomeSystemEventListItem key={message.id} message={message} />

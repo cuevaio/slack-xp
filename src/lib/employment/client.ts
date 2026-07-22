@@ -2,7 +2,10 @@
 
 import type {
   EmploymentAccessDecision,
+  EmploymentState,
+  ReinstatementRequest,
   SendHomeRequest,
+  TerminationRequest,
 } from "@/lib/employment/contract";
 
 export type SendHomeResponse = {
@@ -82,4 +85,66 @@ export async function fetchEmploymentAccess(): Promise<EmploymentAccessDecision>
   if (!access) throw new Error("Employment access is unavailable.");
 
   return access;
+}
+
+export async function fetchNewHireEmploymentState(
+  targetNewHireId: string,
+): Promise<EmploymentState> {
+  const response = await fetch(
+    `/api/office/operator/termination?targetNewHireId=${encodeURIComponent(targetNewHireId)}`,
+    { credentials: "include", cache: "no-store" },
+  );
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok || !isObject(payload) || !isObject(payload.access)) {
+    throw new Error("Employment state is unavailable.");
+  }
+  const access = parseEmploymentAccessDecision(payload.access);
+  const active = payload.activeTermination;
+  if (
+    !access ||
+    (active !== null &&
+      (!isObject(active) ||
+        typeof active.terminationId !== "string" ||
+        typeof active.operatorId !== "string" ||
+        typeof active.terminatedAt !== "string"))
+  ) {
+    throw new Error("Employment state is unavailable.");
+  }
+  return {
+    access,
+    activeTermination:
+      active === null
+        ? null
+        : {
+            terminationId: active.terminationId as string,
+            operatorId: active.operatorId as string,
+            terminatedAt: new Date(active.terminatedAt as string),
+          },
+  };
+}
+
+async function requestEmploymentChange(
+  method: "POST" | "PATCH",
+  input: TerminationRequest | ReinstatementRequest,
+): Promise<void> {
+  const response = await fetch("/api/office/operator/termination", {
+    method,
+    credentials: "include",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw new Error("The employment action could not be completed.");
+  }
+}
+
+export function requestTermination(input: TerminationRequest): Promise<void> {
+  return requestEmploymentChange("POST", input);
+}
+
+export function requestReinstatement(
+  input: ReinstatementRequest,
+): Promise<void> {
+  return requestEmploymentChange("PATCH", input);
 }

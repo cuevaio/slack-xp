@@ -4,6 +4,7 @@ import Image from "next/image";
 import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { ProfileHRReportControls } from "@/components/message-hr-report-controls";
 import { SendHomeControl } from "@/components/send-home-control";
+import { TerminationControl } from "@/components/termination-control";
 import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import { useProfileBatch } from "@/lib/profiles/client";
 import type { ProfileAttribution } from "@/lib/profiles/types";
@@ -64,6 +65,12 @@ function ProfileContextContent({
         <>
           <ProfileHRReportControls profileId={profileId} />
           {canSendHome ? <SendHomeControl targetNewHireId={profileId} /> : null}
+          {canSendHome ? (
+            <TerminationControl
+              allowReinstatement
+              targetNewHireId={profileId}
+            />
+          ) : null}
         </>
       ) : (
         <p>

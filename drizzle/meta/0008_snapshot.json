@@ -1,6 +1,6 @@
 {
-  "id": "ded211c1-a80e-4b2d-b5ab-9342913a456f",
-  "prevId": "ca58444f-442a-46df-8697-9f2226d1fb7b",
+  "id": "f347d03a-8099-4a22-b1ad-07d58ad5e7e0",
+  "prevId": "ded211c1-a80e-4b2d-b5ab-9342913a456f",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -319,6 +319,360 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.employment_reinstatements": {
+      "name": "employment_reinstatements",
+      "schema": "",
+      "columns": {
+        "reinstatement_id": {
+          "name": "reinstatement_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "termination_id": {
+          "name": "termination_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operator_id": {
+          "name": "operator_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_new_hire_id": {
+          "name": "target_new_hire_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reinstated_at": {
+          "name": "reinstated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "employment_reinstatements_target_idx": {
+          "name": "employment_reinstatements_target_idx",
+          "columns": [
+            {
+              "expression": "target_new_hire_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "reinstated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "employment_reinstatements_termination_id_employment_terminations_termination_id_fk": {
+          "name": "employment_reinstatements_termination_id_employment_terminations_termination_id_fk",
+          "tableFrom": "employment_reinstatements",
+          "tableTo": "employment_terminations",
+          "columnsFrom": ["termination_id"],
+          "columnsTo": ["termination_id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "employment_reinstatements_target_new_hire_id_clerk_profiles_clerk_user_id_fk": {
+          "name": "employment_reinstatements_target_new_hire_id_clerk_profiles_clerk_user_id_fk",
+          "tableFrom": "employment_reinstatements",
+          "tableTo": "clerk_profiles",
+          "columnsFrom": ["target_new_hire_id"],
+          "columnsTo": ["clerk_user_id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "employment_reinstatements_request_id_unique": {
+          "name": "employment_reinstatements_request_id_unique",
+          "nullsNotDistinct": false,
+          "columns": ["request_id"]
+        },
+        "employment_reinstatements_termination_id_unique": {
+          "name": "employment_reinstatements_termination_id_unique",
+          "nullsNotDistinct": false,
+          "columns": ["termination_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "employment_reinstatements_id_check": {
+          "name": "employment_reinstatements_id_check",
+          "value": "char_length(\"employment_reinstatements\".\"reinstatement_id\") between 1 and 255 and char_length(\"employment_reinstatements\".\"request_id\") between 1 and 255"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.employment_termination_effect_outbox": {
+      "name": "employment_termination_effect_outbox",
+      "schema": "",
+      "columns": {
+        "effect_id": {
+          "name": "effect_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "termination_id": {
+          "name": "termination_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operator_id": {
+          "name": "operator_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_new_hire_id": {
+          "name": "target_new_hire_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "office_day": {
+          "name": "office_day",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "acted_at": {
+          "name": "acted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "portal_access_reconciled_at": {
+          "name": "portal_access_reconciled_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "public_event_published_at": {
+          "name": "public_event_published_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "invalidation_published_at": {
+          "name": "invalidation_published_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "employment_termination_effect_pending_idx": {
+          "name": "employment_termination_effect_pending_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "employment_termination_effect_outbox_termination_id_employment_terminations_termination_id_fk": {
+          "name": "employment_termination_effect_outbox_termination_id_employment_terminations_termination_id_fk",
+          "tableFrom": "employment_termination_effect_outbox",
+          "tableTo": "employment_terminations",
+          "columnsFrom": ["termination_id"],
+          "columnsTo": ["termination_id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "employment_termination_effect_kind_check": {
+          "name": "employment_termination_effect_kind_check",
+          "value": "\"employment_termination_effect_outbox\".\"action\" in ('terminated', 'reinstated') and \"employment_termination_effect_outbox\".\"office_day\" ~ '^\\d{4}-\\d{2}-\\d{2}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.employment_terminations": {
+      "name": "employment_terminations",
+      "schema": "",
+      "columns": {
+        "termination_id": {
+          "name": "termination_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "request_id": {
+          "name": "request_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "operator_id": {
+          "name": "operator_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_new_hire_id": {
+          "name": "target_new_hire_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "report_id": {
+          "name": "report_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "terminated_at": {
+          "name": "terminated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reinstated_at": {
+          "name": "reinstated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "employment_terminations_one_active_idx": {
+          "name": "employment_terminations_one_active_idx",
+          "columns": [
+            {
+              "expression": "target_new_hire_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"employment_terminations\".\"reinstated_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "employment_terminations_target_idx": {
+          "name": "employment_terminations_target_idx",
+          "columns": [
+            {
+              "expression": "target_new_hire_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "terminated_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "employment_terminations_target_new_hire_id_clerk_profiles_clerk_user_id_fk": {
+          "name": "employment_terminations_target_new_hire_id_clerk_profiles_clerk_user_id_fk",
+          "tableFrom": "employment_terminations",
+          "tableTo": "clerk_profiles",
+          "columnsFrom": ["target_new_hire_id"],
+          "columnsTo": ["clerk_user_id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "employment_terminations_report_id_hr_reports_report_id_fk": {
+          "name": "employment_terminations_report_id_hr_reports_report_id_fk",
+          "tableFrom": "employment_terminations",
+          "tableTo": "hr_reports",
+          "columnsFrom": ["report_id"],
+          "columnsTo": ["report_id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "employment_terminations_request_id_unique": {
+          "name": "employment_terminations_request_id_unique",
+          "nullsNotDistinct": false,
+          "columns": ["request_id"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "employment_terminations_id_check": {
+          "name": "employment_terminations_id_check",
+          "value": "char_length(\"employment_terminations\".\"termination_id\") between 1 and 255 and char_length(\"employment_terminations\".\"request_id\") between 1 and 255"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.hr_report_notification_outbox": {
@@ -1061,11 +1415,11 @@
         },
         "operator_actions_kind_check": {
           "name": "operator_actions_kind_check",
-          "value": "(\"operator_actions\".\"target_type\" = 'hr_report' and \"operator_actions\".\"action\" = 'dismissed') or (\"operator_actions\".\"target_type\" = 'message_removal' and \"operator_actions\".\"action\" = 'removed') or (\"operator_actions\".\"target_type\" = 'new_hire' and \"operator_actions\".\"action\" = 'sent_home')"
+          "value": "(\"operator_actions\".\"target_type\" = 'hr_report' and \"operator_actions\".\"action\" = 'dismissed') or (\"operator_actions\".\"target_type\" = 'message_removal' and \"operator_actions\".\"action\" = 'removed') or (\"operator_actions\".\"target_type\" = 'new_hire' and \"operator_actions\".\"action\" in ('sent_home', 'terminated', 'reinstated'))"
         },
         "operator_actions_private_note_check": {
           "name": "operator_actions_private_note_check",
-          "value": "(\"operator_actions\".\"action\" = 'dismissed' and (\"operator_actions\".\"private_note\" is null or char_length(\"operator_actions\".\"private_note\") between 1 and 1000)) or (\"operator_actions\".\"action\" in ('removed', 'sent_home') and char_length(\"operator_actions\".\"private_note\") between 1 and 1000)"
+          "value": "(\"operator_actions\".\"action\" = 'dismissed' and (\"operator_actions\".\"private_note\" is null or char_length(\"operator_actions\".\"private_note\") between 1 and 1000)) or (\"operator_actions\".\"action\" in ('removed', 'sent_home', 'terminated', 'reinstated') and char_length(\"operator_actions\".\"private_note\") between 1 and 1000)"
         }
       },
       "isRLSEnabled": false

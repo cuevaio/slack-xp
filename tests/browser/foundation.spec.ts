@@ -544,6 +544,9 @@ test("New Hire Profile HR Reports follow current canonical profile context", asy
   await expect(
     queueItem.getByRole("button", { name: "Send Home" }),
   ).toBeVisible();
+  await expect(
+    queueItem.getByRole("button", { name: "Terminate" }),
+  ).toBeVisible();
 
   await expect(
     reviewProfile.getByRole("button", { name: "Send Home" }),
@@ -605,6 +608,100 @@ test("New Hire Profile HR Reports follow current canonical profile context", asy
     "x-portal-mock-now": `${nextOfficeDay}T00:00:00.000Z`,
   });
   await page.reload();
+  await expect(page.getByText("Welcome, Current Profile")).toBeVisible();
+});
+
+test("Operator terminates across Office Days and reinstates from New Hire Profile", async ({
+  page,
+}) => {
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+  await expect(page.getByText("Welcome, Current Profile")).toBeVisible();
+  await page.getByRole("button", { name: "Sign out" }).click();
+
+  await page.goto("/office");
+  await page.getByRole("button", { name: "Sign in as Operator" }).click();
+  await page.goto("/office?profile=user_mock_returning_new_hire");
+  const profile = page.getByRole("dialog", { name: "New Hire Profile" });
+  const terminate = profile.getByRole("button", { name: "Terminate" });
+  await expect(terminate).toBeEnabled();
+  await terminate.click();
+  const terminationDialog = page.getByRole("dialog", {
+    name: "Terminate this New Hire?",
+  });
+  const terminationReason = "Private persistent safety review.";
+  await terminationDialog
+    .getByLabel("Private Operator reason (required)")
+    .fill(terminationReason);
+  await terminationDialog
+    .getByRole("button", { name: "Confirm Termination" })
+    .click();
+  await expect(
+    profile.getByRole("button", { name: "Reinstate" }),
+  ).toBeVisible();
+
+  const terminatedHistory = await page.request.get(
+    "/api/office/portal/mock-chat?channel=all-hands",
+  );
+  const serializedTermination = JSON.stringify(await terminatedHistory.json());
+  expect(serializedTermination).toContain("employment.terminated");
+  expect(serializedTermination).toContain("user_mock_operator");
+  expect(serializedTermination).not.toContain(terminationReason);
+
+  await page.getByRole("button", { name: "Close New Hire Profile" }).click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "Your desk is unavailable" }),
+  ).toBeVisible();
+  expect((await page.request.post("/api/office/portal/token")).status()).toBe(
+    403,
+  );
+
+  await page.request.post("/api/auth/sign-out");
+  await page.goto("/office");
+  await page.getByRole("button", { name: "Sign in as Operator" }).click();
+  await page.goto("/office?profile=user_mock_returning_new_hire");
+  const reinstatementProfile = page.getByRole("dialog", {
+    name: "New Hire Profile",
+  });
+  await reinstatementProfile.getByRole("button", { name: "Reinstate" }).click();
+  const reinstatementDialog = page.getByRole("dialog", {
+    name: "Reinstate this New Hire?",
+  });
+  const reinstatementReason = "Private review completed.";
+  await reinstatementDialog
+    .getByLabel("Private Operator reason (required)")
+    .fill(reinstatementReason);
+  await reinstatementDialog
+    .getByRole("button", { name: "Confirm Reinstatement" })
+    .click();
+  await expect(
+    reinstatementProfile.getByRole("button", { name: "Terminate" }),
+  ).toBeVisible();
+
+  const reinstatedHistory = await page.request.get(
+    "/api/office/portal/mock-chat?channel=all-hands",
+  );
+  const serializedReinstatement = JSON.stringify(
+    await reinstatedHistory.json(),
+  );
+  expect(serializedReinstatement).toContain("employment.reinstated");
+  expect(serializedReinstatement).not.toContain(reinstatementReason);
+
+  await reinstatementProfile
+    .getByRole("button", { name: "Close New Hire Profile" })
+    .click();
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
   await expect(page.getByText("Welcome, Current Profile")).toBeVisible();
 });
 

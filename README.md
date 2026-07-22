@@ -151,6 +151,27 @@ before granting access. At the next UTC Office Day the Neon action is expired
 and the new channel IDs are eligible without treating stale prior-day Portal
 bans as current policy. Send Home does not create or reverse a Termination.
 
+The Termination migration keeps persistent employment state separate in
+`employment_terminations`, links each reversal through
+`employment_reinstatements`, and delivers controlled effects through
+`employment_termination_effect_outbox`. A partial unique index permits only one
+active Termination per New Hire, while unique request and original-Termination
+references make concurrent forward and reversal requests converge without
+duplicate Operator audits. Required reasons remain only in `operator_actions`;
+public records and outbox rows contain stable IDs and timestamps.
+
+Termination applies non-expiring Portal bans to every current visible and
+hidden Office Channel, which closes active connections. Neon remains canonical
+across future Office Days: page entry, membership repair, and token minting are
+denied before Portal calls. Reinstatement records its own Operator, reason, and
+timestamp plus its original Termination ID. It removes the persistent current-
+day bans through Portal's published channel-ban endpoint, but first refetches
+Neon state: an active Send Home is reapplied with its UTC expiry, and account
+deletion or a newer active Termination prevents unbanning. Both actions publish
+all-hands System Events containing only Operator, target, action, and stable
+Termination reference, followed by `employment.invalidated` hints that clients
+use only to refetch Neon.
+
 In the Clerk Dashboard, create a webhook endpoint for
 `https://<deployment>/api/webhooks/clerk`, subscribe it to `user.created` and
 `user.updated`, and put that endpoint's signing secret in
@@ -591,9 +612,10 @@ the server clock.
 - `src/lib/message-removals/` owns stable-reference validation, body-free
   canonical queries, retry-safe removal and outbox draining, and the TanStack
   Query invalidation contract used to compose Portal history.
-- `src/lib/employment/` owns UTC Send Home policy, required private-reason
-  validation, idempotent employment actions, effect-outbox draining, and the
-  privacy-safe public System Event contract.
+- `src/lib/employment/` owns UTC Send Home policy, persistent Termination and
+  linked reinstatement policy, required private-reason validation, idempotent
+  employment actions, effect-outbox draining, and privacy-safe public System
+  Event contracts.
 - `/api/office/onboarding` authenticates every mutation, updates Clerk before a
   profile projection, and rejects Clock In until required onboarding state is
   durable.
@@ -615,6 +637,11 @@ the server clock.
 - `/api/office/operator/send-home` rechecks Operator access, requires a private
   reason and retry-stable request ID, records the expiring action and relevant
   report transition transactionally, and drains the controlled Portal effects.
+- `/api/office/operator/termination` rechecks Operator access for canonical
+  target-state reads, Termination, and reinstatement. Mutations require a stable
+  request ID and private reason; Termination may resolve a matching open HR
+  Report, while reinstatement is available from the New Hire Profile and links
+  back to the original action.
 - `/api/office/employment` returns only the authenticated New Hire's canonical
   access decision so an invalidation can move an active client to a truthful
   access-ended state without exposing the private audit.

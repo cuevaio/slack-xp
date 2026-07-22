@@ -188,7 +188,10 @@ export type OperatorActionRecord = OperatorActionRecordBase &
   (
     | { targetType: "hr_report"; action: HRReportOperatorAction }
     | { targetType: "message_removal"; action: "removed" }
-    | { targetType: "new_hire"; action: "sent_home" }
+    | {
+        targetType: "new_hire";
+        action: "sent_home" | "terminated" | "reinstated";
+      }
   );
 
 type HRReportNotificationBase = {

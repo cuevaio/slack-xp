@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { SendHomeControl } from "@/components/send-home-control";
+import { TerminationControl } from "@/components/termination-control";
 import {
   invalidateHRReportQueue,
   requestHRReportDismissal,
@@ -138,11 +139,18 @@ function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
             ) : null}
           </form>
           {report.subjectNewHireId ? (
-            <SendHomeControl
-              onCompleted={() => void invalidateHRReportQueue(queryClient)}
-              reportId={report.reportId}
-              targetNewHireId={report.subjectNewHireId}
-            />
+            <>
+              <SendHomeControl
+                onCompleted={() => void invalidateHRReportQueue(queryClient)}
+                reportId={report.reportId}
+                targetNewHireId={report.subjectNewHireId}
+              />
+              <TerminationControl
+                onCompleted={() => void invalidateHRReportQueue(queryClient)}
+                reportId={report.reportId}
+                targetNewHireId={report.subjectNewHireId}
+              />
+            </>
           ) : null}
         </>
       ) : (

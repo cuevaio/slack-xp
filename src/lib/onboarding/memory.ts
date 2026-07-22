@@ -3,6 +3,9 @@ import {
   type EmploymentActionRecord,
   type EmploymentRepository,
   type PendingEmploymentEffect,
+  type PendingTerminationEffect,
+  type ReinstatementRecord,
+  type TerminationRecord,
 } from "@/lib/employment/contract";
 import { employmentAccessDecision } from "@/lib/employment/domain";
 import type {
@@ -37,6 +40,7 @@ import type {
   OnboardingRepository,
   OnboardingSnapshot,
 } from "@/lib/onboarding/types";
+import { officeDay } from "@/lib/portal/office-day";
 import { toProfileAttribution } from "@/lib/profiles/domain";
 import { createProfileInvalidationOutboxEntry } from "@/lib/profiles/outbox";
 import type {
@@ -186,6 +190,8 @@ export type InMemoryNeonRepository = OnboardingRepository &
     messageRemovalRecords(): readonly StoredMessageRemoval[];
     messageRemovalInvalidationRecords(): readonly StoredMessageRemovalInvalidation[];
     employmentActionRecords(): readonly EmploymentActionRecord[];
+    terminationRecords(): readonly TerminationRecord[];
+    reinstatementRecords(): readonly ReinstatementRecord[];
     reset(): void;
   };
 
@@ -215,6 +221,11 @@ export function createInMemoryNeonRepository(
   const employmentActionsByRequestId = new Map<string, string>();
   const employmentEffects = new Map<string, PendingEmploymentEffect>();
   const employmentOperatorActions = new Map<string, OperatorActionRecord>();
+  const terminations = new Map<string, TerminationRecord>();
+  const terminationRequests = new Map<string, string>();
+  const reinstatements = new Map<string, ReinstatementRecord>();
+  const reinstatementRequests = new Map<string, string>();
+  const terminationEffects = new Map<string, PendingTerminationEffect>();
   let projectionWrites = 0;
   let profileBatchReads = 0;
 
@@ -688,9 +699,230 @@ export function createInMemoryNeonRepository(
       return employmentAccessDecision({
         now: checkedAt,
         sentHomeUntil: active?.expiresAt ?? null,
-        terminatedAt: null,
+        terminatedAt:
+          [...terminations.values()].find(
+            (termination) =>
+              termination.targetNewHireId === newHireId &&
+              termination.reinstatedAt === null,
+          )?.terminatedAt ?? null,
         deletedAt: profiles.has(newHireId) ? null : checkedAt,
       });
+    },
+
+    async recordTermination(input) {
+      if (!profiles.has(input.targetNewHireId)) {
+        throw new EmploymentActionError(
+          "new_hire_not_found",
+          "The requested New Hire does not exist.",
+        );
+      }
+      const requestedId = terminationRequests.get(input.requestId);
+      if (requestedId) {
+        const requested = terminations.get(requestedId);
+        if (!requested || requested.targetNewHireId !== input.targetNewHireId) {
+          throw new EmploymentActionError(
+            "request_conflict",
+            "The Termination request was already used for another target.",
+          );
+        }
+        return { status: "existing" as const, termination: { ...requested } };
+      }
+      const report = input.reportId ? hrReports.get(input.reportId) : undefined;
+      const reportTarget = report
+        ? (report.subjectNewHireId ??
+          (report.subjectType === "profile" ? report.profileId : null))
+        : null;
+      if (
+        input.reportId &&
+        (!report || reportTarget !== input.targetNewHireId)
+      ) {
+        throw new EmploymentActionError(
+          "report_not_found",
+          "The HR Report does not match the requested New Hire.",
+        );
+      }
+      const existing = [...terminations.values()].find(
+        (termination) =>
+          termination.targetNewHireId === input.targetNewHireId &&
+          termination.reinstatedAt === null,
+      );
+      if (existing) {
+        terminationRequests.set(input.requestId, existing.terminationId);
+        if (report?.state === "open") {
+          report.state = "actioned";
+          report.updatedAt = new Date(input.terminatedAt);
+        }
+        return { status: "existing" as const, termination: { ...existing } };
+      }
+      const termination: TerminationRecord = {
+        terminationId: input.terminationId,
+        requestId: input.requestId,
+        operatorId: input.operatorId,
+        targetNewHireId: input.targetNewHireId,
+        reportId: input.reportId,
+        terminatedAt: new Date(input.terminatedAt),
+        reinstatedAt: null,
+        createdAt: new Date(input.terminatedAt),
+      };
+      terminations.set(termination.terminationId, termination);
+      terminationRequests.set(termination.requestId, termination.terminationId);
+      terminationEffects.set(termination.terminationId, {
+        effectId: termination.terminationId,
+        action: "terminated",
+        operatorId: termination.operatorId,
+        targetNewHireId: termination.targetNewHireId,
+        terminationId: termination.terminationId,
+        officeDay: officeDay(termination.terminatedAt),
+        actedAt: new Date(termination.terminatedAt),
+        portalAccessReconciledAt: null,
+        publicEventPublishedAt: null,
+        invalidationPublishedAt: null,
+      });
+      employmentOperatorActions.set(termination.terminationId, {
+        actionId: termination.terminationId,
+        operatorId: termination.operatorId,
+        targetType: "new_hire",
+        targetId: termination.targetNewHireId,
+        action: "terminated",
+        privateNote: input.privateReason,
+        actedAt: new Date(termination.terminatedAt),
+        createdAt: new Date(termination.createdAt),
+      });
+      if (report?.state === "open") {
+        report.state = "actioned";
+        report.updatedAt = new Date(input.terminatedAt);
+      }
+      return { status: "created" as const, termination: { ...termination } };
+    },
+
+    async recordReinstatement(input) {
+      if (!profiles.has(input.targetNewHireId)) {
+        throw new EmploymentActionError(
+          "new_hire_deleted",
+          "A deleted New Hire cannot be reinstated.",
+        );
+      }
+      const requestedId = reinstatementRequests.get(input.requestId);
+      if (requestedId) {
+        const requested = reinstatements.get(requestedId);
+        if (!requested || requested.targetNewHireId !== input.targetNewHireId) {
+          throw new EmploymentActionError(
+            "request_conflict",
+            "The reinstatement request was already used for another target.",
+          );
+        }
+        return { status: "existing" as const, reinstatement: { ...requested } };
+      }
+      const termination = [...terminations.values()].find(
+        (candidate) =>
+          candidate.targetNewHireId === input.targetNewHireId &&
+          candidate.reinstatedAt === null,
+      );
+      if (!termination) {
+        throw new EmploymentActionError(
+          "termination_not_found",
+          "The New Hire has no active Termination.",
+        );
+      }
+      const existing = [...reinstatements.values()].find(
+        (candidate) => candidate.terminationId === termination.terminationId,
+      );
+      if (existing) {
+        reinstatementRequests.set(input.requestId, existing.reinstatementId);
+        return { status: "existing" as const, reinstatement: { ...existing } };
+      }
+      termination.reinstatedAt = new Date(input.reinstatedAt);
+      const reinstatement: ReinstatementRecord = {
+        reinstatementId: input.reinstatementId,
+        requestId: input.requestId,
+        terminationId: termination.terminationId,
+        operatorId: input.operatorId,
+        targetNewHireId: input.targetNewHireId,
+        reinstatedAt: new Date(input.reinstatedAt),
+        createdAt: new Date(input.reinstatedAt),
+      };
+      reinstatements.set(reinstatement.reinstatementId, reinstatement);
+      reinstatementRequests.set(
+        reinstatement.requestId,
+        reinstatement.reinstatementId,
+      );
+      terminationEffects.set(reinstatement.reinstatementId, {
+        effectId: reinstatement.reinstatementId,
+        action: "reinstated",
+        operatorId: reinstatement.operatorId,
+        targetNewHireId: reinstatement.targetNewHireId,
+        terminationId: reinstatement.terminationId,
+        officeDay: officeDay(reinstatement.reinstatedAt),
+        actedAt: new Date(reinstatement.reinstatedAt),
+        portalAccessReconciledAt: null,
+        publicEventPublishedAt: null,
+        invalidationPublishedAt: null,
+      });
+      employmentOperatorActions.set(reinstatement.reinstatementId, {
+        actionId: reinstatement.reinstatementId,
+        operatorId: reinstatement.operatorId,
+        targetType: "new_hire",
+        targetId: reinstatement.targetNewHireId,
+        action: "reinstated",
+        privateNote: input.privateReason,
+        actedAt: new Date(reinstatement.reinstatedAt),
+        createdAt: new Date(reinstatement.createdAt),
+      });
+      return {
+        status: "created" as const,
+        reinstatement: { ...reinstatement },
+      };
+    },
+
+    async getEmploymentState(newHireId, checkedAt) {
+      const activeTermination = [...terminations.values()].find(
+        (termination) =>
+          termination.targetNewHireId === newHireId &&
+          termination.reinstatedAt === null,
+      );
+      return {
+        access: await this.getEmploymentAccess(newHireId, checkedAt),
+        activeTermination: activeTermination
+          ? {
+              terminationId: activeTermination.terminationId,
+              operatorId: activeTermination.operatorId,
+              terminatedAt: new Date(activeTermination.terminatedAt),
+            }
+          : null,
+      };
+    },
+
+    async pendingTerminationEffects(limit) {
+      return [...terminationEffects.values()]
+        .filter(
+          (effect) =>
+            !effect.portalAccessReconciledAt ||
+            !effect.publicEventPublishedAt ||
+            !effect.invalidationPublishedAt,
+        )
+        .slice(0, limit)
+        .map((effect) => ({ ...effect }));
+    },
+
+    async markTerminationPortalAccessReconciled(effectId, reconciledAt) {
+      const effect = terminationEffects.get(effectId);
+      if (effect && !effect.portalAccessReconciledAt) {
+        effect.portalAccessReconciledAt = new Date(reconciledAt);
+      }
+    },
+
+    async markTerminationPublicEventPublished(effectId, publishedAt) {
+      const effect = terminationEffects.get(effectId);
+      if (effect && !effect.publicEventPublishedAt) {
+        effect.publicEventPublishedAt = new Date(publishedAt);
+      }
+    },
+
+    async markTerminationInvalidationPublished(effectId, publishedAt) {
+      const effect = terminationEffects.get(effectId);
+      if (effect && !effect.invalidationPublishedAt) {
+        effect.invalidationPublishedAt = new Date(publishedAt);
+      }
     },
 
     async pendingEmploymentEffects(limit) {
@@ -819,6 +1051,14 @@ export function createInMemoryNeonRepository(
       return [...employmentActions.values()];
     },
 
+    terminationRecords() {
+      return [...terminations.values()];
+    },
+
+    reinstatementRecords() {
+      return [...reinstatements.values()];
+    },
+
     reset() {
       profiles.clear();
       onboardings.clear();
@@ -834,6 +1074,11 @@ export function createInMemoryNeonRepository(
       employmentActionsByRequestId.clear();
       employmentEffects.clear();
       employmentOperatorActions.clear();
+      terminations.clear();
+      terminationRequests.clear();
+      reinstatements.clear();
+      reinstatementRequests.clear();
+      terminationEffects.clear();
       projectionWrites = 0;
       profileBatchReads = 0;
     },

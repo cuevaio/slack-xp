@@ -22,15 +22,21 @@ import {
 } from "react";
 import { HRReportReviewQueue } from "@/components/hr-report-review-queue";
 import { MessageHRReportControls } from "@/components/message-hr-report-controls";
+import { MessageRemovalControls } from "@/components/message-removal-controls";
 import { NewHireProfileContext } from "@/components/new-hire-profile-context";
 import { invalidateHRReportQueue } from "@/lib/hr-reports/client";
 import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
+import {
+  invalidateMessageRemovals,
+  useMessageRemovals,
+} from "@/lib/message-removals/client";
 import type { SafeScriptedSystemEventMessage } from "@/lib/office-days/contract";
 import { useOfficeEventSubscription } from "@/lib/office-events/client";
 import {
   createReactionOfficeEvent,
   createReactionProjection,
   OFFICE_REACTIONS,
+  type OfficeEvent,
   type OfficeInvalidationEvent,
   type OfficeReaction,
   officeEventChannelIdForDay,
@@ -152,6 +158,7 @@ type ChatSurfaceProps = ReactionProps & {
   readWhenVisible?: boolean;
   channel: OfficeChannel;
   identityId: string;
+  isOperator: boolean;
   messages: readonly unknown[];
   status: ChannelStatus;
   presence?: PortalPresence;
@@ -628,7 +635,7 @@ function useMockOfficeInbox(): MockOfficeInbox {
 
 async function fetchMockOfficeEvents(
   eventChannelId: string,
-): Promise<ReactionOfficeEvent[]> {
+): Promise<OfficeEvent[]> {
   const response = await fetch("/api/office/portal/mock-events", {
     credentials: "include",
     cache: "no-store",
@@ -639,7 +646,7 @@ async function fetchMockOfficeEvents(
   }
   return payload.flatMap((message) => {
     const parsed = parseOfficeEventMessage(message, eventChannelId);
-    return parsed?.event.type === "reaction.changed" ? [parsed.event] : [];
+    return parsed ? [parsed.event] : [];
   });
 }
 
@@ -868,11 +875,15 @@ function MessageHistory({
   reactionsEnabled,
   onReact,
   profilesById,
+  removedMessageIds,
+  isOperator,
 }: ReactionProps & {
   channel: OfficeChannel;
   messages: readonly SafeOfficeChannelMessage[];
   identityId: string;
   profilesById: ReadonlyMap<string, ProfileAttribution>;
+  removedMessageIds: ReadonlySet<string>;
+  isOperator: boolean;
 }) {
   if (messages.length === 0) {
     return (
@@ -889,6 +900,7 @@ function MessageHistory({
     messages
       .filter(isNewHireMessage)
       .filter(({ status }) => status === "sent")
+      .filter(({ id }) => !removedMessageIds.has(id))
       .map(({ id }) => id),
   );
   const projection = createReactionProjection({
@@ -908,6 +920,27 @@ function MessageHistory({
         if (isScriptedSystemEventMessage(message)) {
           return (
             <ScriptedSystemEventListItem key={message.id} message={message} />
+          );
+        }
+        if (removedMessageIds.has(message.id)) {
+          return (
+            <li
+              className="chat-message removed-message"
+              data-message-id={message.id}
+              key={message.id}
+              tabIndex={-1}
+            >
+              <div className="message-meta removed-message-meta">
+                <strong>Removed Message</strong>
+                <time dateTime={new Date(message.timestamp).toISOString()}>
+                  {formatOfficeTimestamp(message.timestamp)}
+                </time>
+              </div>
+              <p>
+                An Operator removed this message from Portal Messenger. Its
+                place in the conversation is preserved.
+              </p>
+            </li>
           );
         }
         const profile = profilesById.get(message.senderId);
@@ -955,6 +988,10 @@ function MessageHistory({
                   reactions={projection.read(channel.id, message.id)}
                 />
                 <MessageHRReportControls message={message} />
+                <MessageRemovalControls
+                  initialIsOperator={isOperator}
+                  message={message}
+                />
               </div>
             ) : null}
           </li>
@@ -1003,6 +1040,7 @@ function ChatSurface({
   readWhenVisible = true,
   channel,
   identityId,
+  isOperator,
   messages: rawMessages,
   status,
   presence,
@@ -1031,12 +1069,25 @@ function ChatSurface({
   const messages = parsedMessages.messages;
   const invalidMessageCount = parsedMessages.invalidCount;
   const latestMessageId = messages.at(-1)?.id ?? null;
+  const removalQuery = useMessageRemovals(channel.id);
+  const removedMessageIds = useMemo(
+    () => new Set((removalQuery.data ?? []).map(({ messageId }) => messageId)),
+    [removalQuery.data],
+  );
   const profileIds = useMemo(
-    () => messages.filter(isNewHireMessage).map(({ senderId }) => senderId),
-    [messages],
+    () =>
+      messages
+        .filter(isNewHireMessage)
+        .filter(({ id }) => !removedMessageIds.has(id))
+        .map(({ senderId }) => senderId),
+    [messages, removedMessageIds],
   );
   const profileQuery = useProfileBatch(profileIds);
-  const profileContentReady = !profileQuery.isPending && !profileQuery.isError;
+  const profileContentReady =
+    !removalQuery.isPending &&
+    !removalQuery.isError &&
+    !profileQuery.isPending &&
+    !profileQuery.isError;
   const profilesById = useMemo(
     () =>
       new Map(
@@ -1048,7 +1099,20 @@ function ChatSurface({
     [profileQuery.data],
   );
   let messageHistory: ReactNode;
-  if (profileQuery.isError) {
+  if (removalQuery.isError) {
+    messageHistory = (
+      <div className="portal-outage" role="alert">
+        <strong>Removed Message records are unavailable.</strong>
+        <span className="outage-detail">
+          Message history is hidden until canonical removal records return.
+        </span>
+      </div>
+    );
+  } else if (removalQuery.isPending) {
+    messageHistory = (
+      <p className="profile-status">Checking Removed Messages…</p>
+    );
+  } else if (profileQuery.isError) {
     messageHistory = (
       <div className="portal-outage" role="alert">
         <strong>New Hire Profiles are unavailable.</strong>
@@ -1066,11 +1130,13 @@ function ChatSurface({
       <MessageHistory
         channel={channel}
         identityId={identityId}
+        isOperator={isOperator}
         messages={messages}
         onReact={onReact}
         profilesById={profilesById}
         reactionEvents={reactionEvents}
         reactionsEnabled={reactionsEnabled}
+        removedMessageIds={removedMessageIds}
       />
     );
   }
@@ -1518,6 +1584,7 @@ function LiveOfficeChannel({
   visible,
   channel: officeChannel,
   identityId,
+  isOperator,
   onInboxRead,
   onReact,
   reactionEvents,
@@ -1526,6 +1593,7 @@ function LiveOfficeChannel({
   visible: boolean;
   channel: OfficeChannel;
   identityId: string;
+  isOperator: boolean;
   onInboxRead(channelId: string): void;
 }) {
   const channel = useChannel<{ text: string }>({
@@ -1543,6 +1611,7 @@ function LiveOfficeChannel({
       channel={officeChannel}
       hasPrevious={channel.hasPrevious}
       identityId={identityId}
+      isOperator={isOperator}
       isLoadingPrevious={channel.isLoadingPrevious}
       loadPrevious={channel.loadPrevious}
       messages={channel.messages}
@@ -1655,6 +1724,9 @@ function LivePortalWorkspace({
         case "report.invalidated":
           void invalidateHRReportQueue(queryClient);
           break;
+        case "message-removal.invalidated":
+          void invalidateMessageRemovals(queryClient);
+          break;
         case "operator.invalidated":
           if (event.operatorId === identityId) {
             void invalidateOperatorState(queryClient);
@@ -1746,6 +1818,7 @@ function LivePortalWorkspace({
         <LiveOfficeChannel
           channel={channel}
           identityId={identityId}
+          isOperator={isOperator}
           key={channel.id}
           onInboxRead={markInboxRead}
           onReact={updateReaction}
@@ -1792,6 +1865,7 @@ function MockOfficeChannel({
   visible,
   channel,
   identityId,
+  isOperator,
   latestActivityAt,
   onContentVisible,
   onReact,
@@ -1803,6 +1877,7 @@ function MockOfficeChannel({
   visible: boolean;
   channel: OfficeChannel;
   identityId: string;
+  isOperator: boolean;
   latestActivityAt: number;
   onContentVisible(channelId: string): void;
   officeDay: string;
@@ -1915,6 +1990,7 @@ function MockOfficeChannel({
       channel={channel}
       hasPrevious={hasPrevious}
       identityId={identityId}
+      isOperator={isOperator}
       isLoadingPrevious={isLoadingPrevious}
       loadPrevious={loadPrevious}
       messages={messages}
@@ -1950,6 +2026,7 @@ function MockPortalOffice(
     onOfficeDayExpired(): void;
   },
 ) {
+  const queryClient = useQueryClient();
   const {
     channels,
     identityId,
@@ -1997,14 +2074,27 @@ function MockPortalOffice(
   );
   const [reactionStatus, setReactionStatus] =
     useState<ChannelStatus>("connecting");
+  const seenMockOfficeEventKeys = useRef(new Set<string>());
 
   useEffect(() => {
     let cancelled = false;
-    async function loadReactionHistory(): Promise<void> {
+    async function loadOfficeEventHistory(): Promise<void> {
       try {
         const events = await fetchMockOfficeEvents(eventChannelId);
         if (!cancelled) {
-          setReactionEvents(events);
+          for (const event of events) {
+            if (seenMockOfficeEventKeys.current.has(event.eventKey)) continue;
+            seenMockOfficeEventKeys.current.add(event.eventKey);
+            if (event.type === "reaction.changed") {
+              setReactionEvents((current) =>
+                appendReactionEvent(current, event),
+              );
+            } else if (event.type === "message-removal.invalidated") {
+              void invalidateMessageRemovals(queryClient);
+            } else if (event.type === "report.invalidated") {
+              void invalidateHRReportQueue(queryClient);
+            }
+          }
           setReactionStatus("ready");
         }
       } catch {
@@ -2014,11 +2104,16 @@ function MockPortalOffice(
         }
       }
     }
-    void loadReactionHistory();
+    void loadOfficeEventHistory();
+    const interval = window.setInterval(
+      () => void loadOfficeEventHistory(),
+      300,
+    );
     return () => {
       cancelled = true;
+      window.clearInterval(interval);
     };
-  }, [eventChannelId]);
+  }, [eventChannelId, queryClient]);
 
   const publishMockReaction = useCallback(
     async (event: ReactionOfficeEvent): Promise<void> => {
@@ -2071,6 +2166,7 @@ function MockPortalOffice(
         <MockOfficeChannel
           channel={channel}
           identityId={identityId}
+          isOperator={isOperator}
           key={channel.id}
           latestActivityAt={
             inboxRowsByChannelId.get(channel.id)?.preview?.at ?? 0

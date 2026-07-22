@@ -15,6 +15,8 @@ import {
   clerkProfiles,
   hrReportNotificationOutbox,
   hrReports,
+  messageRemovalInvalidationOutbox,
+  messageRemovals,
   newHireOnboarding,
   officeDays,
   operatorActions,
@@ -30,6 +32,10 @@ import type {
   PendingHRReportNotification,
   ProfileHRReportCategory,
 } from "@/lib/hr-reports/contract";
+import type {
+  CreateMessageRemovalInput,
+  PendingMessageRemovalInvalidation,
+} from "@/lib/message-removals/contract";
 import {
   type PlannedSystemEvent,
   planOfficeDay,
@@ -349,6 +355,102 @@ export function buildOperatorActionInsertQuery(
     });
 }
 
+export function buildMessageRemovalInsertQuery(
+  database: Database,
+  input: CreateMessageRemovalInput,
+) {
+  return database
+    .insert(messageRemovals)
+    .values({
+      removalId: input.removalId,
+      officeDay: input.officeDay,
+      officeChannelId: input.officeChannelId,
+      messageId: input.messageId,
+      removedBy: input.operatorId,
+      removedAt: input.removedAt,
+      createdAt: input.removedAt,
+    })
+    .onConflictDoNothing({
+      target: [messageRemovals.officeChannelId, messageRemovals.messageId],
+    })
+    .returning({ removalId: messageRemovals.removalId });
+}
+
+export function buildMessageRemovalReportResolutionQuery(
+  database: Database,
+  input: CreateMessageRemovalInput,
+) {
+  return database
+    .update(hrReports)
+    .set({
+      state: "removed",
+      removedBy: sql`(select ${messageRemovals.removedBy} from ${messageRemovals} where ${messageRemovals.removalId} = ${input.removalId})`,
+      removedAt: sql`(select ${messageRemovals.removedAt} from ${messageRemovals} where ${messageRemovals.removalId} = ${input.removalId})`,
+      updatedAt: input.removedAt,
+    })
+    .where(
+      and(
+        eq(hrReports.subjectType, "message"),
+        eq(hrReports.state, "open"),
+        sql`exists (select 1 from ${messageRemovals} where ${messageRemovals.removalId} = ${input.removalId} and ${messageRemovals.officeChannelId} = ${hrReports.officeChannelId} and ${messageRemovals.messageId} = ${hrReports.messageId})`,
+      ),
+    );
+}
+
+export function buildMessageRemovalAuditQuery(
+  database: Database,
+  input: CreateMessageRemovalInput,
+) {
+  return database
+    .insert(operatorActions)
+    .select(
+      database
+        .select({
+          actionId: sql<string>`${input.actionId}`.as("action_id"),
+          operatorId: messageRemovals.removedBy,
+          targetType: sql<string>`'message_removal'`.as("target_type"),
+          targetId: messageRemovals.removalId,
+          action: sql<string>`'removed'`.as("action"),
+          privateNote: sql<string>`${input.privateReason}`.as("private_note"),
+          actedAt: messageRemovals.removedAt,
+          createdAt: sql<Date>`${input.removedAt}`.as("created_at"),
+        })
+        .from(messageRemovals)
+        .where(eq(messageRemovals.removalId, input.removalId)),
+    )
+    .onConflictDoNothing({
+      target: [
+        operatorActions.targetType,
+        operatorActions.targetId,
+        operatorActions.action,
+      ],
+    });
+}
+
+export function buildMessageRemovalOutboxQuery(
+  database: Database,
+  input: CreateMessageRemovalInput,
+) {
+  return database
+    .insert(messageRemovalInvalidationOutbox)
+    .select(
+      database
+        .select({
+          outboxId: sql<string>`${`message-removal:${input.removalId}`}`.as(
+            "outbox_id",
+          ),
+          removalId: messageRemovals.removalId,
+          publishedAt: sql<Date | null>`null`.as("published_at"),
+          createdAt: sql<Date>`${input.removedAt}`.as("created_at"),
+        })
+        .from(messageRemovals)
+        .where(eq(messageRemovals.removalId, input.removalId)),
+    )
+    .onConflictDoNothing({
+      target: messageRemovalInvalidationOutbox.outboxId,
+    });
+}
+
 async function selectHRReportReviewRows(
   database: Database,
   limit: number,
@@ -398,7 +500,7 @@ type HRReportReviewRow = Awaited<
 function isHRReportReviewState(
   state: string,
 ): state is HRReportReviewRecord["state"] {
-  return state === "open" || state === "dismissed";
+  return state === "open" || state === "dismissed" || state === "removed";
 }
 
 function toHRReportResolution(
@@ -716,6 +818,82 @@ export function createNeonRepository(database: Database): NeonAdapter {
         report,
       };
     },
+    async createMessageRemoval(input) {
+      const [createdRows] = await database.batch([
+        buildMessageRemovalInsertQuery(database, input),
+        buildMessageRemovalReportResolutionQuery(database, input),
+        buildMessageRemovalAuditQuery(database, input),
+        buildMessageRemovalOutboxQuery(database, input),
+      ]);
+      const [row] = await database
+        .select({
+          removalId: messageRemovals.removalId,
+          officeDay: messageRemovals.officeDay,
+          officeChannelId: messageRemovals.officeChannelId,
+          messageId: messageRemovals.messageId,
+          removedAt: messageRemovals.removedAt,
+        })
+        .from(messageRemovals)
+        .where(
+          and(
+            eq(messageRemovals.officeChannelId, input.officeChannelId),
+            eq(messageRemovals.messageId, input.messageId),
+          ),
+        )
+        .limit(1);
+      if (!row) {
+        throw new Error("Removed Message uniqueness could not be resolved.");
+      }
+      return {
+        status: createdRows.length > 0 ? "removed" : "already-removed",
+        removal: row,
+      };
+    },
+    async listMessageRemovals(officeChannelId) {
+      return database
+        .select({
+          removalId: messageRemovals.removalId,
+          officeDay: messageRemovals.officeDay,
+          officeChannelId: messageRemovals.officeChannelId,
+          messageId: messageRemovals.messageId,
+          removedAt: messageRemovals.removedAt,
+        })
+        .from(messageRemovals)
+        .where(eq(messageRemovals.officeChannelId, officeChannelId))
+        .orderBy(asc(messageRemovals.removedAt));
+    },
+    async pendingMessageRemovalInvalidations(limit) {
+      const rows = await database
+        .select({
+          outboxId: messageRemovalInvalidationOutbox.outboxId,
+          removalId: messageRemovals.removalId,
+          messageId: messageRemovals.messageId,
+          occurredAt: messageRemovals.removedAt,
+        })
+        .from(messageRemovalInvalidationOutbox)
+        .innerJoin(
+          messageRemovals,
+          eq(
+            messageRemovalInvalidationOutbox.removalId,
+            messageRemovals.removalId,
+          ),
+        )
+        .where(isNull(messageRemovalInvalidationOutbox.publishedAt))
+        .orderBy(asc(messageRemovalInvalidationOutbox.createdAt))
+        .limit(limit);
+      return rows as PendingMessageRemovalInvalidation[];
+    },
+    async markMessageRemovalInvalidationPublished(outboxId, publishedAt) {
+      await database
+        .update(messageRemovalInvalidationOutbox)
+        .set({ publishedAt })
+        .where(
+          and(
+            eq(messageRemovalInvalidationOutbox.outboxId, outboxId),
+            isNull(messageRemovalInvalidationOutbox.publishedAt),
+          ),
+        );
+    },
     async pendingHRReportNotifications(limit) {
       const rows = await database
         .select({
@@ -731,7 +909,12 @@ export function createNeonRepository(database: Database): NeonAdapter {
           hrReports,
           eq(hrReportNotificationOutbox.reportId, hrReports.reportId),
         )
-        .where(isNull(hrReportNotificationOutbox.publishedAt))
+        .where(
+          and(
+            isNull(hrReportNotificationOutbox.publishedAt),
+            eq(hrReports.state, "open"),
+          ),
+        )
         .orderBy(asc(hrReportNotificationOutbox.createdAt))
         .limit(limit);
       const pending: PendingHRReportNotification[] = [];

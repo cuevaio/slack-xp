@@ -1,0 +1,182 @@
+"use client";
+
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  type FormEvent,
+  type KeyboardEvent,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
+import { invalidateHRReportQueue } from "@/lib/hr-reports/client";
+import {
+  messageRemovalQueryKey,
+  submitMessageRemoval,
+} from "@/lib/message-removals/client";
+import {
+  MESSAGE_REMOVAL_PRIVATE_REASON_MAX_LENGTH,
+  type SerializedMessageRemovalProjection,
+} from "@/lib/message-removals/contract";
+import { useOperatorState } from "@/lib/operators/client";
+import type { SafePortalChatMessage } from "@/lib/portal/chat";
+
+export function MessageRemovalControls({
+  message,
+  initialIsOperator,
+}: {
+  message: SafePortalChatMessage;
+  initialIsOperator: boolean;
+}) {
+  const operatorState = useOperatorState(initialIsOperator);
+  const queryClient = useQueryClient();
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [privateReason, setPrivateReason] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
+  const instanceId = useId();
+  const titleId = `message-removal-title-${instanceId}`;
+  const descriptionId = `message-removal-description-${instanceId}`;
+
+  useEffect(() => {
+    if (dialogOpen) reasonRef.current?.focus();
+  }, [dialogOpen]);
+
+  if (operatorState.isError || operatorState.data?.isOperator !== true) {
+    return null;
+  }
+
+  function closeDialog(): void {
+    if (submitting) return;
+    setDialogOpen(false);
+    requestAnimationFrame(() => triggerRef.current?.focus());
+  }
+
+  function handleDialogKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+    event.stopPropagation();
+    if (event.key === "Escape" && !submitting) {
+      event.preventDefault();
+      closeDialog();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const controls = [
+      ...event.currentTarget.querySelectorAll<HTMLElement>(
+        "textarea:not([disabled]), button:not([disabled])",
+      ),
+    ];
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (!first || !last) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(false);
+    try {
+      const removal = await submitMessageRemoval({
+        officeChannelId: message.channelId,
+        messageId: message.id,
+        privateReason,
+      });
+      queryClient.setQueryData<SerializedMessageRemovalProjection[]>(
+        messageRemovalQueryKey(message.channelId),
+        (current = []) =>
+          current.some(({ messageId }) => messageId === removal.messageId)
+            ? current
+            : [...current, removal],
+      );
+      await invalidateHRReportQueue(queryClient);
+      setDialogOpen(false);
+    } catch {
+      setError(true);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="message-removal-controls">
+      <button
+        aria-haspopup="dialog"
+        className="message-action-button message-removal-trigger"
+        onClick={() => {
+          setPrivateReason("");
+          setError(false);
+          setDialogOpen(true);
+        }}
+        ref={triggerRef}
+        type="button"
+      >
+        Remove message
+      </button>
+      {dialogOpen ? (
+        <div
+          aria-describedby={descriptionId}
+          aria-labelledby={titleId}
+          aria-modal="true"
+          className="hr-report-dialog-backdrop"
+          onKeyDown={handleDialogKeyDown}
+          role="dialog"
+        >
+          <form className="hr-report-dialog" onSubmit={submit}>
+            <h2 id={titleId}>Remove this message?</h2>
+            <p id={descriptionId}>
+              This creates a Removed Message tombstone in Portal Messenger. It
+              does not retract or erase the payload from Portal storage, and an
+              authorized direct Portal client may still retrieve it.
+            </p>
+            <label htmlFor={`message-removal-reason-${instanceId}`}>
+              Private Operator reason
+            </label>
+            <textarea
+              id={`message-removal-reason-${instanceId}`}
+              maxLength={MESSAGE_REMOVAL_PRIVATE_REASON_MAX_LENGTH}
+              onChange={(event) => setPrivateReason(event.target.value)}
+              ref={reasonRef}
+              required
+              rows={4}
+              value={privateReason}
+            />
+            <small>
+              Stored only in the private Operator audit; never published with
+              the Office Event.
+            </small>
+            {error ? (
+              <p className="chat-error" role="alert">
+                The message could not be removed. Operator access was rechecked.
+              </p>
+            ) : null}
+            <div className="hr-report-dialog-actions">
+              <button
+                className="classic-button"
+                disabled={submitting}
+                onClick={closeDialog}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="classic-button"
+                disabled={submitting || privateReason.trim().length === 0}
+                type="submit"
+              >
+                {submitting ? "Removing…" : "Confirm removal"}
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+    </div>
+  );
+}

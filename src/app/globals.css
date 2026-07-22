@@ -1263,6 +1263,10 @@ a {
   background: #e1e1df;
 }
 
+.hr-review-state[data-state="removed"] {
+  background: #d9e3ef;
+}
+
 .hr-review-item > a {
   color: #163d84;
   font-weight: 800;
@@ -1634,6 +1638,17 @@ a {
   box-shadow: inset 4px 0 0 #d49b1d;
 }
 
+.removed-message {
+  border-color: #8a8f98;
+  background: #eef0f2;
+  box-shadow: inset 4px 0 0 #7d838c;
+  color: #4f5660;
+}
+
+.removed-message-meta strong {
+  color: #3f4650;
+}
+
 .system-event-meta {
   flex-wrap: wrap;
 }
@@ -1920,6 +1935,16 @@ a {
 .hr-report-dialog input {
   width: 18px;
   height: 18px;
+}
+
+.hr-report-dialog textarea {
+  width: 100%;
+  padding: 0.55rem;
+  border: 2px inset #fff;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+  resize: vertical;
 }
 
 .hr-report-dialog-actions {

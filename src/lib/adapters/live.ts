@@ -7,6 +7,7 @@ import {
   createPortalControlPlane,
   createPortalHRReportInvalidationPublisher,
   createPortalHRReportNotificationPublisher,
+  createPortalMessageRemovalInvalidationPublisher,
   createPortalProfileInvalidationPublisher,
   createPortalScriptedSystemEventPublisher,
 } from "@/lib/portal/server";
@@ -44,6 +45,11 @@ export function createLiveAdapters(
       secret: portalSecret,
       apiKey: configuration.values.NEXT_PUBLIC_PORTAL_KEY,
     });
+  const messageRemovalInvalidationPublisher =
+    createPortalMessageRemovalInvalidationPublisher({
+      secret: portalSecret,
+      apiKey: configuration.values.NEXT_PUBLIC_PORTAL_KEY,
+    });
 
   return {
     kind: "live",
@@ -53,6 +59,7 @@ export function createLiveAdapters(
       ...scriptedSystemEventPublisher,
       ...hrReportNotificationPublisher,
       ...hrReportInvalidationPublisher,
+      ...messageRemovalInvalidationPublisher,
       async listChannels(now) {
         return listOfficeChannels(now);
       },

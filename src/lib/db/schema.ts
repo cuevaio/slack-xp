@@ -188,6 +188,8 @@ export const hrReports = pgTable(
     state: text("state").default("open").notNull(),
     dismissedBy: text("dismissed_by"),
     dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+    removedBy: text("removed_by"),
+    removedAt: timestamp("removed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -222,11 +224,11 @@ export const hrReports = pgTable(
     ),
     check(
       "hr_reports_state_check",
-      sql`${table.state} in ('open', 'dismissed')`,
+      sql`${table.state} in ('open', 'dismissed', 'removed')`,
     ),
     check(
       "hr_reports_resolution_check",
-      sql`(${table.state} = 'open' and ${table.dismissedBy} is null and ${table.dismissedAt} is null) or (${table.state} = 'dismissed' and char_length(${table.dismissedBy}) between 1 and 255 and ${table.dismissedAt} is not null)`,
+      sql`(${table.state} = 'open' and ${table.dismissedBy} is null and ${table.dismissedAt} is null and ${table.removedBy} is null and ${table.removedAt} is null) or (${table.state} = 'dismissed' and char_length(${table.dismissedBy}) between 1 and 255 and ${table.dismissedAt} is not null and ${table.removedBy} is null and ${table.removedAt} is null) or (${table.state} = 'removed' and ${table.dismissedBy} is null and ${table.dismissedAt} is null and char_length(${table.removedBy}) between 1 and 255 and ${table.removedAt} is not null)`,
     ),
     uniqueIndex("hr_reports_one_open_message_per_reporter_idx")
       .on(table.reporterId, table.officeChannelId, table.messageId)
@@ -237,15 +239,54 @@ export const hrReports = pgTable(
   ],
 );
 
+export const messageRemovals = pgTable(
+  "message_removals",
+  {
+    removalId: text("removal_id").primaryKey(),
+    officeDay: text("office_day").notNull(),
+    officeChannelId: text("office_channel_id").notNull(),
+    messageId: text("message_id").notNull(),
+    removedBy: text("removed_by").notNull(),
+    removedAt: timestamp("removed_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "message_removals_removal_id_check",
+      sql`char_length(${table.removalId}) between 1 and 255`,
+    ),
+    check(
+      "message_removals_office_day_check",
+      sql`${table.officeDay} ~ '^\\d{4}-\\d{2}-\\d{2}$'`,
+    ),
+    check(
+      "message_removals_stable_references_check",
+      sql`char_length(${table.officeChannelId}) between 1 and 255 and ${table.officeChannelId} like '%:' || ${table.officeDay} and char_length(${table.messageId}) between 1 and 255`,
+    ),
+    check(
+      "message_removals_removed_by_check",
+      sql`char_length(${table.removedBy}) between 1 and 255`,
+    ),
+    uniqueIndex("message_removals_message_uidx").on(
+      table.officeChannelId,
+      table.messageId,
+    ),
+    index("message_removals_channel_idx").on(
+      table.officeChannelId,
+      table.removedAt,
+    ),
+  ],
+);
+
 export const operatorActions = pgTable(
   "operator_actions",
   {
     actionId: text("action_id").primaryKey(),
     operatorId: text("operator_id").notNull(),
     targetType: text("target_type").notNull(),
-    targetId: text("target_id")
-      .notNull()
-      .references(() => hrReports.reportId, { onDelete: "cascade" }),
+    targetId: text("target_id").notNull(),
     action: text("action").notNull(),
     privateNote: text("private_note"),
     actedAt: timestamp("acted_at", { withTimezone: true }).notNull(),
@@ -263,19 +304,43 @@ export const operatorActions = pgTable(
       sql`char_length(${table.operatorId}) between 1 and 255`,
     ),
     check(
-      "operator_actions_hr_report_dismissal_check",
-      sql`${table.targetType} = 'hr_report' and ${table.action} = 'dismissed'`,
+      "operator_actions_target_action_check",
+      sql`(${table.targetType} = 'hr_report' and ${table.action} = 'dismissed') or (${table.targetType} = 'message_removal' and ${table.action} = 'removed')`,
     ),
     check(
       "operator_actions_private_note_check",
       sql`${table.privateNote} is null or char_length(${table.privateNote}) between 1 and 1000`,
     ),
-    uniqueIndex("operator_actions_one_report_dismissal_idx").on(
+    uniqueIndex("operator_actions_one_target_action_idx").on(
       table.targetType,
       table.targetId,
       table.action,
     ),
     index("operator_actions_target_idx").on(table.targetType, table.targetId),
+  ],
+);
+
+export const messageRemovalInvalidationOutbox = pgTable(
+  "message_removal_invalidation_outbox",
+  {
+    outboxId: text("outbox_id").primaryKey(),
+    removalId: text("removal_id")
+      .notNull()
+      .unique()
+      .references(() => messageRemovals.removalId, { onDelete: "cascade" }),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    check(
+      "message_removal_invalidation_outbox_id_check",
+      sql`char_length(${table.outboxId}) between 1 and 255`,
+    ),
+    index("message_removal_invalidation_outbox_pending_idx")
+      .on(table.createdAt)
+      .where(sql`${table.publishedAt} is null`),
   ],
 );
 

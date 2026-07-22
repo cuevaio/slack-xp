@@ -4,6 +4,10 @@ import type {
   HRReportRepository,
 } from "@/lib/hr-reports/contract";
 import type {
+  MessageRemovalInvalidationPublisher,
+  MessageRemovalRepository,
+} from "@/lib/message-removals/contract";
+import type {
   OfficeDayRepository,
   ScriptedSystemEventPublisher,
 } from "@/lib/office-days/types";
@@ -19,6 +23,7 @@ export type PortalAdapter = PortalAuthority &
   ProfileInvalidationPublisher &
   ScriptedSystemEventPublisher &
   HRReportInvalidationPublisher &
+  MessageRemovalInvalidationPublisher &
   HRReportNotificationPublisher & {
     listChannels(now?: Date): Promise<readonly OfficeChannel[]>;
   };
@@ -26,7 +31,8 @@ export type PortalAdapter = PortalAuthority &
 export type NeonAdapter = OnboardingRepository &
   ProfileRepository &
   OfficeDayRepository &
-  HRReportRepository;
+  HRReportRepository &
+  MessageRemovalRepository;
 
 export type ServiceAdapters = {
   kind: "mock" | "live";

@@ -97,7 +97,7 @@ function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
             <p role="alert">Dismissal failed. Operator access was rechecked.</p>
           ) : null}
         </form>
-      ) : (
+      ) : report.state === "dismissed" ? (
         <div className="hr-review-resolution">
           <small>
             Dismissed by {report.resolution?.operatorId ?? "an Operator"}
@@ -107,6 +107,14 @@ function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
               <strong>Private note:</strong> {report.resolution.privateNote}
             </p>
           ) : null}
+        </div>
+      ) : (
+        <div className="hr-review-resolution">
+          <strong>Related message removed</strong>
+          <p>
+            This HR Report was resolved when an Operator created the Removed
+            Message projection.
+          </p>
         </div>
       )}
     </li>

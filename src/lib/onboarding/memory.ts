@@ -9,6 +9,11 @@ import type {
   PendingHRReportNotification,
   ProfileHRReportCategory,
 } from "@/lib/hr-reports/contract";
+import type {
+  MessageRemovalProjection,
+  MessageRemovalRepository,
+  PendingMessageRemovalInvalidation,
+} from "@/lib/message-removals/contract";
 import { planOfficeDay } from "@/lib/office-days/contract";
 import type {
   OfficeDayRepository,
@@ -94,8 +99,22 @@ type StoredHRReport = {
   profileId: string | null;
   category: HRReportCategory;
   state: HRReportState;
+  removedBy: string | null;
+  removedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
+};
+
+type StoredMessageRemoval = MessageRemovalProjection & {
+  removedBy: string;
+  createdAt: Date;
+};
+
+type StoredMessageRemovalInvalidation = {
+  outboxId: string;
+  removalId: string;
+  createdAt: Date;
+  publishedAt: Date | null;
 };
 
 type StoredHRReportNotification = {
@@ -119,7 +138,8 @@ function compareHRReportsForReview(
 export type InMemoryNeonRepository = OnboardingRepository &
   ProfileRepository &
   OfficeDayRepository &
-  HRReportRepository & {
+  HRReportRepository &
+  MessageRemovalRepository & {
     recordCount(): number;
     officeDayCount(): number;
     projectionWriteCount(): number;
@@ -127,6 +147,8 @@ export type InMemoryNeonRepository = OnboardingRepository &
     hrReportRecords(): readonly StoredHRReport[];
     hrReportNotificationRecords(): readonly StoredHRReportNotification[];
     operatorActionRecords(): readonly OperatorActionRecord[];
+    messageRemovalRecords(): readonly StoredMessageRemoval[];
+    messageRemovalInvalidationRecords(): readonly StoredMessageRemovalInvalidation[];
     reset(): void;
   };
 
@@ -146,7 +168,12 @@ export function createInMemoryNeonRepository(
   >();
   const hrReports = new Map<string, StoredHRReport>();
   const hrReportNotifications = new Map<string, StoredHRReportNotification>();
-  const operatorActionsByReportId = new Map<string, OperatorActionRecord>();
+  const operatorActions = new Map<string, OperatorActionRecord>();
+  const messageRemovals = new Map<string, StoredMessageRemoval>();
+  const messageRemovalInvalidations = new Map<
+    string,
+    StoredMessageRemovalInvalidation
+  >();
   let projectionWrites = 0;
   let profileBatchReads = 0;
 
@@ -287,6 +314,8 @@ export function createInMemoryNeonRepository(
         profileId: input.subjectType === "profile" ? input.profileId : null,
         category: input.category,
         state: "open",
+        removedBy: null,
+        removedAt: null,
         createdAt: input.createdAt,
         updatedAt: input.createdAt,
       };
@@ -311,6 +340,7 @@ export function createInMemoryNeonRepository(
       const pending: PendingHRReportNotification[] = [];
       for (const entry of entries) {
         const report = hrReports.get(entry.reportId);
+        if (report?.state !== "open") continue;
         if (report?.subjectType === "profile" && report.profileId) {
           pending.push({
             outboxId: entry.outboxId,
@@ -347,23 +377,27 @@ export function createInMemoryNeonRepository(
         .sort(compareHRReportsForReview)
         .slice(0, limit)
         .flatMap((report): HRReportReviewRecord[] => {
-          const resolution = operatorActionsByReportId.get(report.reportId);
+          const resolution = operatorActions.get(
+            `hr_report:${report.reportId}`,
+          );
           const shared = {
             reportId: report.reportId,
             reporterId: report.reporterId,
             state: report.state,
             createdAt: new Date(report.createdAt),
             updatedAt: new Date(report.updatedAt),
-            resolution: resolution
-              ? {
-                  actionId: resolution.actionId,
-                  operatorId: resolution.operatorId,
-                  action: resolution.action,
-                  privateNote: resolution.privateNote,
-                  actedAt: new Date(resolution.actedAt),
-                  createdAt: new Date(resolution.createdAt),
-                }
-              : null,
+            resolution:
+              resolution?.targetType === "hr_report" &&
+              resolution.action === "dismissed"
+                ? {
+                    actionId: resolution.actionId,
+                    operatorId: resolution.operatorId,
+                    action: resolution.action,
+                    privateNote: resolution.privateNote,
+                    actedAt: new Date(resolution.actedAt),
+                    createdAt: new Date(resolution.createdAt),
+                  }
+                : null,
           };
           if (
             report.subjectType === "message" &&
@@ -399,7 +433,7 @@ export function createInMemoryNeonRepository(
     async dismissHRReport(input) {
       const report = hrReports.get(input.reportId);
       if (!report) return null;
-      if (report.state === "dismissed") {
+      if (report.state !== "open") {
         const current = (await this.listHRReports(50)).find(
           ({ reportId }) => reportId === input.reportId,
         );
@@ -409,7 +443,7 @@ export function createInMemoryNeonRepository(
       }
       report.state = "dismissed";
       report.updatedAt = new Date(input.actedAt);
-      operatorActionsByReportId.set(report.reportId, {
+      operatorActions.set(`hr_report:${report.reportId}`, {
         actionId: input.actionId,
         operatorId: input.operatorId,
         targetType: "hr_report",
@@ -423,6 +457,117 @@ export function createInMemoryNeonRepository(
         ({ reportId }) => reportId === input.reportId,
       );
       return current ? { status: "dismissed", report: current } : null;
+    },
+
+    async createMessageRemoval(input) {
+      const existing = [...messageRemovals.values()].find(
+        (removal) =>
+          removal.officeChannelId === input.officeChannelId &&
+          removal.messageId === input.messageId,
+      );
+      if (existing) {
+        return {
+          status: "already-removed",
+          removal: {
+            removalId: existing.removalId,
+            officeDay: existing.officeDay,
+            officeChannelId: existing.officeChannelId,
+            messageId: existing.messageId,
+            removedAt: new Date(existing.removedAt),
+          },
+        };
+      }
+
+      const removal: StoredMessageRemoval = {
+        removalId: input.removalId,
+        officeDay: input.officeDay,
+        officeChannelId: input.officeChannelId,
+        messageId: input.messageId,
+        removedBy: input.operatorId,
+        removedAt: new Date(input.removedAt),
+        createdAt: new Date(input.removedAt),
+      };
+      messageRemovals.set(removal.removalId, removal);
+      for (const report of hrReports.values()) {
+        if (
+          report.state === "open" &&
+          report.subjectType === "message" &&
+          report.officeChannelId === removal.officeChannelId &&
+          report.messageId === removal.messageId
+        ) {
+          report.state = "removed";
+          report.removedBy = removal.removedBy;
+          report.removedAt = new Date(removal.removedAt);
+          report.updatedAt = new Date(removal.removedAt);
+        }
+      }
+      operatorActions.set(`message_removal:${removal.removalId}`, {
+        actionId: input.actionId,
+        operatorId: removal.removedBy,
+        targetType: "message_removal",
+        targetId: removal.removalId,
+        action: "removed",
+        privateNote: input.privateReason,
+        actedAt: new Date(removal.removedAt),
+        createdAt: new Date(removal.removedAt),
+      });
+      const outboxId = `message-removal:${removal.removalId}`;
+      messageRemovalInvalidations.set(outboxId, {
+        outboxId,
+        removalId: removal.removalId,
+        createdAt: new Date(removal.removedAt),
+        publishedAt: null,
+      });
+      return {
+        status: "removed",
+        removal: {
+          removalId: removal.removalId,
+          officeDay: removal.officeDay,
+          officeChannelId: removal.officeChannelId,
+          messageId: removal.messageId,
+          removedAt: new Date(removal.removedAt),
+        },
+      };
+    },
+
+    async listMessageRemovals(officeChannelId) {
+      return [...messageRemovals.values()]
+        .filter((removal) => removal.officeChannelId === officeChannelId)
+        .map((removal) => ({
+          removalId: removal.removalId,
+          officeDay: removal.officeDay,
+          officeChannelId: removal.officeChannelId,
+          messageId: removal.messageId,
+          removedAt: new Date(removal.removedAt),
+        }));
+    },
+
+    async pendingMessageRemovalInvalidations(limit) {
+      const pending: PendingMessageRemovalInvalidation[] = [];
+      for (const entry of [...messageRemovalInvalidations.values()]
+        .filter(({ publishedAt }) => publishedAt === null)
+        .sort(
+          (left, right) => left.createdAt.getTime() - right.createdAt.getTime(),
+        )
+        .slice(0, limit)) {
+        const removal = messageRemovals.get(entry.removalId);
+        if (removal) {
+          pending.push({
+            outboxId: entry.outboxId,
+            removalId: removal.removalId,
+            messageId: removal.messageId,
+            occurredAt: new Date(removal.removedAt),
+          });
+        }
+      }
+      return pending;
+    },
+
+    async markMessageRemovalInvalidationPublished(outboxId, publishedAt) {
+      const entry = messageRemovalInvalidations.get(outboxId);
+      if (entry && entry.publishedAt === null) {
+        entry.publishedAt = new Date(publishedAt);
+      }
     },
 
     async enterNewHire(profile) {
@@ -501,7 +646,15 @@ export function createInMemoryNeonRepository(
     },
 
     operatorActionRecords() {
-      return [...operatorActionsByReportId.values()];
+      return [...operatorActions.values()];
+    },
+
+    messageRemovalRecords() {
+      return [...messageRemovals.values()];
+    },
+
+    messageRemovalInvalidationRecords() {
+      return [...messageRemovalInvalidations.values()];
     },
 
     reset() {
@@ -512,7 +665,9 @@ export function createInMemoryNeonRepository(
       systemEventOutbox.clear();
       hrReports.clear();
       hrReportNotifications.clear();
-      operatorActionsByReportId.clear();
+      operatorActions.clear();
+      messageRemovals.clear();
+      messageRemovalInvalidations.clear();
       projectionWrites = 0;
       profileBatchReads = 0;
     },

@@ -9,6 +9,10 @@ import type {
   HRReportNotification,
   HRReportNotificationPublisher,
 } from "@/lib/hr-reports/contract";
+import type {
+  MessageRemovalInvalidationEvent,
+  MessageRemovalInvalidationPublisher,
+} from "@/lib/message-removals/contract";
 import {
   resolveScriptedSystemEventPublication,
   SCRIPTED_SYSTEM_EVENT_MESSAGE_TYPE,
@@ -81,6 +85,7 @@ export class MockPortalUnavailableError extends Error {
 export type MockPortalAdapter = PortalAuthority &
   ProfileInvalidationPublisher &
   HRReportInvalidationPublisher &
+  MessageRemovalInvalidationPublisher &
   ScriptedSystemEventPublisher &
   HRReportNotificationPublisher & {
     history(channelId: string): Promise<readonly PortalVisibleMessage[]>;
@@ -345,6 +350,29 @@ export function createMockPortalAdapter({
         status: "sent",
         content: event,
       });
+      officeEvents.set(channelId, channelEvents);
+    },
+
+    async publishMessageRemovalInvalidation(
+      event: MessageRemovalInvalidationEvent,
+    ) {
+      requireOnline();
+      const channelId = officeEventChannelId(new Date(event.occurredAt));
+      const channelEvents = officeEvents.get(channelId) ?? [];
+      const message = {
+        id: `mock_office_event_${++messageSequence}`,
+        channelId,
+        sender: { id: OFFICE_EVENT_SENDERS.operations, anon: false as const },
+        timestamp: new Date(event.occurredAt).getTime(),
+        kind: "text" as const,
+        type: OFFICE_EVENT_MESSAGE_TYPE,
+        ephemeral: false as const,
+        retracted: false as const,
+        status: "sent" as const,
+        unread: false,
+        content: event,
+      };
+      channelEvents.push(message);
       officeEvents.set(channelId, channelEvents);
     },
 

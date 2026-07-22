@@ -1,5 +1,8 @@
 import type { ScriptedSystemEvent } from "@/lib/office-days/contract";
-import type { ReactionOfficeEvent } from "@/lib/office-events/contract";
+import type {
+  OfficeEvent,
+  ReactionOfficeEvent,
+} from "@/lib/office-events/contract";
 import type { PortalChatContent } from "@/lib/portal/chat";
 
 export type PortalMembershipInput = {
@@ -65,7 +68,9 @@ export type PortalVisibleMessage =
   | PortalChatMessage
   | PortalScriptedSystemEventMessage;
 
-export type PortalOfficeEventMessage = {
+export type PortalOfficeEventMessage<
+  TEvent extends OfficeEvent = ReactionOfficeEvent,
+> = {
   id: string;
   channelId: string;
   sender: {
@@ -77,7 +82,7 @@ export type PortalOfficeEventMessage = {
   ephemeral: false;
   kind: "text";
   type: "office.event";
-  content: ReactionOfficeEvent;
+  content: TEvent;
   unread: boolean;
   status: "sent";
 };

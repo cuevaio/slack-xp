@@ -308,6 +308,127 @@ test("message HR Reports stay private and deep-link Operators to review context"
   );
 });
 
+test("Operators remove messages inline while every connected client renders a persistent tombstone", async ({
+  browser,
+  page,
+}) => {
+  await page.goto("/office");
+  await page.getByRole("button", { name: "Sign in as Operator" }).click();
+
+  const removedText = "Remove this confidential Portal payload";
+  await page.getByLabel("Message # General").fill(removedText);
+  await page.getByRole("button", { name: "Send" }).click();
+  const operatorMessage = page
+    .getByRole("listitem")
+    .filter({ hasText: removedText });
+  await expect(operatorMessage).toBeVisible();
+  const messageId = await operatorMessage.getAttribute("data-message-id");
+  const originalTimestamp = await operatorMessage
+    .locator("time")
+    .getAttribute("datetime");
+
+  const colleagueContext = await browser.newContext();
+  const colleague = await colleagueContext.newPage();
+  await colleague.goto("/office");
+  await colleague
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+  const colleagueMessage = colleague
+    .getByRole("listitem")
+    .filter({ hasText: removedText });
+  await expect(colleagueMessage).toBeVisible();
+  await expect(
+    colleagueMessage.getByRole("button", { name: "Remove message" }),
+  ).toHaveCount(0);
+
+  const trigger = operatorMessage.getByRole("button", {
+    name: "Remove message",
+  });
+  await trigger.click();
+  const dialog = page.getByRole("dialog", { name: "Remove this message?" });
+  await expect(dialog.getByLabel("Private Operator reason")).toBeFocused();
+  await expect(dialog).toContainText(
+    "does not retract or erase the payload from Portal storage",
+  );
+  await expect(dialog).toContainText(
+    "authorized direct Portal client may still retrieve it",
+  );
+  await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  await trigger.click();
+  await dialog
+    .getByLabel("Private Operator reason")
+    .fill("Private review confirmed a policy violation.");
+
+  const removalRequest = page.waitForRequest(
+    (request) =>
+      new URL(request.url()).pathname ===
+        "/api/office/operator/message-removals" && request.method() === "POST",
+  );
+  await dialog.getByRole("button", { name: "Confirm removal" }).click();
+  const submittedRequest = await removalRequest;
+  expect(submittedRequest.postDataJSON()).toEqual({
+    officeChannelId: expect.stringMatching(/^general:/),
+    messageId,
+    privateReason: "Private review confirmed a policy violation.",
+  });
+  expect(submittedRequest.postData()).not.toContain(removedText);
+
+  const operatorTombstone = page
+    .locator(`[data-message-id="${messageId}"]`)
+    .filter({ hasText: "Removed Message" });
+  await expect(operatorTombstone).toBeVisible();
+  await expect(operatorTombstone).not.toContainText(removedText);
+  await expect(operatorTombstone.locator("time")).toHaveAttribute(
+    "datetime",
+    originalTimestamp ?? "",
+  );
+
+  const colleagueTombstone = colleague
+    .locator(`[data-message-id="${messageId}"]`)
+    .filter({ hasText: "Removed Message" });
+  await expect(colleagueTombstone).toBeVisible();
+  await expect(colleagueTombstone).not.toContainText(removedText);
+
+  const publicEvents = await page.request.get("/api/office/portal/mock-events");
+  const serializedEvents = JSON.stringify(await publicEvents.json());
+  expect(serializedEvents).toContain("message-removal.invalidated");
+  expect(serializedEvents).not.toMatch(
+    /Private review confirmed|Remove this confidential Portal payload/i,
+  );
+
+  const directPortalHistory = await page.request.get(
+    "/api/office/portal/mock-chat?channel=general",
+  );
+  expect(JSON.stringify(await directPortalHistory.json())).toContain(
+    removedText,
+  );
+
+  await page.route("**/api/office/message-removals?**", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "projection_unavailable" }),
+    }),
+  );
+  await page.reload();
+  await expect(
+    page
+      .getByText("Removed Message records are unavailable.")
+      .filter({ visible: true }),
+  ).toBeVisible();
+  await expect(page.getByText(removedText, { exact: true })).toHaveCount(0);
+  await page.unroute("**/api/office/message-removals?**");
+  await page.reload();
+  await expect(
+    page
+      .locator(`[data-message-id="${messageId}"]`)
+      .filter({ hasText: "Removed Message" }),
+  ).toBeVisible();
+  await expect(page.getByText(removedText, { exact: true })).toHaveCount(0);
+  await colleagueContext.close();
+});
+
 test("New Hire Profile HR Reports follow current canonical profile context", async ({
   page,
 }) => {
@@ -992,9 +1113,7 @@ test("history paginates backward without duplicates and displays canonical time 
   page,
 }) => {
   await page.goto("/office");
-  await page
-    .getByRole("button", { name: "Sign in as Returning New Hire" })
-    .click();
+  await page.getByRole("button", { name: "Sign in as Operator" }).click();
   await expect(
     page
       .getByText("Connected — live updates available")
@@ -1002,14 +1121,30 @@ test("history paginates backward without duplicates and displays canonical time 
   ).toBeVisible();
 
   let latestTimestamp = 0;
+  let earliestMessageId = "";
+  let generalChannelId = "";
   for (let index = 1; index <= 51; index += 1) {
     const response = await page.request.post(
       "/api/office/portal/mock-chat?channel=general",
       { data: { text: `Pagination memo ${index}` } },
     );
     expect(response.status()).toBe(200);
-    latestTimestamp = (await response.json()).timestamp;
+    const message = await response.json();
+    earliestMessageId ||= message.id;
+    generalChannelId ||= message.channelId;
+    latestTimestamp = message.timestamp;
   }
+  const removal = await page.request.post(
+    "/api/office/operator/message-removals",
+    {
+      data: {
+        officeChannelId: generalChannelId,
+        messageId: earliestMessageId,
+        privateReason: "Pagination tombstone coverage.",
+      },
+    },
+  );
+  expect(removal.status()).toBe(201);
 
   await page.reload();
   await expect(
@@ -1024,9 +1159,11 @@ test("history paginates backward without duplicates and displays canonical time 
     .locator(".chat-scroll-region")
     .filter({ visible: true });
   await page.getByRole("button", { name: "Load earlier messages" }).click();
-  await expect(
-    page.getByText("Pagination memo 1", { exact: true }),
-  ).toBeVisible();
+  const paginatedTombstone = page.locator(
+    `[data-message-id="${earliestMessageId}"]`,
+  );
+  await expect(paginatedTombstone).toContainText("Removed Message");
+  await expect(paginatedTombstone).not.toContainText("Pagination memo 1");
   await expect(page.locator(".message-history > li")).toHaveCount(52);
   await expect
     .poll(() => historyRegion.evaluate((element) => element.scrollTop))

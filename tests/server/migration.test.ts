@@ -4,6 +4,10 @@ import {
   buildHRReportDismissQuery,
   buildHRReportInsertQuery,
   buildHRReportOutboxQuery,
+  buildMessageRemovalAuditQuery,
+  buildMessageRemovalInsertQuery,
+  buildMessageRemovalOutboxQuery,
+  buildMessageRemovalReportResolutionQuery,
   buildOfficeDayQueries,
   buildOperatorActionInsertQuery,
   buildProfileOutboxQuery,
@@ -202,5 +206,51 @@ describe("initial Neon migration", () => {
     expect(audit.sql).toContain("insert into");
     expect(audit.sql).toContain("select");
     expect(audit.sql).toContain("on conflict");
+  });
+
+  test("adds transactional body-free Removed Message projection, audit, and invalidation outbox", async () => {
+    const migration = await Bun.file(
+      new URL("../../drizzle/0006_chubby_omega_red.sql", import.meta.url),
+    ).text();
+    expect(migration).toContain('CREATE TABLE "message_removals"');
+    expect(migration).toContain(
+      'CREATE TABLE "message_removal_invalidation_outbox"',
+    );
+    expect(migration).toContain('"office_channel_id" text NOT NULL');
+    expect(migration).toContain('"message_id" text NOT NULL');
+    expect(migration).toContain('"removed_by" text NOT NULL');
+    expect(migration).toContain('"removed_at" timestamp with time zone');
+    expect(migration).toContain("message_removals_message_uidx");
+    expect(migration).toContain("operator_actions_target_action_check");
+    expect(migration).toContain("'message_removal'");
+    expect(migration).not.toMatch(
+      /message[_ ]?(body|content)|preview|presence|typing|reaction/iu,
+    );
+
+    const database = createDatabase("postgresql://test:test@localhost/test");
+    const input = {
+      removalId: "removal-sql-contract",
+      actionId: "action-removal-sql-contract",
+      operatorId: "user-operator",
+      officeDay: "2026-07-22",
+      officeChannelId: "general:2026-07-22",
+      messageId: "message-20",
+      privateReason: "Private audit reason.",
+      removedAt: new Date("2026-07-22T12:05:00.000Z"),
+    };
+    const queries = [
+      buildMessageRemovalInsertQuery(database, input),
+      buildMessageRemovalReportResolutionQuery(database, input),
+      buildMessageRemovalAuditQuery(database, input),
+      buildMessageRemovalOutboxQuery(database, input),
+    ].map((query) => query.toSQL().sql);
+    expect(queries[0]).toContain("on conflict");
+    expect(queries[0]).toContain('returning "removal_id"');
+    expect(queries[1]).toContain('"state" =');
+    expect(queries[1]).toContain("exists");
+    expect(queries[2]).toContain("insert into");
+    expect(queries[2]).toContain("select");
+    expect(queries[3]).toContain("insert into");
+    expect(queries[3]).toContain("select");
   });
 });

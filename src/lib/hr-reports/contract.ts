@@ -31,7 +31,7 @@ export type ProfileHRReportCategory =
 export type HRReportCategory =
   | MessageHRReportCategory
   | ProfileHRReportCategory;
-export type HRReportState = "open" | "dismissed";
+export type HRReportState = "open" | "dismissed" | "removed";
 export type HRReportSubjectType = "message" | "profile";
 export type HRReportOperatorAction = "dismissed";
 export type HRReportDismissalStatus = "dismissed" | "already-dismissed";
@@ -169,9 +169,9 @@ export type DismissHRReportResult = {
 export type OperatorActionRecord = {
   actionId: string;
   operatorId: string;
-  targetType: "hr_report";
+  targetType: "hr_report" | "message_removal";
   targetId: string;
-  action: HRReportOperatorAction;
+  action: HRReportOperatorAction | "removed";
   privateNote: string | null;
   actedAt: Date;
   createdAt: Date;

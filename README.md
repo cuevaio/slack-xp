@@ -120,6 +120,16 @@ optional private note of at most 1,000 characters. Retry and concurrent calls
 return the existing dismissed state without reopening the report or adding a
 second audit.
 
+The Removed Message migration adds `message_removals` and
+`message_removal_invalidation_outbox`, extends Operator audits for the
+`removed` action, and lets matching open message HR Reports resolve as
+`removed`. Each projection retains only its stable Office Day, Office Channel,
+and Portal message IDs plus the acting Operator and timestamps. The required
+private reason is stored only in `operator_actions`; no Portal message body is
+copied. Projection insertion, matching report resolution, one uniquely
+constrained audit, and one pending invalidation row commit in one Neon HTTP
+transaction, so retrying or racing the mutation returns the first projection.
+
 In the Clerk Dashboard, create a webhook endpoint for
 `https://<deployment>/api/webhooks/clerk`, subscribe it to `user.created` and
 `user.updated`, and put that endpoint's signing secret in
@@ -269,8 +279,9 @@ without breaking the stable review context.
 
 Operators see a canonical in-messenger HR Review Queue backed by
 `GET /api/office/operator/hr-reports`. It distinguishes message and profile
-reports plus open and dismissed state, and its context links use the same stable
-message coordinates or current New Hire Profile lookup as notifications.
+reports plus open, dismissed, and removal-resolved state, and its context links
+use the same stable message coordinates or current New Hire Profile lookup as
+notifications.
 `PATCH /api/office/operator/hr-reports` accepts only a stable report ID and an
 optional private note, then performs the validated one-way dismissal. Both
 methods authenticate the current Clerk session, require completed onboarding,
@@ -279,6 +290,24 @@ never authorization boundaries. The queue and Operator status have separate
 TanStack Query caches with periodic repair. Trusted `report.invalidated` and
 `operator.invalidated` Office Events narrowly invalidate those caches and never
 carry canonical state or private notes.
+
+Confirmed messages also expose an Operator-only **Remove message** action.
+`POST /api/office/operator/message-removals` requires a completed,
+authenticated Operator, rechecks `OPERATOR_CLERK_USER_IDS`, accepts only a
+current curated Office Channel ID, stable message ID, and required private
+reason, and never accepts message text. `GET /api/office/message-removals`
+returns body-free canonical projections to authenticated New Hires. Every live,
+recent-history, and paginated occurrence is composed with those projections and
+rendered in place as an accessible **Removed Message** tombstone retaining its
+original order and timestamp. If the removal query fails, raw Portal history is
+hidden until Neon returns, as required by the fail-closed safety boundary.
+
+This is application-level removal only. It does not retract or hard-delete the
+message in Portal storage. A valid client authorized to access Portal directly
+may still retrieve the original payload; normal Portal Messenger rendering is
+the protected surface. The private reason is visible only in the Operator audit
+and is never placed in the tombstone, public projection response, logs, or
+Office Event.
 
 The Office Day is the pure UTC date of the current instant. A client monitor
 arms for the next UTC boundary and also rechecks at least once per minute and
@@ -369,9 +398,10 @@ The supported v1 events are:
   `employment.invalidated`, and `operator.invalidated`: one type-appropriate ID
   reference, accepted only from `office-events:operations`.
 
-Invalidations never carry names, report details, removal state, employment
-state, or Operator state. Consumers refetch the corresponding Neon-owned query;
-only reaction events are folded as canonical Portal-owned state. The typed
+Invalidations never carry names, report details, removal state or private
+reason, employment state, or Operator state. Consumers refetch the corresponding
+Neon-owned query; only reaction events are folded as canonical Portal-owned
+state. The typed
 subscriber exposes separate reaction and invalidation callbacks, deduplicates
 retries and reconnect replay by event key, pages through the current Office
 Day's event history to rebuild reaction state, and exposes neither the
@@ -537,6 +567,9 @@ the server clock.
 - `src/lib/hr-reports/` owns approved categories, stable-reference validation,
   open-report idempotency, safe review links, one-way dismissal, private audit
   records, canonical review-query caching, and notification outbox draining.
+- `src/lib/message-removals/` owns stable-reference validation, body-free
+  canonical queries, retry-safe removal and outbox draining, and the TanStack
+  Query invalidation contract used to compose Portal history.
 - `/api/office/onboarding` authenticates every mutation, updates Clerk before a
   profile projection, and rejects Clock In until required onboarding state is
   durable.
@@ -550,6 +583,11 @@ the server clock.
   the complete environment allowlist for every read and dismissal. It returns
   private review state only to Operators and atomically records each dismissal
   once with its optional private note.
+- `/api/office/message-removals` returns only body-free projections for one
+  current Office Channel. `/api/office/operator/message-removals` rechecks the
+  Operator allowlist before atomically creating a projection, resolving matching
+  open HR Reports, auditing the required private reason, and queuing a reserved-
+  sender invalidation.
 - `/api/office/portal/token` authenticates the New Hire, checks completed
   onboarding, idempotently grants all five daily Office Channel memberships and
   the hidden Office Event membership, and mints a 15-minute Portal user token

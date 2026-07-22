@@ -100,16 +100,27 @@ export default function SetupPage() {
               profile invalidation outbox, resumable New Hire onboarding
               records, Office Days, the scripted System Event outbox, and
               body-free HR Report workflow and notification-outbox records. The
-              latest migration also adds one-way report dismissal fields and
+              review migration also adds one-way report dismissal fields and
               uniquely constrained private Operator audit records containing
               stable actor and target IDs, timestamps, action, and an optional
-              private note. Message and New Hire Profile reports use separate
-              open-report uniqueness rules. Profile reports retain only stable
-              Clerk IDs, so later edits or deletion do not copy or preserve
-              public names and pictures. The outboxes contain stable references,
-              attempt state, and delivery timestamps, never profile values,
-              message bodies, previews, or presence. Portal remains the
+              private note. The latest migration adds body-free Removed Message
+              projections, matching HR Report resolution, required private
+              Operator reasons, and a retryable removal-invalidation outbox in
+              the same transaction. Message and New Hire Profile reports use
+              separate open-report uniqueness rules. Profile reports retain only
+              stable Clerk IDs, so later edits or deletion do not copy or
+              preserve public names and pictures. The outboxes contain stable
+              references, attempt state, and delivery timestamps, never profile
+              values, message bodies, previews, or presence. Portal remains the
               authority for messages and conversation state.
+            </p>
+            <p>
+              Removed Message is an application-level Portal Messenger state,
+              not Portal retraction or hard deletion. Normal live and paginated
+              history renders a tombstone, but an authorized client accessing
+              Portal directly may still retrieve the original payload. Private
+              Operator reasons remain in Neon audits and are never published in
+              invalidation events.
             </p>
             <h2>Prove production readiness</h2>
             <p>

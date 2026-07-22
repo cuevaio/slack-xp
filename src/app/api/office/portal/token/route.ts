@@ -3,6 +3,7 @@ import { configuredOperatorUserIds } from "@/lib/auth/operator";
 import { authenticateOfficeRequest } from "@/lib/auth/server";
 import { readAppConfiguration } from "@/lib/config";
 import { flushHRReportNotifications } from "@/lib/hr-reports/service";
+import { flushMessageRemovalInvalidations } from "@/lib/message-removals/service";
 import { repairOfficeDayOnEntry } from "@/lib/office-days/cron";
 import { MockPortalUnavailableError } from "@/lib/portal/mock";
 import { officeNowForRequest } from "@/lib/portal/request-time";
@@ -31,6 +32,20 @@ export async function POST(request: Request) {
     await flushProfileInvalidations(adapters.neon, adapters.portal);
     const now = officeNowForRequest(request.headers, configuration);
     await repairOfficeDayOnEntry({ adapters, now });
+    try {
+      await flushMessageRemovalInvalidations({
+        repository: adapters.neon,
+        publisher: adapters.portal,
+      });
+    } catch {
+      console.error(
+        JSON.stringify({
+          operation: "message_removal_invalidation_retry",
+          authority: "portal",
+          status: "pending",
+        }),
+      );
+    }
     try {
       await flushHRReportNotifications({
         repository: adapters.neon,

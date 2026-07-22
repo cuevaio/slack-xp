@@ -6,6 +6,10 @@ import {
   type HRReportNotificationPublisher,
 } from "@/lib/hr-reports/contract";
 import { toHRReportNotificationContent } from "@/lib/hr-reports/domain";
+import type {
+  MessageRemovalInvalidationEvent,
+  MessageRemovalInvalidationPublisher,
+} from "@/lib/message-removals/contract";
 import {
   resolveScriptedSystemEventPublication,
   SCRIPTED_SYSTEM_EVENT_MESSAGE_TYPE,
@@ -278,6 +282,44 @@ export function createPortalHRReportInvalidationPublisher({
 
   return {
     async publishHRReportInvalidation(event: HRReportInvalidationEvent) {
+      const channelId = officeEventChannelId(new Date(event.occurredAt));
+      const sender = {
+        userId: OFFICE_EVENT_SENDERS.operations,
+        claims: { username: "Portal Systems Operations", avatar: null },
+      };
+      await controlPlane.ensureMembership({ channelId, ...sender });
+      const token = await controlPlane.mintToken({
+        channelIds: [channelId],
+        ...sender,
+      });
+      await publishPortalMessage({
+        channelId,
+        content: event,
+        failureCode: "portal_event_publish_failed",
+        messageType: OFFICE_EVENT_MESSAGE_TYPE,
+        token: token.token,
+      });
+    },
+  };
+}
+
+export function createPortalMessageRemovalInvalidationPublisher({
+  secret,
+  apiKey,
+  apiUrl = DEFAULT_PORTAL_API_URL,
+  fetcher = fetch,
+}: PortalPublisherOptions): MessageRemovalInvalidationPublisher {
+  const controlPlane = createPortalControlPlane({ secret, apiUrl, fetcher });
+  const publishPortalMessage = createPortalMessagePublisher({
+    apiKey,
+    apiUrl,
+    fetcher,
+  });
+
+  return {
+    async publishMessageRemovalInvalidation(
+      event: MessageRemovalInvalidationEvent,
+    ) {
       const channelId = officeEventChannelId(new Date(event.occurredAt));
       const sender = {
         userId: OFFICE_EVENT_SENDERS.operations,

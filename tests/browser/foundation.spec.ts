@@ -188,7 +188,9 @@ test("general chat confirms, reconnects, validates text, and recovers from Porta
     .click();
 
   await expect(
-    page.getByText("Online — messages are persistent"),
+    page
+      .getByText("Online — messages are persistent")
+      .filter({ visible: true }),
   ).toBeVisible();
   const composer = page.getByLabel("Message # General");
   await composer.fill(
@@ -232,7 +234,9 @@ test("general chat confirms, reconnects, validates text, and recovers from Porta
 
   await page.reload();
   await expect(
-    page.getByText("Online — messages are persistent"),
+    page
+      .getByText("Online — messages are persistent")
+      .filter({ visible: true }),
   ).toBeVisible();
   await expect(
     page.getByRole("listitem").filter({ hasText: "Read <b>carefully</b>" }),
@@ -247,7 +251,7 @@ test("general chat confirms, reconnects, validates text, and recovers from Porta
   await expect(composer).toHaveValue("Please retry this memo");
   const retryConfirmation = page.waitForResponse(
     (response) =>
-      response.url().endsWith("/api/office/portal/mock-chat") &&
+      new URL(response.url()).pathname === "/api/office/portal/mock-chat" &&
       response.request().method() === "POST" &&
       response.status() === 200,
   );
@@ -259,14 +263,18 @@ test("general chat confirms, reconnects, validates text, and recovers from Porta
     form: { intent: "offline" },
   });
   await page.reload();
-  await expect(page.getByText("Portal is offline.")).toBeVisible();
+  await expect(
+    page.getByText("Portal is offline.").filter({ visible: true }),
+  ).toBeVisible();
   await expect(composer).toBeDisabled();
   await page.request.post("/api/auth/mock-portal", {
     form: { intent: "online" },
   });
   await page.getByRole("button", { name: "Retry connection" }).click();
   await expect(
-    page.getByText("Online — messages are persistent"),
+    page
+      .getByText("Online — messages are persistent")
+      .filter({ visible: true }),
   ).toBeVisible();
   await expect(page.getByText("Please retry this memo")).toBeVisible();
 });
@@ -278,7 +286,6 @@ test("a New Hire edits an Employee Record with accessible recovery and current a
   await page
     .getByRole("button", { name: "Sign in as Returning New Hire" })
     .click();
-
   const composer = page.getByLabel("Message # General");
   await composer.fill("This memo should follow my current profile.");
   await page.getByRole("button", { name: "Send" }).click();
@@ -354,6 +361,131 @@ test("a New Hire edits an Employee Record with accessible recovery and current a
   await expect(historicalMessage.getByRole("strong")).toHaveText("Taylor Byte");
 });
 
+test("the complete Office Channel directory switches without losing per-channel state", async ({
+  page,
+}) => {
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+  await expect(
+    page
+      .getByText("Online — messages are persistent")
+      .filter({ visible: true }),
+  ).toBeVisible();
+
+  const directory = page.getByRole("navigation", {
+    name: "Office Channel directory",
+  });
+  await expect(directory.getByRole("button")).toHaveCount(5);
+  await expect(directory.getByRole("button")).toHaveText([
+    /# general\s+General/,
+    /# watercooler\s+Watercooler/,
+    /# tech-support\s+Technical Support/,
+    /# urgent\s+Urgent/,
+    /# all-hands\s+All Hands/,
+  ]);
+
+  const portalSession = await page.request.post("/api/office/portal/token");
+  expect(portalSession.status()).toBe(200);
+  expect((await portalSession.json()).channelIds).toEqual([
+    expect.stringMatching(/^general:\d{4}-\d{2}-\d{2}$/),
+    expect.stringMatching(/^watercooler:\d{4}-\d{2}-\d{2}$/),
+    expect.stringMatching(/^tech-support:\d{4}-\d{2}-\d{2}$/),
+    expect.stringMatching(/^urgent:\d{4}-\d{2}-\d{2}$/),
+    expect.stringMatching(/^all-hands:\d{4}-\d{2}-\d{2}$/),
+  ]);
+
+  const generalComposer = page.getByLabel("Message # General");
+  await generalComposer.fill("General draft stays put");
+  await directory.getByRole("button", { name: /# watercooler/ }).click();
+  const watercoolerComposer = page.getByLabel("Message # Watercooler");
+  await watercoolerComposer.fill("Watercooler draft stays put");
+  await directory.getByRole("button", { name: /# general/ }).click();
+  await expect(generalComposer).toHaveValue("General draft stays put");
+  await directory.getByRole("button", { name: /# watercooler/ }).click();
+  await expect(watercoolerComposer).toHaveValue("Watercooler draft stays put");
+
+  await page.request.post("/api/auth/mock-portal", {
+    form: { intent: "fail-next-send" },
+  });
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText("Message not delivered")).toBeVisible();
+  await directory.getByRole("button", { name: /# general/ }).click();
+  await directory.getByRole("button", { name: /# watercooler/ }).click();
+  await expect(watercoolerComposer).toHaveValue("Watercooler draft stays put");
+  await expect(page.getByText("Message not delivered")).toBeVisible();
+
+  await directory.getByRole("button", { name: /# all-hands/ }).click();
+  await expect(
+    page.getByText("System Events receive priority display."),
+  ).toBeVisible();
+  await expect(
+    page.getByText(/Broadcast mode changes presentation and presence only/),
+  ).toBeVisible();
+  await expect(page.getByLabel("Message # All Hands")).toBeEnabled();
+});
+
+test("history paginates backward without duplicates and displays canonical time locally", async ({
+  page,
+}) => {
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+  await expect(
+    page
+      .getByText("Online — messages are persistent")
+      .filter({ visible: true }),
+  ).toBeVisible();
+
+  let latestTimestamp = 0;
+  for (let index = 1; index <= 51; index += 1) {
+    const response = await page.request.post(
+      "/api/office/portal/mock-chat?channel=general",
+      { data: { text: `Pagination memo ${index}` } },
+    );
+    expect(response.status()).toBe(200);
+    latestTimestamp = (await response.json()).timestamp;
+  }
+
+  await page.reload();
+  await expect(
+    page
+      .getByText("Online — messages are persistent")
+      .filter({ visible: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Pagination memo 1", { exact: true }),
+  ).toHaveCount(0);
+  const historyRegion = page
+    .locator(".chat-scroll-region")
+    .filter({ visible: true });
+  await page.getByRole("button", { name: "Load earlier messages" }).click();
+  await expect(
+    page.getByText("Pagination memo 1", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("listitem")).toHaveCount(51);
+  await expect
+    .poll(() => historyRegion.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0);
+
+  const expectedLocalTime = await page.evaluate(
+    (timestamp) =>
+      new Intl.DateTimeFormat(undefined, {
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(timestamp),
+    latestTimestamp,
+  );
+  await expect(
+    page
+      .getByRole("listitem")
+      .filter({ hasText: "Pagination memo 51" })
+      .locator("time"),
+  ).toHaveText(expectedLocalTime);
+});
+
 test("interrupted setup resumes and the returning fixture enters the Office Day", async ({
   page,
 }) => {
@@ -388,4 +520,12 @@ test("completed mock office remains usable at a mobile viewport", async ({
   ).toBeVisible();
   await expect(page.getByRole("navigation")).toBeVisible();
   await expect(page.getByLabel("Message # General")).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "Office Channel directory" })
+    .getByRole("button", { name: /# all-hands/ })
+    .click();
+  await expect(page.getByLabel("Message # All Hands")).toBeVisible();
+  await expect(
+    page.getByText("System Events receive priority display."),
+  ).toBeVisible();
 });

@@ -15,6 +15,13 @@ export class MockPortalUnavailableError extends Error {
 
 export type MockPortalAdapter = PortalAuthority & {
   history(channelId: string): Promise<readonly PortalChatMessage[]>;
+  historyPage(
+    channelId: string,
+    options: { before?: string; limit: number },
+  ): Promise<{
+    messages: readonly PortalChatMessage[];
+    hasPrevious: boolean;
+  }>;
   sendMessage(input: {
     channelId: string;
     senderId: string;
@@ -42,7 +49,9 @@ export function createMockPortalAdapter({
   let messageSequence = 0;
 
   function requireOnline(): void {
-    if (!online) throw new MockPortalUnavailableError();
+    if (!online) {
+      throw new MockPortalUnavailableError();
+    }
   }
 
   return {
@@ -53,9 +62,11 @@ export function createMockPortalAdapter({
       members.set(channelId, channelMembers);
     },
 
-    async mintToken({ channelId, userId }: PortalTokenInput) {
+    async mintToken({ channelIds, userId }: PortalTokenInput) {
       requireOnline();
-      if (!members.get(channelId)?.has(userId)) {
+      if (
+        channelIds.some((channelId) => !members.get(channelId)?.has(userId))
+      ) {
         throw new MockPortalUnavailableError();
       }
       tokenSequence += 1;
@@ -68,6 +79,20 @@ export function createMockPortalAdapter({
     async history(channelId) {
       requireOnline();
       return [...(messages.get(channelId) ?? [])];
+    },
+
+    async historyPage(channelId, { before, limit }) {
+      requireOnline();
+      const channelMessages = messages.get(channelId) ?? [];
+      const beforeIndex = before
+        ? channelMessages.findIndex(({ id }) => id === before)
+        : -1;
+      const end = beforeIndex >= 0 ? beforeIndex : channelMessages.length;
+      const start = Math.max(0, end - limit);
+      return {
+        messages: channelMessages.slice(start, end),
+        hasPrevious: start > 0,
+      };
     },
 
     async sendMessage({ channelId, senderId, content }) {

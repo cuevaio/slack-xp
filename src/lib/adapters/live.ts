@@ -2,7 +2,7 @@ import type { ServiceAdapters } from "@/lib/adapters/types";
 import type { ReadyAppConfiguration } from "@/lib/config";
 import { createDatabase } from "@/lib/db/client";
 import { createNeonRepository } from "@/lib/onboarding/neon";
-import { generalChannelId } from "@/lib/portal/chat";
+import { listOfficeChannels } from "@/lib/portal/channels";
 import { createPortalControlPlane } from "@/lib/portal/server";
 
 // These boundaries intentionally do no network work during construction. Service-specific
@@ -22,7 +22,7 @@ export function createLiveAdapters(
     portal: {
       ...portalControlPlane,
       async listChannels() {
-        return [{ id: generalChannelId(), name: "General", unreadCount: 0 }];
+        return listOfficeChannels();
       },
     },
     neon: createNeonRepository(createDatabase(databaseUrl)),

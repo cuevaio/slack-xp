@@ -5,6 +5,10 @@ import portalConfig from "../../portal.config";
 describe("deployed Portal customer contract", () => {
   test("refuses anonymous access without content middleware", () => {
     expect(portalConfig.channels?.["*"]).toEqual({ anonymous: false });
+    expect(portalConfig.channels?.["all-hands:*"]).toEqual({
+      anonymous: false,
+      mode: "broadcast",
+    });
   });
 
   test("pins every direct pre-1.0 Portal package exactly", () => {

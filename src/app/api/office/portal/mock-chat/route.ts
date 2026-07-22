@@ -3,11 +3,12 @@ import { getMockPortalAdapter } from "@/lib/adapters/mock";
 import { authenticateOfficeRequest } from "@/lib/auth/server";
 import type { AuthenticatedNewHire } from "@/lib/auth/types";
 import { readAppConfiguration } from "@/lib/config";
+import { isOfficeChannelSlug } from "@/lib/portal/channels";
 import { parseChatContent } from "@/lib/portal/chat";
 import { MockPortalUnavailableError } from "@/lib/portal/mock";
 import {
-  type GeneralPortalSession,
-  issueGeneralPortalSession,
+  issueOfficePortalSession,
+  type OfficePortalSession,
   PortalEligibilityError,
 } from "@/lib/portal/session";
 
@@ -17,7 +18,7 @@ type MockChatContext =
   | { errorResponse: Response }
   | {
       identity: AuthenticatedNewHire;
-      session: GeneralPortalSession;
+      session: OfficePortalSession;
     };
 
 function portalUnavailableResponse(): Response {
@@ -48,7 +49,7 @@ async function getMockChatContext(): Promise<MockChatContext> {
 
   const adapters = createServiceAdapters(configuration);
   try {
-    const session = await issueGeneralPortalSession({
+    const session = await issueOfficePortalSession({
       identity,
       onboarding: await adapters.neon.getNewHire(identity.id),
       portal: adapters.portal,
@@ -70,16 +71,40 @@ async function getMockChatContext(): Promise<MockChatContext> {
   }
 }
 
-export async function GET() {
+function resolveRequestedChannel(
+  searchParams: URLSearchParams,
+  session: OfficePortalSession,
+): string | null {
+  const requestedSlug = searchParams.get("channel") ?? "general";
+  if (!isOfficeChannelSlug(requestedSlug)) {
+    return null;
+  }
+  return (
+    session.channelIds.find((channelId) =>
+      channelId.startsWith(`${requestedSlug}:`),
+    ) ?? null
+  );
+}
+
+export async function GET(request: Request) {
   const context = await getMockChatContext();
   if ("errorResponse" in context) {
     return context.errorResponse;
   }
+  const searchParams = new URL(request.url).searchParams;
+  const channelId = resolveRequestedChannel(searchParams, context.session);
+  if (!channelId) {
+    return Response.json({ error: "invalid_channel" }, { status: 404 });
+  }
+  const before = searchParams.get("before") ?? undefined;
 
   try {
-    return Response.json({
-      messages: await getMockPortalAdapter().history(context.session.channelId),
-    });
+    return Response.json(
+      await getMockPortalAdapter().historyPage(channelId, {
+        ...(before ? { before } : {}),
+        limit: 50,
+      }),
+    );
   } catch (error) {
     if (error instanceof MockPortalUnavailableError) {
       return portalUnavailableResponse();
@@ -93,6 +118,13 @@ export async function POST(request: Request) {
   if ("errorResponse" in context) {
     return context.errorResponse;
   }
+  const channelId = resolveRequestedChannel(
+    new URL(request.url).searchParams,
+    context.session,
+  );
+  if (!channelId) {
+    return Response.json({ error: "invalid_channel" }, { status: 404 });
+  }
 
   const body: unknown = await request.json().catch(() => null);
   const content = parseChatContent(body);
@@ -103,7 +135,7 @@ export async function POST(request: Request) {
   try {
     return Response.json(
       await getMockPortalAdapter().sendMessage({
-        channelId: context.session.channelId,
+        channelId,
         senderId: context.identity.id,
         content,
       }),

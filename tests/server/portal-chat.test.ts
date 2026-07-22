@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createMockPortalAdapter } from "@/lib/portal/mock";
 import { createPortalControlPlane } from "@/lib/portal/server";
 import {
-  issueGeneralPortalSession,
+  issueOfficePortalSession,
   PortalEligibilityError,
 } from "@/lib/portal/session";
 
@@ -20,7 +20,7 @@ const completedNewHire = {
 };
 
 describe("Portal control-plane boundary", () => {
-  test("adds daily membership before minting a 15-minute channel-scoped token", async () => {
+  test("adds every daily membership before minting a 15-minute office-scoped token", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const fetcher: typeof fetch = Object.assign(
       async (input: string | URL | Request, init?: RequestInit) => {
@@ -41,7 +41,7 @@ describe("Portal control-plane boundary", () => {
       apiUrl: "https://api.useportal.co",
     });
 
-    const session = await issueGeneralPortalSession({
+    const session = await issueOfficePortalSession({
       identity: {
         id: completedNewHire.clerkUserId,
         fullName: completedNewHire.displayName,
@@ -53,23 +53,37 @@ describe("Portal control-plane boundary", () => {
     });
 
     expect(session).toEqual({
-      channelId: "2026-07-22:general",
+      channelIds: [
+        "general:2026-07-22",
+        "watercooler:2026-07-22",
+        "tech-support:2026-07-22",
+        "urgent:2026-07-22",
+        "all-hands:2026-07-22",
+      ],
       token: "portal-user-token",
       expiresAt: "2026-07-22T12:15:00.000Z",
     });
     expect(requests.map(({ url }) => url)).toEqual([
-      "https://api.useportal.co/v1/channels/2026-07-22%3Ageneral/members",
+      "https://api.useportal.co/v1/channels/general%3A2026-07-22/members",
+      "https://api.useportal.co/v1/channels/watercooler%3A2026-07-22/members",
+      "https://api.useportal.co/v1/channels/tech-support%3A2026-07-22/members",
+      "https://api.useportal.co/v1/channels/urgent%3A2026-07-22/members",
+      "https://api.useportal.co/v1/channels/all-hands%3A2026-07-22/members",
       "https://api.useportal.co/v1/tokens",
     ]);
     expect(requests[0]?.init?.headers).toEqual({
       Authorization: "Bearer sk_portal_test",
       "Content-Type": "application/json",
     });
-    expect(JSON.parse(String(requests[1]?.init?.body))).toEqual({
+    expect(JSON.parse(String(requests.at(-1)?.init?.body))).toEqual({
       userId: "user_portal_test",
       claims: { username: "Pat Pending", avatar: null },
       channels: {
-        "2026-07-22:general": ["connect", "publish"],
+        "general:2026-07-22": ["connect", "publish"],
+        "watercooler:2026-07-22": ["connect", "publish"],
+        "tech-support:2026-07-22": ["connect", "publish"],
+        "urgent:2026-07-22": ["connect", "publish"],
+        "all-hands:2026-07-22": ["connect", "publish"],
       },
       ttl: "15m",
     });
@@ -79,7 +93,7 @@ describe("Portal control-plane boundary", () => {
     const portal = createMockPortalAdapter();
 
     await expect(
-      issueGeneralPortalSession({
+      issueOfficePortalSession({
         identity: {
           id: completedNewHire.clerkUserId,
           fullName: completedNewHire.displayName,
@@ -94,7 +108,7 @@ describe("Portal control-plane boundary", () => {
         now: new Date("2026-07-22T12:00:00.000Z"),
       }),
     ).rejects.toBeInstanceOf(PortalEligibilityError);
-    expect(portal.membershipCount("2026-07-22:general")).toBe(0);
+    expect(portal.membershipCount("general:2026-07-22")).toBe(0);
   });
 
   test("reports upstream failures without copying secrets or response details", async () => {
@@ -114,7 +128,7 @@ describe("Portal control-plane boundary", () => {
     let failure: unknown;
     try {
       await portal.ensureMembership({
-        channelId: "2026-07-22:general",
+        channelId: "general:2026-07-22",
         userId: "user_portal_test",
         claims: { username: "Pat Pending", avatar: null },
       });
@@ -136,41 +150,41 @@ describe("controlled Portal adapter", () => {
     });
 
     await portal.ensureMembership({
-      channelId: "2026-07-22:general",
+      channelId: "general:2026-07-22",
       userId: "user_portal_test",
       claims: { username: "Pat Pending", avatar: null },
     });
     await portal.ensureMembership({
-      channelId: "2026-07-22:general",
+      channelId: "general:2026-07-22",
       userId: "user_portal_test",
       claims: { username: "Pat Pending", avatar: null },
     });
-    expect(portal.membershipCount("2026-07-22:general")).toBe(1);
+    expect(portal.membershipCount("general:2026-07-22")).toBe(1);
 
     const confirmed = await portal.sendMessage({
-      channelId: "2026-07-22:general",
+      channelId: "general:2026-07-22",
       senderId: "user_portal_test",
       content: { text: "Persistent hello" },
     });
     expect(confirmed.status).toBe("sent");
-    expect(await portal.history("2026-07-22:general")).toEqual([confirmed]);
+    expect(await portal.history("general:2026-07-22")).toEqual([confirmed]);
 
     portal.failNextSend();
     await expect(
       portal.sendMessage({
-        channelId: "2026-07-22:general",
+        channelId: "general:2026-07-22",
         senderId: "user_portal_test",
         content: { text: "Retry me" },
       }),
     ).rejects.toThrow("temporarily unavailable");
-    expect(await portal.history("2026-07-22:general")).toEqual([confirmed]);
+    expect(await portal.history("general:2026-07-22")).toEqual([confirmed]);
 
     const retried = await portal.sendMessage({
-      channelId: "2026-07-22:general",
+      channelId: "general:2026-07-22",
       senderId: "user_portal_test",
       content: { text: "Retry me" },
     });
-    expect(await portal.history("2026-07-22:general")).toEqual([
+    expect(await portal.history("general:2026-07-22")).toEqual([
       confirmed,
       retried,
     ]);
@@ -179,11 +193,57 @@ describe("controlled Portal adapter", () => {
   test("recovers after a controlled outage without inventing live data", async () => {
     const portal = createMockPortalAdapter();
     portal.setOnline(false);
-    await expect(portal.history("2026-07-22:general")).rejects.toThrow(
+    await expect(portal.history("general:2026-07-22")).rejects.toThrow(
       "temporarily unavailable",
     );
 
     portal.setOnline(true);
-    expect(await portal.history("2026-07-22:general")).toEqual([]);
+    expect(await portal.history("general:2026-07-22")).toEqual([]);
+  });
+
+  test("paginates backward without duplicates or client-created gaps", async () => {
+    let tick = 0;
+    const portal = createMockPortalAdapter({
+      now: () => new Date(1_753_184_800_000 + tick++),
+    });
+    const channelId = "general:2026-07-22";
+    await portal.ensureMembership({
+      channelId,
+      userId: "user_portal_test",
+      claims: { username: "Pat Pending", avatar: null },
+    });
+
+    for (let index = 1; index <= 55; index += 1) {
+      await portal.sendMessage({
+        channelId,
+        senderId: "user_portal_test",
+        content: { text: `Memo ${index}` },
+      });
+    }
+
+    const recent = await portal.historyPage(channelId, { limit: 20 });
+    expect(recent.messages).toHaveLength(20);
+    expect(recent.messages[0]?.content.text).toBe("Memo 36");
+    expect(recent.hasPrevious).toBe(true);
+
+    const previous = await portal.historyPage(channelId, {
+      before: recent.messages[0]?.id,
+      limit: 20,
+    });
+    const oldest = await portal.historyPage(channelId, {
+      before: previous.messages[0]?.id,
+      limit: 20,
+    });
+    const combined = [
+      ...oldest.messages,
+      ...previous.messages,
+      ...recent.messages,
+    ];
+    expect(oldest.hasPrevious).toBe(false);
+    expect(combined).toHaveLength(55);
+    expect(new Set(combined.map(({ id }) => id)).size).toBe(55);
+    expect(combined.map(({ content }) => content.text)).toEqual(
+      Array.from({ length: 55 }, (_, index) => `Memo ${index + 1}`),
+    );
   });
 });

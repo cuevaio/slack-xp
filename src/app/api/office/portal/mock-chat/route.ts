@@ -6,6 +6,7 @@ import { readAppConfiguration } from "@/lib/config";
 import { isOfficeChannelSlug } from "@/lib/portal/channels";
 import { parseChatContent } from "@/lib/portal/chat";
 import { MockPortalUnavailableError } from "@/lib/portal/mock";
+import { officeNowForRequest } from "@/lib/portal/request-time";
 import {
   issueOfficePortalSession,
   type OfficePortalSession,
@@ -25,7 +26,7 @@ function portalUnavailableResponse(): Response {
   return Response.json({ error: "portal_unavailable" }, { status: 503 });
 }
 
-async function getMockChatContext(): Promise<MockChatContext> {
+async function getMockChatContext(request: Request): Promise<MockChatContext> {
   const configuration = readAppConfiguration();
   if (
     configuration.status !== "ready" ||
@@ -52,6 +53,7 @@ async function getMockChatContext(): Promise<MockChatContext> {
     const session = await issueOfficePortalSession({
       identity,
       onboarding: await adapters.neon.getNewHire(identity.id),
+      now: officeNowForRequest(request.headers, configuration),
       portal: adapters.portal,
     });
     return { identity, session };
@@ -87,7 +89,7 @@ function resolveRequestedChannel(
 }
 
 export async function GET(request: Request) {
-  const context = await getMockChatContext();
+  const context = await getMockChatContext(request);
   if ("errorResponse" in context) {
     return context.errorResponse;
   }
@@ -114,7 +116,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const context = await getMockChatContext();
+  const context = await getMockChatContext(request);
   if ("errorResponse" in context) {
     return context.errorResponse;
   }

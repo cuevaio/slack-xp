@@ -8,7 +8,7 @@ import type {
 
 export type PortalAdapter = PortalAuthority &
   ProfileInvalidationPublisher & {
-    listChannels(): Promise<readonly OfficeChannel[]>;
+    listChannels(now?: Date): Promise<readonly OfficeChannel[]>;
   };
 
 export type NeonAdapter = OnboardingRepository & ProfileRepository;

@@ -90,7 +90,7 @@ export function useOfficeEventSubscription({
       const parsed = parseOfficeEvent(event);
       if (
         parsed?.type !== "reaction.changed" ||
-        parsed.officeDay !== channelId.slice(0, 10) ||
+        parsed.officeDay !== channelId.split(":")[1] ||
         channel.me?.id !== parsed.actorId
       ) {
         throw new TypeError("Invalid reaction Office Event publication.");

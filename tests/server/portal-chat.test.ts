@@ -67,16 +67,16 @@ describe("Portal control-plane boundary", () => {
     await publisher.publishProfileInvalidation(event);
 
     expect(requests.map(({ url }) => url)).toEqual([
-      "https://api.useportal.co/v1/channels/2026-07-22%3Aoffice-events/members",
+      "https://api.useportal.co/v1/channels/office-events%3A2026-07-22/members",
       "https://api.useportal.co/v1/tokens",
-      "https://api.useportal.co/v1/channels/2026-07-22%3Aoffice-events/messages",
+      "https://api.useportal.co/v1/channels/office-events%3A2026-07-22/messages",
     ]);
     expect(JSON.parse(String(requests[0]?.init?.body))).toMatchObject({
       userId: "office-events:profiles",
     });
     expect(JSON.parse(String(requests[1]?.init?.body))).toMatchObject({
       userId: "office-events:profiles",
-      channels: { "2026-07-22:office-events": ["connect", "publish"] },
+      channels: { "office-events:2026-07-22": ["connect", "publish"] },
     });
     expect(JSON.parse(String(requests[2]?.init?.body))).toEqual({
       type: "office.event",
@@ -125,7 +125,7 @@ describe("Portal control-plane boundary", () => {
         "urgent:2026-07-22",
         "all-hands:2026-07-22",
       ],
-      eventChannelId: "2026-07-22:office-events",
+      eventChannelId: "office-events:2026-07-22",
       token: "portal-user-token",
       expiresAt: "2026-07-22T12:15:00.000Z",
     });
@@ -135,7 +135,7 @@ describe("Portal control-plane boundary", () => {
       "https://api.useportal.co/v1/channels/tech-support%3A2026-07-22/members",
       "https://api.useportal.co/v1/channels/urgent%3A2026-07-22/members",
       "https://api.useportal.co/v1/channels/all-hands%3A2026-07-22/members",
-      "https://api.useportal.co/v1/channels/2026-07-22%3Aoffice-events/members",
+      "https://api.useportal.co/v1/channels/office-events%3A2026-07-22/members",
       "https://api.useportal.co/v1/tokens",
     ]);
     expect(requests[0]?.init?.headers).toEqual({
@@ -151,7 +151,7 @@ describe("Portal control-plane boundary", () => {
         "tech-support:2026-07-22": ["connect", "publish"],
         "urgent:2026-07-22": ["connect", "publish"],
         "all-hands:2026-07-22": ["connect", "publish"],
-        "2026-07-22:office-events": ["connect", "publish"],
+        "office-events:2026-07-22": ["connect", "publish"],
       },
       ttl: "15m",
     });
@@ -293,7 +293,7 @@ describe("controlled Portal adapter", () => {
     for (const channelId of session.channelIds) {
       expect(portal.membershipCount(channelId)).toBe(1);
     }
-    expect(session.eventChannelId).toBe("2026-07-22:office-events");
+    expect(session.eventChannelId).toBe("office-events:2026-07-22");
     expect(portal.membershipCount(session.eventChannelId)).toBe(1);
   });
 
@@ -406,7 +406,7 @@ describe("controlled Portal adapter", () => {
       now: () => new Date(1_753_184_800_000 + tick++),
     });
     const officeChannelId = "general:2026-07-22";
-    const eventChannelId = "2026-07-22:office-events";
+    const eventChannelId = "office-events:2026-07-22";
     for (const userId of ["user_reactor", "user_observer"]) {
       for (const channelId of [officeChannelId, eventChannelId]) {
         await portal.ensureMembership({
@@ -484,7 +484,7 @@ describe("controlled Portal adapter", () => {
       now: () => new Date("2026-07-22T12:00:00.000Z"),
     });
     const officeChannelId = "general:2026-07-22";
-    const eventChannelId = "2026-07-22:office-events";
+    const eventChannelId = "office-events:2026-07-22";
     for (const channelId of [officeChannelId, eventChannelId]) {
       await portal.ensureMembership({
         channelId,

@@ -27,11 +27,15 @@ import {
   OFFICE_REACTIONS,
   type OfficeInvalidationEvent,
   type OfficeReaction,
+  officeEventChannelIdForDay,
   type ProjectedOfficeReaction,
   parseOfficeEventMessage,
   type ReactionOfficeEvent,
 } from "@/lib/office-events/contract";
-import type { OfficeChannel } from "@/lib/portal/channels";
+import {
+  listOfficeChannelsForDay,
+  type OfficeChannel,
+} from "@/lib/portal/channels";
 import {
   CHAT_TEXT_LIMIT,
   linkifyChatText,
@@ -47,6 +51,11 @@ import {
   parseOfficeInboxResponse,
   reconcileOfficeInbox,
 } from "@/lib/portal/inbox";
+import {
+  formatOfficeTimestamp,
+  observeOfficeDayBoundary,
+  officeDay,
+} from "@/lib/portal/office-day";
 import {
   connectionStatusCopy,
   currentDetailedNewHireIds,
@@ -69,6 +78,7 @@ type PortalOfficeBaseProps = {
   imageUrl: string | null;
   employeeRecord: ReactNode;
   eventChannelId: string;
+  officeDay: string;
   jobTitle: string;
   isOperator: boolean;
   canSignOut: boolean;
@@ -96,6 +106,11 @@ type ReactionProps = {
   reactionsEnabled: boolean;
   onReact(input: ReactionMutation): Promise<void>;
 };
+
+type OfficeDayWorkspace = Pick<
+  PortalOfficeBaseProps,
+  "channels" | "eventChannelId" | "officeDay"
+>;
 
 type ChatSurfaceProps = ReactionProps & {
   visible: boolean;
@@ -804,10 +819,7 @@ function MessageHistory({
               />
               <strong>{profileDisplayName(profile)}</strong>
               <time dateTime={new Date(message.timestamp).toISOString()}>
-                {new Intl.DateTimeFormat(undefined, {
-                  hour: "numeric",
-                  minute: "2-digit",
-                }).format(message.timestamp)}
+                {formatOfficeTimestamp(message.timestamp)}
               </time>
             </div>
             <p>
@@ -1390,7 +1402,7 @@ function useReactionPublisher({
           ...input,
           mutationId: crypto.randomUUID(),
           occurredAt: new Date(timestamp).toISOString(),
-          officeDay: eventChannelId.slice(0, 10),
+          officeDay: eventChannelId.split(":")[1] ?? "",
           actorId: identityId,
         });
         retryEvents.current.set(retryKey, event);
@@ -1505,12 +1517,24 @@ function LivePortalWorkspace({
   );
 }
 
-function LivePortalOffice(props: Omit<LivePortalOfficeProps, "mode">) {
+function LivePortalOffice(
+  props: Omit<LivePortalOfficeProps, "mode"> & {
+    onOfficeDayExpired(): void;
+  },
+) {
+  const {
+    officeDay: currentOfficeDay,
+    publishableKey,
+    onOfficeDayExpired,
+  } = props;
   const [portal] = useState(
     () =>
       new Portal({
-        apiKey: props.publishableKey,
-        token: createPortalTokenSource(),
+        apiKey: publishableKey,
+        token: createPortalTokenSource({
+          expectedOfficeDay: currentOfficeDay,
+          onOfficeDayExpired,
+        }),
       }),
   );
 
@@ -1530,12 +1554,16 @@ function MockOfficeChannel({
   onReact,
   reactionEvents,
   reactionsEnabled,
+  officeDay: currentOfficeDay,
+  onOfficeDayExpired,
 }: ReactionProps & {
   visible: boolean;
   channel: OfficeChannel;
   identityId: string;
   latestActivityAt: number;
   onContentVisible(channelId: string): void;
+  officeDay: string;
+  onOfficeDayExpired(): void;
 }) {
   const [messages, setMessages] = useState<unknown[]>([]);
   const [status, setStatus] = useState<ChannelStatus>("connecting");
@@ -1546,7 +1574,10 @@ function MockOfficeChannel({
   const loadMockHistory = useCallback(async (): Promise<boolean> => {
     setStatus("connecting");
     try {
-      await createPortalTokenSource()();
+      await createPortalTokenSource({
+        expectedOfficeDay: currentOfficeDay,
+        onOfficeDayExpired,
+      })();
       const historyPage = await fetchMockHistoryPage(channel.slug);
       setMessages(historyPage.messages);
       setHasPrevious(historyPage.hasPrevious);
@@ -1558,7 +1589,7 @@ function MockOfficeChannel({
       setStatus("reconnecting");
       return false;
     }
-  }, [channel.slug]);
+  }, [channel.slug, currentOfficeDay, onOfficeDayExpired]);
 
   useEffect(() => {
     if (!visible) {
@@ -1671,16 +1702,22 @@ function MockOfficeChannel({
   );
 }
 
-function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
+function MockPortalOffice(
+  props: Omit<MockPortalOfficeProps, "mode"> & {
+    onOfficeDayExpired(): void;
+  },
+) {
   const {
     channels,
     identityId,
     displayName,
     employeeRecord,
     eventChannelId,
+    officeDay: currentOfficeDay,
     jobTitle,
     isOperator,
     canSignOut,
+    onOfficeDayExpired,
   } = props;
   const [activeChannelId, setActiveChannelId] = useState(channels[0]?.id ?? "");
   const navigation = useResponsiveOfficeNavigation();
@@ -1792,12 +1829,154 @@ function MockPortalOffice(props: Omit<MockPortalOfficeProps, "mode">) {
           onReact={updateReaction}
           reactionEvents={reactionEvents}
           reactionsEnabled={reactionStatus === "ready"}
+          officeDay={currentOfficeDay}
+          onOfficeDayExpired={onOfficeDayExpired}
           visible={
             navigation.conversationVisible && channel.id === activeChannelId
           }
         />
       ))}
     </OfficeWorkspace>
+  );
+}
+
+function ShiftEndedDialog({
+  endedOfficeDay,
+  onContinue,
+}: {
+  endedOfficeDay: string;
+  onContinue(): void;
+}) {
+  const continueButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    continueButtonRef.current?.focus();
+  }, []);
+
+  return (
+    <div className="shift-ended-backdrop">
+      <section
+        aria-describedby="shift-ended-description"
+        aria-labelledby="shift-ended-title"
+        aria-modal="true"
+        className="shift-ended-dialog"
+        role="dialog"
+      >
+        <header className="window-titlebar">
+          <span>Portal Messenger</span>
+          <span aria-hidden="true">×</span>
+        </header>
+        <div className="shift-ended-content">
+          <p className="eyebrow">Office Day {endedOfficeDay}</p>
+          <h2 id="shift-ended-title">Your shift has ended</h2>
+          <p id="shift-ended-description">
+            Midnight UTC has passed. Your old desk is disconnected and the new
+            Office Day is ready with fresh channels.
+          </p>
+          <button
+            className="classic-button primary-action"
+            onClick={onContinue}
+            ref={continueButtonRef}
+            type="button"
+          >
+            Continue to the new Office Day
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function createOfficeDayWorkspace(
+  currentOfficeDay: string,
+): OfficeDayWorkspace {
+  return {
+    channels: listOfficeChannelsForDay(currentOfficeDay),
+    eventChannelId: officeEventChannelIdForDay(currentOfficeDay),
+    officeDay: currentOfficeDay,
+  };
+}
+
+function PortalChatWorkspace(props: PortalChatProps): ReactNode {
+  const [workspace, setWorkspace] = useState<OfficeDayWorkspace>(() => ({
+    channels: props.channels,
+    eventChannelId: props.eventChannelId,
+    officeDay: props.officeDay,
+  }));
+  const [endedOfficeDay, setEndedOfficeDay] = useState<string | null>(null);
+  const [focusNewOffice, setFocusNewOffice] = useState(false);
+
+  const endOfficeDay = useCallback(() => {
+    setEndedOfficeDay((current) => current ?? workspace.officeDay);
+  }, [workspace.officeDay]);
+
+  useEffect(() => {
+    if (endedOfficeDay) return;
+    return observeOfficeDayBoundary({
+      currentOfficeDay: workspace.officeDay,
+      onBoundary: endOfficeDay,
+    });
+  }, [endedOfficeDay, endOfficeDay, workspace.officeDay]);
+
+  useEffect(() => {
+    if (!focusNewOffice || endedOfficeDay) return;
+    const focusComposer = () => {
+      const firstChannelId = workspace.channels[0]?.id;
+      const composer = firstChannelId
+        ? document.getElementById(`message-${firstChannelId}`)
+        : null;
+      if (composer instanceof HTMLTextAreaElement && !composer.disabled) {
+        composer.focus();
+        setFocusNewOffice(false);
+        return true;
+      }
+      return false;
+    };
+    if (focusComposer()) return;
+    const observer = new MutationObserver(() => {
+      if (focusComposer()) observer.disconnect();
+    });
+    observer.observe(document.body, {
+      attributes: true,
+      attributeFilter: ["disabled"],
+      childList: true,
+      subtree: true,
+    });
+    return () => observer.disconnect();
+  }, [endedOfficeDay, focusNewOffice, workspace.channels]);
+
+  function continueToCurrentOfficeDay(): void {
+    setWorkspace(createOfficeDayWorkspace(officeDay()));
+    setEndedOfficeDay(null);
+    setFocusNewOffice(true);
+  }
+
+  if (endedOfficeDay) {
+    return (
+      <ShiftEndedDialog
+        endedOfficeDay={endedOfficeDay}
+        onContinue={continueToCurrentOfficeDay}
+      />
+    );
+  }
+
+  if (props.mode === "live") {
+    return (
+      <LivePortalOffice
+        {...props}
+        {...workspace}
+        key={workspace.officeDay}
+        onOfficeDayExpired={endOfficeDay}
+      />
+    );
+  }
+  return (
+    <MockPortalOffice
+      {...props}
+      {...workspace}
+      key={workspace.officeDay}
+      onOfficeDayExpired={endOfficeDay}
+    />
   );
 }
 
@@ -1808,13 +1987,10 @@ export function PortalChat(props: PortalChatProps): ReactNode {
     imageUrl: props.imageUrl,
     status: "current",
   };
+
   return (
     <ProfileQueryProvider initialProfile={initialProfile}>
-      {props.mode === "live" ? (
-        <LivePortalOffice {...props} />
-      ) : (
-        <MockPortalOffice {...props} />
-      )}
+      <PortalChatWorkspace {...props} />
     </ProfileQueryProvider>
   );
 }

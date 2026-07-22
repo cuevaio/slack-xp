@@ -18,13 +18,15 @@ export async function OfficeFoundation({
   identity,
   onboarding,
   portalPublishableKey,
+  now = new Date(),
 }: {
   adapters: ServiceAdapters;
   identity: AuthenticatedNewHire;
   onboarding: OnboardingSnapshot;
   portalPublishableKey?: string;
+  now?: Date;
 }) {
-  const channels = await adapters.portal.listChannels();
+  const channels = await adapters.portal.listChannels(now);
   if (channels.length !== OFFICE_CHANNEL_DEFINITIONS.length) {
     throw new Error("The Office Channel directory is incomplete.");
   }
@@ -32,8 +34,8 @@ export async function OfficeFoundation({
   if (!generalChannel) {
     throw new Error("The General Office Channel is not configured.");
   }
-  const [, officeDay] = generalChannel.id.split(":");
-  const eventChannelId = officeEventChannelIdForDay(officeDay ?? "");
+  const [, currentOfficeDay = ""] = generalChannel.id.split(":");
+  const eventChannelId = officeEventChannelIdForDay(currentOfficeDay);
 
   return (
     <main className="office-shell">
@@ -52,6 +54,7 @@ export async function OfficeFoundation({
           imageUrl={onboarding.imageUrl}
           employeeRecord={<EmployeeRecordDialog onboarding={onboarding} />}
           eventChannelId={eventChannelId}
+          officeDay={currentOfficeDay}
           identityId={identity.id}
           isOperator={identity.isOperator}
           jobTitle={onboarding.jobTitle}

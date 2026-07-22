@@ -53,8 +53,8 @@ export function createMockAdapters(): ServiceAdapters {
     kind: "mock",
     portal: {
       ...portal,
-      async listChannels() {
-        return listOfficeChannels();
+      async listChannels(now) {
+        return listOfficeChannels(now);
       },
     },
     neon,

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { listOfficeChannels, officeChannelId } from "@/lib/portal/channels";
+import {
+  listOfficeChannels,
+  listOfficeChannelsForDay,
+  officeChannelId,
+} from "@/lib/portal/channels";
 import {
   generalChannelId,
   linkifyChatText,
@@ -136,12 +140,42 @@ describe("Office Channel chat contract", () => {
 
   test("uses a fresh server-minted token whenever the SDK callback refreshes", async () => {
     let sequence = 0;
-    const tokenSource = createPortalTokenSource(async () => {
-      sequence += 1;
-      return Response.json({ token: `token-${sequence}` });
+    const tokenSource = createPortalTokenSource({
+      expectedOfficeDay: "2026-07-22",
+      fetcher: async () => {
+        sequence += 1;
+        return Response.json({
+          token: `token-${sequence}`,
+          channelIds: listOfficeChannelsForDay("2026-07-22").map(
+            ({ id }) => id,
+          ),
+          eventChannelId: "office-events:2026-07-22",
+        });
+      },
     });
 
     expect(await tokenSource()).toBe("token-1");
     expect(await tokenSource()).toBe("token-2");
+  });
+
+  test("rejects a reconnect token for a different Office Day", async () => {
+    let expired = false;
+    const tokenSource = createPortalTokenSource({
+      expectedOfficeDay: "2026-07-22",
+      fetcher: async () =>
+        Response.json({
+          token: "next-day-token",
+          channelIds: listOfficeChannelsForDay("2026-07-23").map(
+            ({ id }) => id,
+          ),
+          eventChannelId: "office-events:2026-07-23",
+        }),
+      onOfficeDayExpired: () => {
+        expired = true;
+      },
+    });
+
+    await expect(tokenSource()).rejects.toThrow("Office Day has ended");
+    expect(expired).toBe(true);
   });
 });

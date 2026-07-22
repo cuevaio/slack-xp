@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { connection } from "next/server";
 import { InstallationIncomplete } from "@/components/installation-incomplete";
 import { OfficeFoundation } from "@/components/office-foundation";
@@ -6,6 +7,7 @@ import { createServiceAdapters } from "@/lib/adapters";
 import { requireOfficeIdentity } from "@/lib/auth/server";
 import { readAppConfiguration } from "@/lib/config";
 import { profileFromIdentity } from "@/lib/onboarding/profile-authority";
+import { officeNowForRequest } from "@/lib/portal/request-time";
 
 export const runtime = "nodejs";
 
@@ -19,6 +21,7 @@ export default async function OfficePage() {
 
   const identity = await requireOfficeIdentity(configuration);
   const adapters = createServiceAdapters(configuration);
+  const now = officeNowForRequest(await headers(), configuration);
   const onboarding = await adapters.neon.enterNewHire(
     profileFromIdentity(identity),
   );
@@ -37,6 +40,7 @@ export default async function OfficePage() {
       adapters={adapters}
       identity={identity}
       onboarding={onboarding}
+      now={now}
       portalPublishableKey={configuration.values.NEXT_PUBLIC_PORTAL_KEY}
     />
   );

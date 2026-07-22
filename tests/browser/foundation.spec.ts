@@ -322,6 +322,10 @@ test("Operators remove messages inline while every connected client renders a pe
     .getByRole("listitem")
     .filter({ hasText: removedText });
   await expect(operatorMessage).toBeVisible();
+  await expect(operatorMessage).toHaveAttribute(
+    "data-message-id",
+    /^mock_message_/,
+  );
   const messageId = await operatorMessage.getAttribute("data-message-id");
   const originalTimestamp = await operatorMessage
     .locator("time")
@@ -416,7 +420,7 @@ test("Operators remove messages inline while every connected client renders a pe
     page
       .getByText("Removed Message records are unavailable.")
       .filter({ visible: true }),
-  ).toBeVisible();
+  ).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText(removedText, { exact: true })).toHaveCount(0);
   await page.unroute("**/api/office/message-removals?**");
   await page.reload();

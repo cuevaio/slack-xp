@@ -15,9 +15,10 @@ bun run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) for the static Observer
-experience and [http://localhost:3000/office](http://localhost:3000/office) for
-the authenticated-office seam. The example environment selects guarded mock
-adapters and displays a permanent `MOCK SERVICES - NO LIVE DATA` watermark.
+experience. Entering [http://localhost:3000/office](http://localhost:3000/office)
+first presents the deterministic mock sign-in, then opens the authenticated
+office seam. Mock authentication and mock services each display a permanent
+warning watermark.
 
 ## Runtime Configuration
 
@@ -35,6 +36,10 @@ Live mode requires these variables:
 - `PORTAL_SECRET`
 - `DATABASE_URL`
 
+`OPERATOR_CLERK_USER_IDS` is an optional comma- or whitespace-separated list of
+exact Clerk user IDs that receive Operator-shaped identity. It is read only on
+the server.
+
 Configuration is validated before service adapters are created. Invalid or
 partial configuration renders Installation Incomplete and lists only variable
 names and reasons. Values are never returned to that screen. The Observer route
@@ -44,6 +49,28 @@ Production (`APP_ENV=production` or `VERCEL_ENV=production`) refuses to build or
 start when `SERVICE_MODE=mock` is explicit. Missing production credentials are
 allowed through the build so the deployed application can fail closed with the
 Installation Incomplete screen.
+
+## Clerk Authentication
+
+In live mode, Clerk's hosted Account Portal owns sign-in. Configure the desired
+social connections and email verification-code strategy in the Clerk Dashboard;
+Portal Messenger does not add passwords, invitations, organizations, or a
+parallel account model. The Clerk publishable and secret keys in `.env.local`
+must belong to the same Clerk application. Keep `CLERK_SECRET_KEY` server-only.
+
+Next.js Proxy performs the early signed-out redirect for `/office/*` and rejects
+unsigned `/api/office/*` requests. That redirect is only an optimization: every
+office page and route handler also calls the server authentication boundary,
+which derives the Clerk user and session IDs from Clerk and fetches the current
+Clerk profile. Browser headers, form values, and client visibility are never
+accepted as identity. Protected pages and route handlers explicitly select the
+Node.js runtime.
+
+In local and test mock mode, `/sign-in` offers two fixed identities: a New Hire
+and an Operator. The selection is mapped server-side to signed, HTTP-only
+session cookies. Arbitrary Clerk IDs and identity headers are ignored. These
+sessions are credential-free fixtures, not a Clerk emulator, and are refused
+when the application environment is production.
 
 ## Checks
 
@@ -69,12 +96,23 @@ bunx playwright install chromium
 - `/` is the Observer experience. It uses static fixtures and imports no Clerk,
   Portal, Neon, configuration, or adapter modules.
 - `/office` is the office entry point. It reads runtime configuration on the
-  server and constructs explicit adapters only after validation.
+  server, requires a server-verified New Hire identity, and constructs service
+  adapters only after both checks pass.
+- `/api/office/*` is reserved for authenticated server operations. Each handler
+  must call `authenticateOfficeRequest`; the included session endpoint is the
+  executable boundary example.
+- `src/proxy.ts` performs an early protection check for office pages and server
+  operations. It is not the sole authorization boundary.
+- `src/lib/auth/` owns Clerk verification, mock sessions, and exact Operator
+  allowlist matching. Server-derived identity is passed into office rendering.
 - `src/lib/config.ts` owns environment classification and validation.
-- `src/lib/adapters/` owns the Clerk-shaped, Portal-shaped, and Neon-shaped
-  boundaries. Mock data is deterministic and cannot be selected in production.
+- `src/lib/adapters/` owns Portal-shaped and Neon-shaped boundaries. It cannot
+  determine or override the authenticated identity. Mock data is deterministic
+  and cannot be selected in production.
 - Browser-facing configuration uses only publishable `NEXT_PUBLIC_*` keys.
   Secret values remain server-only.
 
-Service-specific authentication, realtime messaging, and persistence behavior
-will be attached behind these adapters in subsequent delivery slices.
+Realtime messaging and persistence behavior will be attached behind these
+adapters in subsequent delivery slices. Portal channel policy must still enforce
+`anonymous: false`; Clerk protection does not replace ADR 0004's Portal-side
+authorization boundary.

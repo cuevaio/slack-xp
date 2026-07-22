@@ -14,7 +14,6 @@ export function createServiceAdapters(
 }
 
 export type {
-  ClerkAdapter,
   NeonAdapter,
   PortalAdapter,
   ServiceAdapters,

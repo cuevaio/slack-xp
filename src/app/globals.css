@@ -108,6 +108,7 @@ a {
 
 .primary-action:focus-visible,
 .classic-button:focus-visible,
+.classic-button[type="submit"]:focus-visible,
 .channel-panel a:focus-visible {
   outline: 3px solid #d5ff48;
   outline-offset: 3px;
@@ -367,6 +368,43 @@ a {
 .classic-button {
   padding: 0.55rem 0.8rem;
   box-shadow: none;
+}
+
+button.classic-button {
+  font: inherit;
+  cursor: pointer;
+}
+
+.mock-sign-in-content {
+  padding: clamp(1.5rem, 6vw, 3.5rem);
+}
+
+.mock-sign-in-content h1 {
+  margin: 0 0 0.8rem;
+  font-family: Georgia, serif;
+  font-size: clamp(2rem, 5vw, 3.4rem);
+}
+
+.mock-sign-in-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin: 1.5rem 0;
+}
+
+.operator-badge {
+  display: inline-block;
+  padding: 0.25rem 0.4rem;
+  background: #5a2170;
+  color: white;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.sign-out-button {
+  margin-top: 2rem;
 }
 
 @media (max-width: 850px) {

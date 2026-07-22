@@ -10,11 +10,6 @@ export function createLiveAdapters(
 ): ServiceAdapters {
   return {
     kind: "live",
-    clerk: {
-      async getCurrentUser() {
-        return null;
-      },
-    },
     portal: {
       async listChannels() {
         return [];

@@ -1,9 +1,3 @@
-export type ClerkUser = {
-  id: string;
-  fullName: string;
-  imageUrl: string | null;
-};
-
 export type PortalChannel = {
   id: string;
   name: string;
@@ -16,10 +10,6 @@ export type NewHireRecord = {
   onboardingComplete: boolean;
 };
 
-export type ClerkAdapter = {
-  getCurrentUser(): Promise<ClerkUser | null>;
-};
-
 export type PortalAdapter = {
   listChannels(): Promise<readonly PortalChannel[]>;
 };
@@ -30,7 +20,6 @@ export type NeonAdapter = {
 
 export type ServiceAdapters = {
   kind: "mock" | "live";
-  clerk: ClerkAdapter;
   portal: PortalAdapter;
   neon: NeonAdapter;
 };

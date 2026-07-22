@@ -3,7 +3,7 @@ import { createServiceAdapters } from "@/lib/adapters";
 import { readAppConfiguration } from "@/lib/config";
 
 describe("service adapter boundary", () => {
-  test("returns deterministic Clerk-, Portal-, and Neon-shaped mock data", async () => {
+  test("returns deterministic Portal- and Neon-shaped mock data", async () => {
     const configuration = readAppConfiguration({
       APP_ENV: "test",
       SERVICE_MODE: "mock",
@@ -13,14 +13,9 @@ describe("service adapter boundary", () => {
     }
 
     const adapters = createServiceAdapters(configuration);
-    const firstUser = await adapters.clerk.getCurrentUser();
-    const secondUser = await adapters.clerk.getCurrentUser();
     const channels = await adapters.portal.listChannels();
-    const newHire = firstUser
-      ? await adapters.neon.getNewHire(firstUser.id)
-      : null;
+    const newHire = await adapters.neon.getNewHire("user_mock_new_hire");
 
-    expect(firstUser).toEqual(secondUser);
     expect(channels.map((channel) => channel.name)).toEqual([
       "General",
       "Watercooler",

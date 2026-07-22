@@ -1,13 +1,15 @@
 import type { ServiceAdapters } from "@/lib/adapters";
+import type { AuthenticatedNewHire } from "@/lib/auth/types";
 
 export async function OfficeFoundation({
   adapters,
+  identity,
 }: {
   adapters: ServiceAdapters;
+  identity: AuthenticatedNewHire;
 }) {
-  const user = await adapters.clerk.getCurrentUser();
   const channels = await adapters.portal.listChannels();
-  const newHire = user ? await adapters.neon.getNewHire(user.id) : null;
+  const newHire = await adapters.neon.getNewHire(identity.id);
 
   return (
     <main className="office-shell">
@@ -22,8 +24,11 @@ export async function OfficeFoundation({
         <div className="office-body">
           <aside className="channel-panel" aria-label="Office Channels">
             <p className="eyebrow">Shared Public Office</p>
-            <h1>{user ? `Welcome, ${user.fullName}` : "Ready to clock in"}</h1>
+            <h1>{`Welcome, ${identity.fullName}`}</h1>
             {newHire ? <p className="job-title">{newHire.jobTitle}</p> : null}
+            {identity.isOperator ? (
+              <p className="operator-badge">Operator access</p>
+            ) : null}
             <nav>
               {channels.map((channel) => (
                 <a href={`#${channel.id}`} key={channel.id}>
@@ -34,6 +39,16 @@ export async function OfficeFoundation({
                 </a>
               ))}
             </nav>
+            {identity.authentication === "mock" ? (
+              <form action="/api/auth/sign-out" method="post">
+                <button
+                  className="classic-button sign-out-button"
+                  type="submit"
+                >
+                  Sign out
+                </button>
+              </form>
+            ) : null}
           </aside>
           <section className="conversation-panel">
             <div className="conversation-heading">
@@ -44,7 +59,7 @@ export async function OfficeFoundation({
               <strong>Portal Systems IT</strong>
               <p>
                 {adapters.kind === "mock"
-                  ? "Deterministic Clerk, Portal, and Neon adapters are online. Nothing on this screen came from a cloud service."
+                  ? "Deterministic mock authentication, Portal, and Neon adapters are online. Nothing on this screen came from a cloud service."
                   : "Live service configuration passed validation. Authentication integration is ready for the next installation step."}
               </p>
             </div>

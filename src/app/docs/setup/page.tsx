@@ -34,6 +34,19 @@ export default function SetupPage() {
               browser code. Restart the development server after changing the
               environment.
             </p>
+            <h2>Configure Clerk sign-in</h2>
+            <p>
+              In the Clerk Dashboard, enable the hosted social connections and
+              email verification-code strategy you want New Hires to use. This
+              application redirects to Clerk&apos;s hosted Account Portal and
+              does not add passwords, invitations, organizations, or its own
+              account records.
+            </p>
+            <p>
+              Optionally set <code>OPERATOR_CLERK_USER_IDS</code> to a
+              comma-separated list of exact Clerk user IDs. This value is
+              server-only.
+            </p>
             <Link className="classic-button" href="/office">
               Recheck installation
             </Link>

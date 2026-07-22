@@ -1,8 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  createScriptedSystemEventMessageProjection,
-  planOfficeDay,
-} from "@/lib/office-days/contract";
+import { planOfficeDay } from "@/lib/office-days/contract";
 import {
   isAuthorizedVercelCronRequest,
   repairOfficeDayOnEntry,
@@ -177,33 +174,6 @@ describe("Office Day seeding and publishing", () => {
     });
     expect(await controlledPortal.history("general:2026-07-22")).toHaveLength(
       1,
-    );
-  });
-
-  test("client projection collapses a replay after acknowledgement state is lost", () => {
-    const planned = planOfficeDay("2026-07-22")[0];
-    if (!planned) throw new Error("Expected a planned System Event");
-    const envelope = (id: string) => ({
-      id,
-      channelId: planned.channelId,
-      sender: { id: planned.characterId, anon: false },
-      timestamp: planned.dueAt.getTime(),
-      retracted: false,
-      ephemeral: false,
-      kind: "text",
-      type: "system.event",
-      status: "sent",
-      content: planned.event,
-    });
-    const projection = createScriptedSystemEventMessageProjection(
-      planned.channelId,
-    );
-
-    expect(projection.apply(envelope("delivery-before-mark-failure"))).toBe(
-      "applied",
-    );
-    expect(projection.apply(envelope("retry-after-mark-failure"))).toBe(
-      "duplicate",
     );
   });
 });

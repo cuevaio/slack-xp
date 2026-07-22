@@ -68,6 +68,15 @@ const SCRIPT_DEFINITIONS = [
   },
 ] as const satisfies readonly ScriptDefinition[];
 
+const SCRIPTED_SYSTEM_EVENT_CONTENT_KEYS = [
+  "version",
+  "type",
+  "eventKey",
+  "officeDay",
+  "scriptId",
+  "text",
+] as const;
+
 export type ScriptedSystemEvent = {
   version: typeof SCRIPTED_SYSTEM_EVENT_VERSION;
   type: "system.scripted";
@@ -107,7 +116,10 @@ function hasExactKeys(
   keys: readonly string[],
 ): boolean {
   const actual = Object.keys(value);
-  return actual.length === keys.length && keys.every((key) => key in value);
+  return (
+    actual.length === keys.length &&
+    keys.every((key) => Object.hasOwn(value, key))
+  );
 }
 
 export function officeCharacterById(id: string): OfficeCharacter | undefined {
@@ -154,14 +166,7 @@ function plannedEventForContent(
   content: Record<string, unknown>,
 ): PlannedSystemEvent | undefined {
   if (
-    !hasExactKeys(content, [
-      "version",
-      "type",
-      "eventKey",
-      "officeDay",
-      "scriptId",
-      "text",
-    ]) ||
+    !hasExactKeys(content, SCRIPTED_SYSTEM_EVENT_CONTENT_KEYS) ||
     content.version !== SCRIPTED_SYSTEM_EVENT_VERSION ||
     content.type !== "system.scripted" ||
     typeof content.officeDay !== "string" ||
@@ -178,6 +183,29 @@ function plannedEventForContent(
       planned.scriptId === content.scriptId &&
       planned.event.text === content.text,
   );
+}
+
+export function resolveScriptedSystemEventPublication(
+  candidate: Pick<
+    PlannedSystemEvent,
+    "officeDay" | "eventKey" | "channelId" | "characterId" | "event"
+  >,
+): { planned: PlannedSystemEvent; character: OfficeCharacter } | null {
+  const character = officeCharacterById(candidate.characterId);
+  const planned = planOfficeDay(candidate.officeDay).find(
+    ({ eventKey }) => eventKey === candidate.eventKey,
+  );
+  if (
+    !character ||
+    !planned ||
+    planned.channelId !== candidate.channelId ||
+    planned.characterId !== candidate.characterId ||
+    planned.event.text !== candidate.event.text
+  ) {
+    return null;
+  }
+
+  return { planned, character };
 }
 
 export function parseScriptedSystemEventMessage(
@@ -223,21 +251,5 @@ export function parseScriptedSystemEventMessage(
     character,
     content: planned.event,
     status: "sent",
-  };
-}
-
-export function createScriptedSystemEventMessageProjection(channelId: string) {
-  const messagesByEventKey = new Map<string, SafeScriptedSystemEventMessage>();
-  return {
-    apply(value: unknown): "applied" | "duplicate" | "ignored" {
-      const message = parseScriptedSystemEventMessage(value, channelId);
-      if (!message) return "ignored";
-      if (messagesByEventKey.has(message.eventKey)) return "duplicate";
-      messagesByEventKey.set(message.eventKey, message);
-      return "applied";
-    },
-    messages(): readonly SafeScriptedSystemEventMessage[] {
-      return [...messagesByEventKey.values()];
-    },
   };
 }

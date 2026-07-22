@@ -4,8 +4,7 @@ import type {
   DetailedPresence,
 } from "@portalsdk/core";
 import {
-  officeCharacterById,
-  planOfficeDay,
+  resolveScriptedSystemEventPublication,
   SCRIPTED_SYSTEM_EVENT_MESSAGE_TYPE,
 } from "@/lib/office-days/contract";
 import type { ScriptedSystemEventPublisher } from "@/lib/office-days/types";
@@ -312,21 +311,14 @@ export function createMockPortalAdapter({
 
     async publishScriptedSystemEvent(entry) {
       requireOnline();
-      const character = officeCharacterById(entry.characterId);
-      const planned = planOfficeDay(entry.officeDay).find(
-        ({ eventKey }) => eventKey === entry.eventKey,
-      );
-      if (
-        !character ||
-        !planned ||
-        planned.channelId !== entry.channelId ||
-        planned.characterId !== entry.characterId ||
-        planned.event.text !== entry.event.text
-      ) {
+      const publication = resolveScriptedSystemEventPublication(entry);
+      if (!publication) {
         throw new TypeError("Invalid scripted System Event publication.");
       }
+      const { character } = publication;
+      messageSequence += 1;
       const message: PortalScriptedSystemEventMessage = {
-        id: `mock_system_event_${++messageSequence}`,
+        id: `mock_system_event_${messageSequence}`,
         channelId: entry.channelId,
         sender: { id: character.id, anon: false },
         timestamp: now().getTime(),

@@ -1,6 +1,5 @@
 import {
-  officeCharacterById,
-  planOfficeDay,
+  resolveScriptedSystemEventPublication,
   SCRIPTED_SYSTEM_EVENT_MESSAGE_TYPE,
 } from "@/lib/office-days/contract";
 import type {
@@ -142,6 +141,79 @@ function isPublishAcknowledgement(value: unknown): boolean {
   );
 }
 
+type PortalMessagePublication = {
+  channelId: string;
+  content: unknown;
+  failureCode: string;
+  messageType:
+    | typeof OFFICE_EVENT_MESSAGE_TYPE
+    | typeof SCRIPTED_SYSTEM_EVENT_MESSAGE_TYPE;
+  token: string;
+};
+
+function portalResponseErrorCode(
+  payload: unknown,
+  fallbackCode: string,
+): string {
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    "code" in payload &&
+    typeof payload.code === "string"
+  ) {
+    return payload.code;
+  }
+
+  return fallbackCode;
+}
+
+function createPortalMessagePublisher({
+  apiKey,
+  apiUrl,
+  fetcher,
+}: {
+  apiKey: string;
+  apiUrl: string;
+  fetcher: typeof fetch;
+}) {
+  const baseUrl = apiUrl.replace(/\/$/u, "");
+
+  return async function publishPortalMessage({
+    channelId,
+    content,
+    failureCode,
+    messageType,
+    token,
+  }: PortalMessagePublication): Promise<void> {
+    let response: Response;
+    try {
+      response = await fetcher(
+        `${baseUrl}/v1/channels/${encodeURIComponent(channelId)}/messages`,
+        {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${token}`,
+            "content-type": "application/json",
+            "x-portal-key": apiKey,
+          },
+          body: JSON.stringify({ type: messageType, content }),
+          cache: "no-store",
+        },
+      );
+    } catch {
+      throw new PortalServiceError(503, "portal_unavailable");
+    }
+
+    const payload: unknown = await response.json().catch(() => null);
+    if (!response.ok || !isPublishAcknowledgement(payload)) {
+      throw new PortalServiceError(
+        response.ok ? 502 : response.status,
+        portalResponseErrorCode(payload, failureCode),
+      );
+    }
+  };
+}
+
 export function createPortalProfileInvalidationPublisher({
   secret,
   apiKey,
@@ -150,7 +222,11 @@ export function createPortalProfileInvalidationPublisher({
   now = () => new Date(),
 }: PortalProfilePublisherOptions): ProfileInvalidationPublisher {
   const controlPlane = createPortalControlPlane({ secret, apiUrl, fetcher });
-  const baseUrl = apiUrl.replace(/\/$/u, "");
+  const publishPortalMessage = createPortalMessagePublisher({
+    apiKey,
+    apiUrl,
+    fetcher,
+  });
 
   return {
     async publishProfileInvalidation(event: ProfileInvalidationEvent) {
@@ -165,39 +241,13 @@ export function createPortalProfileInvalidationPublisher({
         ...sender,
       });
 
-      let response: Response;
-      try {
-        response = await fetcher(
-          `${baseUrl}/v1/channels/${encodeURIComponent(channelId)}/messages`,
-          {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${token.token}`,
-              "content-type": "application/json",
-              "x-portal-key": apiKey,
-            },
-            body: JSON.stringify({
-              type: OFFICE_EVENT_MESSAGE_TYPE,
-              content: event,
-            }),
-            cache: "no-store",
-          },
-        );
-      } catch {
-        throw new PortalServiceError(503, "portal_unavailable");
-      }
-
-      const payload: unknown = await response.json().catch(() => null);
-      if (!response.ok || !isPublishAcknowledgement(payload)) {
-        const code =
-          typeof payload === "object" &&
-          payload !== null &&
-          "code" in payload &&
-          typeof payload.code === "string"
-            ? payload.code
-            : "portal_event_publish_failed";
-        throw new PortalServiceError(response.ok ? 502 : response.status, code);
-      }
+      await publishPortalMessage({
+        channelId,
+        content: event,
+        failureCode: "portal_event_publish_failed",
+        messageType: OFFICE_EVENT_MESSAGE_TYPE,
+        token: token.token,
+      });
     },
   };
 }
@@ -209,23 +259,19 @@ export function createPortalScriptedSystemEventPublisher({
   fetcher = fetch,
 }: Omit<PortalProfilePublisherOptions, "now">): ScriptedSystemEventPublisher {
   const controlPlane = createPortalControlPlane({ secret, apiUrl, fetcher });
-  const baseUrl = apiUrl.replace(/\/$/u, "");
+  const publishPortalMessage = createPortalMessagePublisher({
+    apiKey,
+    apiUrl,
+    fetcher,
+  });
 
   return {
     async publishScriptedSystemEvent(entry: ScriptedSystemEventOutboxEntry) {
-      const character = officeCharacterById(entry.characterId);
-      const planned = planOfficeDay(entry.officeDay).find(
-        ({ eventKey }) => eventKey === entry.eventKey,
-      );
-      if (
-        !character ||
-        !planned ||
-        planned.channelId !== entry.channelId ||
-        planned.characterId !== entry.characterId ||
-        planned.event.text !== entry.event.text
-      ) {
+      const publication = resolveScriptedSystemEventPublication(entry);
+      if (!publication) {
         throw new TypeError("Invalid scripted System Event publication.");
       }
+      const { character } = publication;
       const sender = {
         userId: character.id,
         claims: {
@@ -242,38 +288,13 @@ export function createPortalScriptedSystemEventPublisher({
         ...sender,
       });
 
-      let response: Response;
-      try {
-        response = await fetcher(
-          `${baseUrl}/v1/channels/${encodeURIComponent(entry.channelId)}/messages`,
-          {
-            method: "POST",
-            headers: {
-              authorization: `Bearer ${token.token}`,
-              "content-type": "application/json",
-              "x-portal-key": apiKey,
-            },
-            body: JSON.stringify({
-              type: SCRIPTED_SYSTEM_EVENT_MESSAGE_TYPE,
-              content: entry.event,
-            }),
-            cache: "no-store",
-          },
-        );
-      } catch {
-        throw new PortalServiceError(503, "portal_unavailable");
-      }
-      const payload: unknown = await response.json().catch(() => null);
-      if (!response.ok || !isPublishAcknowledgement(payload)) {
-        const code =
-          typeof payload === "object" &&
-          payload !== null &&
-          "code" in payload &&
-          typeof payload.code === "string"
-            ? payload.code
-            : "portal_system_event_publish_failed";
-        throw new PortalServiceError(response.ok ? 502 : response.status, code);
-      }
+      await publishPortalMessage({
+        channelId: entry.channelId,
+        content: entry.event,
+        failureCode: "portal_system_event_publish_failed",
+        messageType: SCRIPTED_SYSTEM_EVENT_MESSAGE_TYPE,
+        token: token.token,
+      });
     },
   };
 }

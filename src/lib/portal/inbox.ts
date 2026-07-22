@@ -99,13 +99,27 @@ function createInboxPreview(
   }
 
   return {
-    sender:
-      latest.sender.id === identityId
-        ? displayName
-        : (officeCharacterById(latest.sender.id)?.name ?? "New Hire"),
+    sender: inboxSenderName(latest.sender.id, identityId, displayName),
     text: content.text,
     at: latest.at,
   };
+}
+
+function inboxSenderName(
+  senderId: string,
+  identityId: string,
+  displayName: string,
+): string {
+  if (senderId === identityId) {
+    return displayName;
+  }
+
+  const officeCharacter = officeCharacterById(senderId);
+  if (officeCharacter) {
+    return officeCharacter.name;
+  }
+
+  return "New Hire";
 }
 
 export function reconcileOfficeInbox({

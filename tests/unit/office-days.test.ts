@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
-  createScriptedSystemEventMessageProjection,
   OFFICE_CHARACTERS,
   parseScriptedSystemEventMessage,
   planOfficeDay,
 } from "@/lib/office-days/contract";
+import { parseOfficeChannelMessages } from "@/lib/portal/visible-messages";
 
 describe("scripted Office Days", () => {
   test("plans one deterministic fixed-script System Event per Office Channel", () => {
@@ -93,14 +93,12 @@ describe("scripted Office Days", () => {
       status: "sent",
       content: planned.event,
     };
-    const projection = createScriptedSystemEventMessageProjection(
+    const result = parseOfficeChannelMessages(
+      [envelope, { ...envelope, id: "portal-system-message-2" }],
       planned.channelId,
     );
 
-    expect(projection.apply(envelope)).toBe("applied");
-    expect(
-      projection.apply({ ...envelope, id: "portal-system-message-2" }),
-    ).toBe("duplicate");
-    expect(projection.messages()).toHaveLength(1);
+    expect(result.messages).toHaveLength(1);
+    expect(result.invalidCount).toBe(0);
   });
 });

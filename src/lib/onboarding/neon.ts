@@ -17,7 +17,10 @@ import {
   profileInvalidationOutbox,
   scriptedSystemEventOutbox,
 } from "@/lib/db/schema";
-import { planOfficeDay } from "@/lib/office-days/contract";
+import {
+  type PlannedSystemEvent,
+  planOfficeDay,
+} from "@/lib/office-days/contract";
 import type { ScriptedSystemEventOutboxEntry } from "@/lib/office-days/types";
 import { OFFICE_EVENT_VERSION } from "@/lib/office-events/contract";
 import {
@@ -177,6 +180,26 @@ export function buildOfficeDayQueries(
   ] as const;
 }
 
+type StoredSystemEventReference = {
+  scriptId: string;
+  channelId: string;
+  characterId: string;
+  dueAt: Date;
+};
+
+function matchesPlannedSystemEvent(
+  stored: StoredSystemEventReference,
+  planned: PlannedSystemEvent | undefined,
+): planned is PlannedSystemEvent {
+  return (
+    planned !== undefined &&
+    planned.scriptId === stored.scriptId &&
+    planned.channelId === stored.channelId &&
+    planned.characterId === stored.characterId &&
+    planned.dueAt.getTime() === stored.dueAt.getTime()
+  );
+}
+
 export function createNeonRepository(database: Database): NeonAdapter {
   async function findOnboarding(
     clerkUserId: string,
@@ -282,25 +305,19 @@ export function createNeonRepository(database: Database): NeonAdapter {
       const plannedByKey = new Map(
         planOfficeDay(currentOfficeDay).map((entry) => [entry.eventKey, entry]),
       );
-      return rows.flatMap((row): ScriptedSystemEventOutboxEntry[] => {
+      const pendingEntries: ScriptedSystemEventOutboxEntry[] = [];
+      for (const row of rows) {
         const planned = plannedByKey.get(row.eventKey);
-        if (
-          !planned ||
-          planned.scriptId !== row.scriptId ||
-          planned.channelId !== row.channelId ||
-          planned.characterId !== row.characterId ||
-          planned.dueAt.getTime() !== row.dueAt.getTime()
-        ) {
-          return [];
+        if (!matchesPlannedSystemEvent(row, planned)) {
+          continue;
         }
-        return [
-          {
-            ...planned,
-            attemptCount: row.attemptCount,
-            lastAttemptAt: row.lastAttemptAt,
-          },
-        ];
-      });
+        pendingEntries.push({
+          ...planned,
+          attemptCount: row.attemptCount,
+          lastAttemptAt: row.lastAttemptAt,
+        });
+      }
+      return pendingEntries;
     },
 
     async markSystemEventAttempt(eventKey, attemptedAt) {

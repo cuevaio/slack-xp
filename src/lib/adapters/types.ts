@@ -11,8 +11,8 @@ import type {
 } from "@/lib/profiles/types";
 
 export type PortalAdapter = PortalAuthority &
-  ProfileInvalidationPublisher & {
-    publishScriptedSystemEvent: ScriptedSystemEventPublisher["publishScriptedSystemEvent"];
+  ProfileInvalidationPublisher &
+  ScriptedSystemEventPublisher & {
     listChannels(now?: Date): Promise<readonly OfficeChannel[]>;
   };
 

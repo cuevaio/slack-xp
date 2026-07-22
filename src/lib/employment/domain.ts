@@ -5,6 +5,7 @@ import {
   type PublicSendHomeSystemEvent,
   type SafePublicSendHomeSystemEventMessage,
   SEND_HOME_PRIVATE_REASON_MAX_LENGTH,
+  SEND_HOME_SYSTEM_EVENT_TEXT,
   type SendHomeRequest,
 } from "@/lib/employment/contract";
 import { OFFICE_EVENT_SENDERS } from "@/lib/office-events/contract";
@@ -103,6 +104,45 @@ export function createSendHomeSystemEventKey(
   return `employment-event:v1:${currentOfficeDay}:${actionId}`;
 }
 
+function parsePublicSendHomeSystemEvent(
+  value: unknown,
+  expectedChannelId: string,
+): PublicSendHomeSystemEvent | null {
+  if (!isObject(value)) return null;
+
+  const expiresAt =
+    typeof value.expiresAt === "string" ? new Date(value.expiresAt) : null;
+  if (
+    Object.keys(value).length !== 8 ||
+    value.version !== EMPLOYMENT_SYSTEM_EVENT_VERSION ||
+    value.type !== "employment.sent-home" ||
+    typeof value.eventKey !== "string" ||
+    typeof value.officeDay !== "string" ||
+    !isOfficeDay(value.officeDay) ||
+    expectedChannelId !== `all-hands:${value.officeDay}` ||
+    !isEmploymentIdentifier(value.operatorId) ||
+    !isEmploymentIdentifier(value.targetNewHireId) ||
+    !expiresAt ||
+    !Number.isFinite(expiresAt.getTime()) ||
+    expiresAt.toISOString() !== value.expiresAt ||
+    value.text !== SEND_HOME_SYSTEM_EVENT_TEXT ||
+    !value.eventKey.startsWith(`employment-event:v1:${value.officeDay}:`)
+  ) {
+    return null;
+  }
+
+  return {
+    version: EMPLOYMENT_SYSTEM_EVENT_VERSION,
+    type: "employment.sent-home",
+    eventKey: value.eventKey,
+    officeDay: value.officeDay,
+    operatorId: value.operatorId,
+    targetNewHireId: value.targetNewHireId,
+    expiresAt: value.expiresAt,
+    text: SEND_HOME_SYSTEM_EVENT_TEXT,
+  };
+}
+
 export function parsePublicSendHomeSystemEventMessage(
   value: unknown,
   expectedChannelId: string,
@@ -122,36 +162,17 @@ export function parsePublicSendHomeSystemEventMessage(
     value.type !== EMPLOYMENT_SYSTEM_EVENT_MESSAGE_TYPE ||
     value.ephemeral !== false ||
     value.retracted !== false ||
-    value.status !== "sent" ||
-    !isObject(value.content)
+    value.status !== "sent"
   ) {
     return null;
   }
-  const content = value.content;
-  const keys = Object.keys(content);
-  const expiry =
-    typeof content.expiresAt === "string" ? new Date(content.expiresAt) : null;
-  if (
-    keys.length !== 8 ||
-    content.version !== EMPLOYMENT_SYSTEM_EVENT_VERSION ||
-    content.type !== "employment.sent-home" ||
-    typeof content.eventKey !== "string" ||
-    typeof content.officeDay !== "string" ||
-    !isOfficeDay(content.officeDay) ||
-    expectedChannelId !== `all-hands:${content.officeDay}` ||
-    !isEmploymentIdentifier(content.operatorId) ||
-    !isEmploymentIdentifier(content.targetNewHireId) ||
-    !expiry ||
-    !Number.isFinite(expiry.getTime()) ||
-    expiry.toISOString() !== content.expiresAt ||
-    typeof content.text !== "string" ||
-    content.text !==
-      "An Operator sent a New Hire home for the rest of this Office Day." ||
-    !content.eventKey.startsWith(`employment-event:v1:${content.officeDay}:`)
-  ) {
-    return null;
-  }
-  const event = content as PublicSendHomeSystemEvent;
+
+  const event = parsePublicSendHomeSystemEvent(
+    value.content,
+    expectedChannelId,
+  );
+  if (!event) return null;
+
   return {
     id: value.id,
     channelId: expectedChannelId,

@@ -436,7 +436,7 @@ export function buildSendHomeQueries(
         ),
       ),
     );
-  return [insertAction, insertAudit, insertOutbox, transitionReport] as const;
+  return { insertAction, insertAudit, insertOutbox, transitionReport };
 }
 
 async function selectHRReportReviewRows(
@@ -811,9 +811,13 @@ export function createNeonRepository(database: Database): NeonAdapter {
         }
       }
 
-      const [createdRows] = await database.batch(
-        buildSendHomeQueries(database, input),
-      );
+      const queries = buildSendHomeQueries(database, input);
+      const [createdRows] = await database.batch([
+        queries.insertAction,
+        queries.insertAudit,
+        queries.insertOutbox,
+        queries.transitionReport,
+      ]);
       const [row] = await database
         .select({
           actionId: employmentActions.actionId,

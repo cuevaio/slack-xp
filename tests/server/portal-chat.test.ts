@@ -484,13 +484,19 @@ describe("controlled Portal adapter", () => {
     const secondClient = createReactionProjection();
     const deliveries: ReactionOfficeEvent[] = [];
     portal.subscribeOfficeEvents(eventChannelId, "user_reactor", (message) => {
-      deliveries.push(message.content);
-      firstClient.apply(message.content);
+      if (message.content.type === "reaction.changed") {
+        deliveries.push(message.content);
+        firstClient.apply(message.content);
+      }
     });
     const disconnectSecondClient = portal.subscribeOfficeEvents(
       eventChannelId,
       "user_observer",
-      (message) => secondClient.apply(message.content),
+      (message) => {
+        if (message.content.type === "reaction.changed") {
+          secondClient.apply(message.content);
+        }
+      },
     );
 
     await portal.sendOfficeEvent({

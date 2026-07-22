@@ -112,12 +112,12 @@ export type MockPortalAdapter = PortalAuthority &
     markHRReportNotificationRead(userId: string, notificationId: string): void;
     officeEventHistory(
       channelId: string,
-    ): Promise<readonly PortalOfficeEventMessage[]>;
+    ): Promise<readonly PortalOfficeEventMessage<ReactionOfficeEvent>[]>;
     sendOfficeEvent(input: {
       channelId: string;
       senderId: string;
       content: ReactionOfficeEvent;
-    }): Promise<PortalOfficeEventMessage>;
+    }): Promise<PortalOfficeEventMessage<ReactionOfficeEvent>>;
     subscribeOfficeEvents(
       channelId: string,
       userId: string,
@@ -399,23 +399,23 @@ export function createMockPortalAdapter({
       requireOnline();
       const channelId = officeEventChannelId(new Date(event.occurredAt));
       const channelEvents = officeEvents.get(channelId) ?? [];
-      const message = {
+      const message: PortalOfficeEventMessage = {
         id: `mock_office_event_${++messageSequence}`,
         channelId,
-        sender: { id: OFFICE_EVENT_SENDERS.operations, anon: false as const },
+        sender: { id: OFFICE_EVENT_SENDERS.operations, anon: false },
         timestamp: new Date(event.occurredAt).getTime(),
-        kind: "text" as const,
+        kind: "text",
         type: OFFICE_EVENT_MESSAGE_TYPE,
-        ephemeral: false as const,
-        retracted: false as const,
-        status: "sent" as const,
-        unread: false as const,
+        ephemeral: false,
+        retracted: false,
+        status: "sent",
+        unread: false,
         content: event,
       };
       channelEvents.push(message);
       officeEvents.set(channelId, channelEvents);
       for (const listener of officeEventListeners.get(channelId) ?? []) {
-        listener(message as unknown as PortalOfficeEventMessage);
+        listener(message);
       }
     },
 
@@ -595,7 +595,7 @@ export function createMockPortalAdapter({
       return (officeEvents.get(channelId) ?? []).flatMap((message) => {
         const parsed = parseOfficeEventMessage(message, channelId);
         return parsed?.event.type === "reaction.changed"
-          ? [message as PortalOfficeEventMessage]
+          ? [message as PortalOfficeEventMessage<ReactionOfficeEvent>]
           : [];
       });
     },
@@ -609,7 +609,7 @@ export function createMockPortalAdapter({
       ) {
         throw new MockPortalUnavailableError();
       }
-      const message: PortalOfficeEventMessage = {
+      const message: PortalOfficeEventMessage<ReactionOfficeEvent> = {
         id: `mock_office_event_${++messageSequence}`,
         channelId,
         sender: { id: senderId, anon: false },

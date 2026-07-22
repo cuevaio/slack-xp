@@ -1,9 +1,9 @@
-import type { EmploymentAccessDecision } from "@/lib/employment/contract";
+import type { EmploymentAccessDeniedDecision } from "@/lib/employment/contract";
 
 export function EmploymentAccessEnded({
   access,
 }: {
-  access: Exclude<EmploymentAccessDecision, { eligible: true }>;
+  access: EmploymentAccessDeniedDecision;
 }) {
   const sentHome = access.reason === "sent-home";
   return (

@@ -2,6 +2,7 @@ import {
   EMPLOYMENT_SYSTEM_EVENT_VERSION,
   type EmploymentPortalAuthority,
   type EmploymentRepository,
+  SEND_HOME_SYSTEM_EVENT_TEXT,
   type SendHomeResult,
 } from "@/lib/employment/contract";
 import {
@@ -83,7 +84,7 @@ export async function flushEmploymentEffects({
           operatorId: effect.operatorId,
           targetNewHireId: effect.targetNewHireId,
           expiresAt: effect.expiresAt.toISOString(),
-          text: "An Operator sent a New Hire home for the rest of this Office Day.",
+          text: SEND_HOME_SYSTEM_EVENT_TEXT,
         });
         await repository.markEmploymentPublicEventPublished(
           effect.actionId,

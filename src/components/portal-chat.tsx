@@ -25,7 +25,7 @@ import { MessageHRReportControls } from "@/components/message-hr-report-controls
 import { NewHireProfileContext } from "@/components/new-hire-profile-context";
 import { fetchEmploymentAccess } from "@/lib/employment/client";
 import type {
-  EmploymentAccessDecision,
+  EmploymentAccessDeniedDecision,
   SafePublicSendHomeSystemEventMessage,
 } from "@/lib/employment/contract";
 import { invalidateHRReportQueue } from "@/lib/hr-reports/client";
@@ -1682,9 +1682,7 @@ function LivePortalWorkspace({
   canSignOut,
   onEmploymentAccessEnded,
 }: Omit<LivePortalOfficeProps, "mode" | "publishableKey"> & {
-  onEmploymentAccessEnded(
-    access: Exclude<EmploymentAccessDecision, { eligible: true }>,
-  ): void;
+  onEmploymentAccessEnded(access: EmploymentAccessDeniedDecision): void;
 }) {
   const queryClient = useQueryClient();
   const [reactionEvents, setReactionEvents] = useState<ReactionOfficeEvent[]>(
@@ -1703,7 +1701,9 @@ function LivePortalWorkspace({
           if (event.newHireId === identityId) {
             void fetchEmploymentAccess()
               .then((access) => {
-                if (!access.eligible) onEmploymentAccessEnded(access);
+                if (!access.eligible) {
+                  onEmploymentAccessEnded(access);
+                }
               })
               .catch(() => window.location.reload());
           }
@@ -1816,9 +1816,7 @@ function LivePortalWorkspace({
 function LivePortalOffice(
   props: Omit<LivePortalOfficeProps, "mode"> & {
     onOfficeDayExpired(): void;
-    onEmploymentAccessEnded(
-      access: Exclude<EmploymentAccessDecision, { eligible: true }>,
-    ): void;
+    onEmploymentAccessEnded(access: EmploymentAccessDeniedDecision): void;
   },
 ) {
   const {
@@ -2196,7 +2194,7 @@ function ShiftEndedDialog({
 function SentHomeDialog({
   access,
 }: {
-  access: Exclude<EmploymentAccessDecision, { eligible: true }>;
+  access: EmploymentAccessDeniedDecision;
 }) {
   return (
     <div className="shift-ended-backdrop">
@@ -2246,10 +2244,8 @@ function PortalChatWorkspace(props: PortalChatProps): ReactNode {
   }));
   const [endedOfficeDay, setEndedOfficeDay] = useState<string | null>(null);
   const [focusNewOffice, setFocusNewOffice] = useState(false);
-  const [employmentAccessEnded, setEmploymentAccessEnded] = useState<Exclude<
-    EmploymentAccessDecision,
-    { eligible: true }
-  > | null>(null);
+  const [employmentAccessEnded, setEmploymentAccessEnded] =
+    useState<EmploymentAccessDeniedDecision | null>(null);
 
   const endOfficeDay = useCallback(() => {
     setEndedOfficeDay((current) => current ?? workspace.officeDay);

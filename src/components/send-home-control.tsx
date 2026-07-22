@@ -11,21 +11,23 @@ import {
 import { requestSendHome } from "@/lib/employment/client";
 import { SEND_HOME_PRIVATE_REASON_MAX_LENGTH } from "@/lib/employment/contract";
 
+type SendHomeControlProps = {
+  targetNewHireId: string;
+  reportId?: string;
+  onCompleted?(): void;
+};
+
 export function SendHomeControl({
   targetNewHireId,
   reportId,
   onCompleted,
-}: {
-  targetNewHireId: string;
-  reportId?: string;
-  onCompleted?(): void;
-}) {
+}: SendHomeControlProps) {
   const [open, setOpen] = useState(false);
   const [privateReason, setPrivateReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(false);
   const [completed, setCompleted] = useState(false);
-  const requestId = useRef(crypto.randomUUID());
+  const [requestId] = useState(() => crypto.randomUUID());
   const triggerRef = useRef<HTMLButtonElement>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const instanceId = useId();
@@ -74,7 +76,7 @@ export function SendHomeControl({
     setError(false);
     try {
       await requestSendHome({
-        requestId: requestId.current,
+        requestId,
         targetNewHireId,
         privateReason: reason,
         ...(reportId ? { reportId } : {}),

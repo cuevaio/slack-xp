@@ -1,9 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { handleSendHomeRequest } from "@/app/api/office/operator/send-home/route";
-import type {
-  EmploymentInvalidationEvent,
-  PublicSendHomeSystemEvent,
-} from "@/lib/employment/contract";
+import type { PublicSendHomeSystemEvent } from "@/lib/employment/contract";
 import { sendHomeNewHire } from "@/lib/employment/service";
 import type { HRReportNotificationPublisher } from "@/lib/hr-reports/contract";
 import { submitProfileHRReport } from "@/lib/hr-reports/service";
@@ -271,8 +268,3 @@ describe("Portal Send Home boundary", () => {
     );
   });
 });
-
-// Keep the public contracts referenced here so accidental sensitive additions
-// are caught by the service assertions above rather than hidden by `unknown`.
-void ({} as PublicSendHomeSystemEvent);
-void ({} as EmploymentInvalidationEvent);

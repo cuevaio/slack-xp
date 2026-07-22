@@ -3,6 +3,8 @@ import type { OfficeInvalidationEvent } from "@/lib/office-events/contract";
 export const SEND_HOME_PRIVATE_REASON_MAX_LENGTH = 1_000;
 export const EMPLOYMENT_SYSTEM_EVENT_VERSION = 1 as const;
 export const EMPLOYMENT_SYSTEM_EVENT_MESSAGE_TYPE = "system.event" as const;
+export const SEND_HOME_SYSTEM_EVENT_TEXT =
+  "An Operator sent a New Hire home for the rest of this Office Day.";
 
 export class EmploymentActionError extends Error {
   constructor(
@@ -26,6 +28,11 @@ export type EmploymentAccessDecision =
       reason: EmploymentAccessReason;
       until: Date | null;
     };
+
+export type EmploymentAccessDeniedDecision = Extract<
+  EmploymentAccessDecision,
+  { eligible: false }
+>;
 
 export type SendHomeRequest = {
   requestId: string;

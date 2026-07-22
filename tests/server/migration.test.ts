@@ -233,11 +233,16 @@ describe("initial Neon migration", () => {
         actedAt: new Date("2026-07-22T20:00:00.000Z"),
       },
     );
-    expect(queries).toHaveLength(4);
-    expect(queries[0].toSQL().sql).toContain("on conflict do nothing");
-    expect(queries[1].toSQL().sql).toContain("operator_actions");
-    expect(queries[2].toSQL().sql).toContain("employment_effect_outbox");
-    expect(queries[3].toSQL().sql).toContain('"state" =');
-    expect(queries[2].toSQL().sql).not.toContain("Private audit reason");
+    expect(queries.insertAction.toSQL().sql).toContain(
+      "on conflict do nothing",
+    );
+    expect(queries.insertAudit.toSQL().sql).toContain("operator_actions");
+    expect(queries.insertOutbox.toSQL().sql).toContain(
+      "employment_effect_outbox",
+    );
+    expect(queries.transitionReport.toSQL().sql).toContain('"state" =');
+    expect(queries.insertOutbox.toSQL().sql).not.toContain(
+      "Private audit reason",
+    );
   });
 });

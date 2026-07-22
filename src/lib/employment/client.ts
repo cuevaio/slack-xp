@@ -12,6 +12,49 @@ export type SendHomeResponse = {
   expiresAt: string;
 };
 
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isSendHomeResponse(value: unknown): value is SendHomeResponse {
+  return (
+    isObject(value) &&
+    typeof value.actionId === "string" &&
+    (value.status === "sent-home" || value.status === "already-sent-home") &&
+    typeof value.officeDay === "string" &&
+    typeof value.expiresAt === "string"
+  );
+}
+
+function parseEmploymentAccessDecision(
+  value: unknown,
+): EmploymentAccessDecision | null {
+  if (!isObject(value)) return null;
+
+  if (
+    value.eligible === true &&
+    value.reason === null &&
+    value.until === null
+  ) {
+    return { eligible: true, reason: null, until: null };
+  }
+
+  if (
+    value.eligible !== false ||
+    (value.reason !== "sent-home" &&
+      value.reason !== "terminated" &&
+      value.reason !== "deleted") ||
+    (value.until !== null && typeof value.until !== "string")
+  ) {
+    return null;
+  }
+
+  const until = value.until === null ? null : new Date(value.until);
+  if (until && !Number.isFinite(until.getTime())) return null;
+
+  return { eligible: false, reason: value.reason, until };
+}
+
 export async function requestSendHome(
   input: SendHomeRequest,
 ): Promise<SendHomeResponse> {
@@ -23,23 +66,10 @@ export async function requestSendHome(
     body: JSON.stringify(input),
   });
   const payload: unknown = await response.json().catch(() => null);
-  if (
-    !response.ok ||
-    typeof payload !== "object" ||
-    payload === null ||
-    !("actionId" in payload) ||
-    typeof payload.actionId !== "string" ||
-    !("status" in payload) ||
-    (payload.status !== "sent-home" &&
-      payload.status !== "already-sent-home") ||
-    !("officeDay" in payload) ||
-    typeof payload.officeDay !== "string" ||
-    !("expiresAt" in payload) ||
-    typeof payload.expiresAt !== "string"
-  ) {
+  if (!response.ok || !isSendHomeResponse(payload)) {
     throw new Error("The New Hire could not be sent home.");
   }
-  return payload as SendHomeResponse;
+  return payload;
 }
 
 export async function fetchEmploymentAccess(): Promise<EmploymentAccessDecision> {
@@ -48,35 +78,8 @@ export async function fetchEmploymentAccess(): Promise<EmploymentAccessDecision>
     cache: "no-store",
   });
   const payload: unknown = await response.json().catch(() => null);
-  if (
-    !response.ok ||
-    typeof payload !== "object" ||
-    payload === null ||
-    !("eligible" in payload) ||
-    !("reason" in payload) ||
-    !("until" in payload)
-  ) {
-    throw new Error("Employment access is unavailable.");
-  }
-  if (
-    payload.eligible === true &&
-    payload.reason === null &&
-    payload.until === null
-  ) {
-    return { eligible: true, reason: null, until: null };
-  }
-  if (
-    payload.eligible === false &&
-    (payload.reason === "sent-home" ||
-      payload.reason === "terminated" ||
-      payload.reason === "deleted") &&
-    (payload.until === null || typeof payload.until === "string")
-  ) {
-    const until = payload.until === null ? null : new Date(payload.until);
-    if (until && !Number.isFinite(until.getTime())) {
-      throw new Error("Employment access is unavailable.");
-    }
-    return { eligible: false, reason: payload.reason, until };
-  }
-  throw new Error("Employment access is unavailable.");
+  const access = response.ok ? parseEmploymentAccessDecision(payload) : null;
+  if (!access) throw new Error("Employment access is unavailable.");
+
+  return access;
 }

@@ -26,7 +26,7 @@ function portalUnavailableResponse(): Response {
 }
 
 async function getMockEventContext(
-  request?: Request,
+  request: Request,
 ): Promise<MockEventContext> {
   const configuration = readAppConfiguration();
   if (
@@ -51,9 +51,7 @@ async function getMockEventContext(
 
   const adapters = createServiceAdapters(configuration);
   try {
-    const now = request
-      ? officeNowForRequest(request.headers, configuration)
-      : new Date();
+    const now = officeNowForRequest(request.headers, configuration);
     const session = await issueOfficePortalSession({
       identity,
       onboarding: await adapters.neon.getNewHire(identity.id),

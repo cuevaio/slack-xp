@@ -12,6 +12,7 @@
     "portal:verify": "bun scripts/setup-check.ts",
     "db:migrate": "drizzle-kit migrate",
     "portal:deploy": "bun scripts/portal-deploy.ts",
+    "smoke:real": "bun scripts/real-service-smoke.ts",
     "format": "biome format --write",
     "test": "bun run test:unit && bun run test:server && bun run test:browser",
     "test:unit": "bun test tests/unit",

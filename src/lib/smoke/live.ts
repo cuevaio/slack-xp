@@ -1,11 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { createClerkClient } from "@clerk/nextjs/server";
-import {
-  type ChannelHandle,
-  type InboxHandle,
-  type Message,
-  Portal,
-} from "@portalsdk/core";
+import { type ChannelHandle, type Message, Portal } from "@portalsdk/core";
 import { parseScriptedSystemEventMessage } from "@/lib/office-days/contract";
 import {
   createOfficeEventKey,
@@ -18,6 +13,7 @@ import type {
   SmokeConfiguration,
   SmokeScenarioAdapter,
   SmokeScenarioId,
+  SmokeScenarioResult,
 } from "@/lib/smoke/contract";
 
 const PORTAL_API_URL = "https://api.useportal.co";
@@ -29,6 +25,8 @@ const WEBHOOK_WAIT_TIMEOUT_MS = 60_000;
 type ChatContent = { text: string };
 type JsonObject = Record<string, unknown>;
 type ActorRole = "new-hire-a" | "new-hire-b" | "operator";
+type ClerkClient = ReturnType<typeof createClerkClient>;
+type PortalResource = { release(): void };
 
 type PortalSessionPayload = {
   token: string;
@@ -121,20 +119,19 @@ function uniqueSourceId(prefix: string): string {
 
 export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
   private configuration: SmokeConfiguration | null = null;
-  private clerk: ReturnType<typeof createClerkClient> | null = null;
+  private clerk: ClerkClient | null = null;
   private readonly actors = new Map<ActorRole, SmokeActor>();
   private readonly createdSessions = new Set<string>();
   private readonly disposableActors: SmokeActor[] = [];
   private readonly disposableUserIds = new Set<string>();
   private readonly deletedDisposableIds = new Set<string>();
-  private readonly channels = new Set<ChannelHandle<unknown>>();
+  private readonly channels = new Set<PortalResource>();
   private readonly inboxUnsubscribes: Array<() => void> = [];
   private newHireAChannel: ChannelHandle<ChatContent> | null = null;
   private newHireBChannel: ChannelHandle<ChatContent> | null = null;
   private operatorChannel: ChannelHandle<ChatContent> | null = null;
   private newHireAEventChannel: ChannelHandle<unknown> | null = null;
   private newHireBEventChannel: ChannelHandle<unknown> | null = null;
-  private operatorInbox: InboxHandle | null = null;
   private officeDay = "";
   private generalChannelId = "";
   private eventChannelId = "";
@@ -150,7 +147,7 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
   async run(
     scenario: SmokeScenarioId,
     configuration: SmokeConfiguration,
-  ): Promise<"passed" | "skipped"> {
+  ): Promise<SmokeScenarioResult> {
     this.configuration ??= configuration;
     this.clerk ??= createClerkClient({
       secretKey: configuration.clerkSecretKey,
@@ -201,49 +198,71 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
   async cleanup(): Promise<SmokeCleanupResidual[]> {
     const residuals = new Set<SmokeCleanupResidual>();
 
-    if (this.terminationActive) {
-      try {
-        const operator = this.actor("operator");
-        const target = this.actor("new-hire-b");
-        const state = await this.appRequest(
+    await this.restoreActiveTermination(residuals);
+    await this.restoreClerkProfile(residuals);
+    await this.dismissOpenHRReports(residuals);
+    await this.revokeClerkSessions(residuals);
+    await this.deleteDisposableClerkAccounts(residuals);
+    this.releasePortalResources();
+
+    return [...residuals];
+  }
+
+  private async restoreActiveTermination(
+    residuals: Set<SmokeCleanupResidual>,
+  ): Promise<void> {
+    if (!this.terminationActive) return;
+
+    try {
+      const operator = this.actor("operator");
+      const target = this.actor("new-hire-b");
+      const state = await this.appRequest(
+        operator,
+        `/api/office/operator/termination?targetNewHireId=${encodeURIComponent(target.userId)}`,
+      );
+      assertSmoke(state.status === 200 && isObject(state.body));
+      if (state.body.activeTermination !== null) {
+        const response = await this.appRequest(
           operator,
-          `/api/office/operator/termination?targetNewHireId=${encodeURIComponent(target.userId)}`,
+          "/api/office/operator/termination",
+          {
+            method: "PATCH",
+            body: JSON.stringify({
+              requestId: uniqueSourceId("cleanup-reinstate"),
+              targetNewHireId: target.userId,
+              privateReason: uniqueSourceId("cleanup-private"),
+            }),
+          },
         );
-        assertSmoke(state.status === 200 && isObject(state.body));
-        if (state.body.activeTermination !== null) {
-          const response = await this.appRequest(
-            operator,
-            "/api/office/operator/termination",
-            {
-              method: "PATCH",
-              body: JSON.stringify({
-                requestId: uniqueSourceId("cleanup-reinstate"),
-                targetNewHireId: target.userId,
-                privateReason: uniqueSourceId("cleanup-private"),
-              }),
-            },
-          );
-          assertSmoke(response.status === 200);
-        }
-        this.terminationActive = false;
-      } catch {
-        residuals.add("active-termination");
+        assertSmoke(response.status === 200);
       }
+      this.terminationActive = false;
+    } catch {
+      residuals.add("active-termination");
     }
+  }
 
-    if (this.profileChanged && this.originalProfile && this.clerk) {
-      try {
-        const actor = this.actor("new-hire-a");
-        await this.clerk.users.updateUser(actor.userId, this.originalProfile);
-        await this.appRequest(actor, "/api/office/session");
-        this.profileChanged = false;
-      } catch {
-        residuals.add("clerk-profile-restore");
-      }
+  private async restoreClerkProfile(
+    residuals: Set<SmokeCleanupResidual>,
+  ): Promise<void> {
+    if (!this.profileChanged || !this.originalProfile || !this.clerk) return;
+
+    try {
+      const actor = this.actor("new-hire-a");
+      await this.clerk.users.updateUser(actor.userId, this.originalProfile);
+      await this.appRequest(actor, "/api/office/session");
+      this.profileChanged = false;
+    } catch {
+      residuals.add("clerk-profile-restore");
     }
+  }
 
+  private async dismissOpenHRReports(
+    residuals: Set<SmokeCleanupResidual>,
+  ): Promise<void> {
     for (const reportId of [this.profileReportId, this.messageReportId]) {
       if (!reportId) continue;
+
       try {
         const response = await this.appRequest(
           this.actor("operator"),
@@ -258,36 +277,49 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
         residuals.add("open-hr-report");
       }
     }
+  }
 
-    if (this.clerk) {
-      for (const sessionId of this.createdSessions) {
-        const deletedDisposableSession = this.disposableActors.some(
-          (actor) =>
-            actor.clerkSessionId === sessionId &&
-            this.deletedDisposableIds.has(actor.userId),
-        );
-        if (deletedDisposableSession) continue;
-        try {
-          await this.clerk.sessions.revokeSession(sessionId);
-        } catch {
-          residuals.add("clerk-session-revocation");
-        }
-      }
+  private async revokeClerkSessions(
+    residuals: Set<SmokeCleanupResidual>,
+  ): Promise<void> {
+    if (!this.clerk) return;
 
-      for (const userId of this.disposableUserIds) {
-        if (this.deletedDisposableIds.has(userId)) continue;
-        try {
-          await this.clerk.users.deleteUser(userId);
-          this.deletedDisposableIds.add(userId);
-        } catch {
-          residuals.add("disposable-clerk-account");
-        }
+    for (const sessionId of this.createdSessions) {
+      const belongsToDeletedDisposableActor = this.disposableActors.some(
+        (actor) =>
+          actor.clerkSessionId === sessionId &&
+          this.deletedDisposableIds.has(actor.userId),
+      );
+      if (belongsToDeletedDisposableActor) continue;
+
+      try {
+        await this.clerk.sessions.revokeSession(sessionId);
+      } catch {
+        residuals.add("clerk-session-revocation");
       }
     }
+  }
 
+  private async deleteDisposableClerkAccounts(
+    residuals: Set<SmokeCleanupResidual>,
+  ): Promise<void> {
+    if (!this.clerk) return;
+
+    for (const userId of this.disposableUserIds) {
+      if (this.deletedDisposableIds.has(userId)) continue;
+
+      try {
+        await this.clerk.users.deleteUser(userId);
+        this.deletedDisposableIds.add(userId);
+      } catch {
+        residuals.add("disposable-clerk-account");
+      }
+    }
+  }
+
+  private releasePortalResources(): void {
     for (const unsubscribe of this.inboxUnsubscribes) unsubscribe();
     for (const channel of this.channels) channel.release();
-    return [...residuals];
   }
 
   private actor(role: ActorRole): SmokeActor {
@@ -296,18 +328,28 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
     return actor;
   }
 
+  private actorPortal(actor: SmokeActor): Portal {
+    assertSmoke(actor.portal);
+    return actor.portal;
+  }
+
+  private actorPortalSession(actor: SmokeActor): PortalSessionPayload {
+    assertSmoke(actor.portalSession);
+    return actor.portalSession;
+  }
+
   private config(): SmokeConfiguration {
     assertSmoke(this.configuration);
     return this.configuration;
   }
 
-  private clerkClient(): ReturnType<typeof createClerkClient> {
+  private clerkClient(): ClerkClient {
     assertSmoke(this.clerk);
     return this.clerk;
   }
 
   private trackChannel<M>(channel: ChannelHandle<M>): ChannelHandle<M> {
-    this.channels.add(channel as ChannelHandle<unknown>);
+    this.channels.add(channel);
     return channel;
   }
 
@@ -475,9 +517,11 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
     await runCron();
 
     const actor = this.actor("new-hire-a");
-    assertSmoke(actor.portal);
     const channel = this.trackChannel(
-      await connectChannel<unknown>(actor.portal, this.generalChannelId),
+      await connectChannel<unknown>(
+        this.actorPortal(actor),
+        this.generalChannelId,
+      ),
     );
     await loadUntil(channel, () =>
       channel.messages.some(
@@ -492,50 +536,52 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
     const actorA = this.actor("new-hire-a");
     const actorB = this.actor("new-hire-b");
     const operator = this.actor("operator");
-    assertSmoke(actorA.portal && actorB.portal && operator.portal);
-    this.newHireAChannel = this.trackChannel(
-      await connectChannel<ChatContent>(actorA.portal, this.generalChannelId),
+    const newHireAChannel = this.trackChannel(
+      await connectChannel<ChatContent>(
+        this.actorPortal(actorA),
+        this.generalChannelId,
+      ),
     );
-    this.newHireBChannel = this.trackChannel(
-      await connectChannel<ChatContent>(actorB.portal, this.generalChannelId),
+    const newHireBChannel = this.trackChannel(
+      await connectChannel<ChatContent>(
+        this.actorPortal(actorB),
+        this.generalChannelId,
+      ),
     );
-    this.operatorChannel = this.trackChannel(
-      await connectChannel<ChatContent>(operator.portal, this.generalChannelId),
+    const operatorChannel = this.trackChannel(
+      await connectChannel<ChatContent>(
+        this.actorPortal(operator),
+        this.generalChannelId,
+      ),
     );
+    this.newHireAChannel = newHireAChannel;
+    this.newHireBChannel = newHireBChannel;
+    this.operatorChannel = operatorChannel;
 
-    const acknowledgement = await this.newHireAChannel.send({
+    const acknowledgement = await newHireAChannel.send({
       content: { text: uniqueSourceId("smoke-message") },
     });
     this.persistentMessageId = acknowledgement.id;
     await waitFor(() =>
-      Boolean(
-        messageById(
-          this.newHireBChannel as ChannelHandle<ChatContent>,
-          acknowledgement.id,
-        ),
-      ),
+      Boolean(messageById(newHireBChannel, acknowledgement.id)),
     );
 
-    this.newHireBChannel.release();
-    this.channels.delete(this.newHireBChannel as ChannelHandle<unknown>);
+    newHireBChannel.release();
+    this.channels.delete(newHireBChannel);
     const reconnectedPortal = new Portal({
       apiKey: this.config().portalPublishableKey,
-      token: actorB.portalSession?.token as string,
+      token: this.actorPortalSession(actorB).token,
     });
     actorB.portal = reconnectedPortal;
-    this.newHireBChannel = this.trackChannel(
+    const reconnectedChannel = this.trackChannel(
       await connectChannel<ChatContent>(
         reconnectedPortal,
         this.generalChannelId,
       ),
     );
-    await loadUntil(this.newHireBChannel, () =>
-      Boolean(
-        messageById(
-          this.newHireBChannel as ChannelHandle<ChatContent>,
-          acknowledgement.id,
-        ),
-      ),
+    this.newHireBChannel = reconnectedChannel;
+    await loadUntil(reconnectedChannel, () =>
+      Boolean(messageById(reconnectedChannel, acknowledgement.id)),
     );
   }
 
@@ -543,11 +589,13 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
     assertSmoke(
       this.newHireAChannel && this.newHireBChannel && this.operatorChannel,
     );
+    const newHireAChannel = this.newHireAChannel;
+    const newHireBChannel = this.newHireBChannel;
     const actorA = this.actor("new-hire-a");
     const actorB = this.actor("new-hire-b");
     const operator = this.actor("operator");
     await waitFor(() => {
-      const presence = this.newHireBChannel?.presence;
+      const presence = newHireBChannel.presence;
       if (presence?.kind !== "detailed") return false;
       const ids = new Set(presence.participants.map(({ id }) => id));
       return (
@@ -557,39 +605,31 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
       );
     });
 
-    this.newHireAChannel.sendTyping();
-    await waitFor(
-      () => this.newHireBChannel?.typing.includes(actorA.userId) ?? false,
-    );
+    newHireAChannel.sendTyping();
+    await waitFor(() => newHireBChannel.typing.includes(actorA.userId));
 
-    assertSmoke(actorB.portal);
-    const inbox = actorB.portal.inbox();
+    const inbox = this.actorPortal(actorB).inbox();
     const unsubscribe = inbox.subscribe(() => undefined);
     this.inboxUnsubscribes.push(unsubscribe);
     await waitFor(() => inbox.status === "ready");
-    this.newHireBChannel.markAsRead();
+    newHireBChannel.markAsRead();
     inbox.channels.get(this.generalChannelId)?.markAsRead();
 
-    const acknowledgement = await this.newHireAChannel.send({
+    const acknowledgement = await newHireAChannel.send({
       content: { text: uniqueSourceId("smoke-unread-message") },
     });
     this.reportMessageId = acknowledgement.id;
     await waitFor(
       () =>
-        Boolean(
-          messageById(
-            this.newHireBChannel as ChannelHandle<ChatContent>,
-            acknowledgement.id,
-          ),
-        ) &&
-        (this.newHireBChannel?.unread ?? 0) > 0 &&
+        Boolean(messageById(newHireBChannel, acknowledgement.id)) &&
+        newHireBChannel.unread > 0 &&
         (inbox.channels.get(this.generalChannelId)?.unread ?? 0) > 0,
     );
-    this.newHireBChannel.markAsRead();
+    newHireBChannel.markAsRead();
     inbox.channels.get(this.generalChannelId)?.markAsRead();
     await waitFor(
       () =>
-        this.newHireBChannel?.unread === 0 &&
+        newHireBChannel.unread === 0 &&
         inbox.channels.get(this.generalChannelId)?.unread === 0,
     );
   }
@@ -597,13 +637,20 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
   private async verifyReactionReplay(): Promise<void> {
     const actorA = this.actor("new-hire-a");
     const actorB = this.actor("new-hire-b");
-    assertSmoke(actorA.portal && actorB.portal);
-    this.newHireAEventChannel = this.trackChannel(
-      await connectChannel<unknown>(actorA.portal, this.eventChannelId),
+    const newHireAEventChannel = this.trackChannel(
+      await connectChannel<unknown>(
+        this.actorPortal(actorA),
+        this.eventChannelId,
+      ),
     );
-    this.newHireBEventChannel = this.trackChannel(
-      await connectChannel<unknown>(actorB.portal, this.eventChannelId),
+    const newHireBEventChannel = this.trackChannel(
+      await connectChannel<unknown>(
+        this.actorPortal(actorB),
+        this.eventChannelId,
+      ),
     );
+    this.newHireAEventChannel = newHireAEventChannel;
+    this.newHireBEventChannel = newHireBEventChannel;
     const add = createReactionOfficeEvent({
       mutationId: uniqueSourceId("smoke-reaction-add"),
       occurredAt: new Date().toISOString(),
@@ -614,29 +661,24 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
       reaction: "👍",
       operation: "add",
     });
-    const acknowledgement = await this.newHireAEventChannel.send({
+    const acknowledgement = await newHireAEventChannel.send({
       content: add,
       type: OFFICE_EVENT_MESSAGE_TYPE,
     });
     await waitFor(() =>
-      Boolean(
-        messageById(
-          this.newHireBEventChannel as ChannelHandle<unknown>,
-          acknowledgement.id,
-        ),
-      ),
+      Boolean(messageById(newHireBEventChannel, acknowledgement.id)),
     );
-    const received = messageById(this.newHireBEventChannel, acknowledgement.id);
+    const received = messageById(newHireBEventChannel, acknowledgement.id);
     assertSmoke(
       parseOfficeEventMessage(received, this.eventChannelId)?.event.type ===
         "reaction.changed",
     );
 
-    this.newHireBEventChannel.release();
-    this.channels.delete(this.newHireBEventChannel);
+    newHireBEventChannel.release();
+    this.channels.delete(newHireBEventChannel);
     const replayPortal = new Portal({
       apiKey: this.config().portalPublishableKey,
-      token: actorB.portalSession?.token as string,
+      token: this.actorPortalSession(actorB).token,
     });
     const replayChannel = this.trackChannel(
       await connectChannel<unknown>(replayPortal, this.eventChannelId),
@@ -653,7 +695,7 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
       occurredAt: new Date().toISOString(),
       operation: "remove",
     });
-    await this.newHireAEventChannel.send({
+    await newHireAEventChannel.send({
       content: remove,
       type: OFFICE_EVENT_MESSAGE_TYPE,
     });
@@ -675,6 +717,8 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
 
   private async verifyReservedSenderRefusal(): Promise<void> {
     assertSmoke(this.newHireAEventChannel && this.newHireBEventChannel);
+    const newHireAEventChannel = this.newHireAEventChannel;
+    const newHireBEventChannel = this.newHireBEventChannel;
     const actorA = this.actor("new-hire-a");
     const before = await this.profileBatch(
       this.actor("new-hire-b"),
@@ -690,19 +734,14 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
       occurredAt: new Date().toISOString(),
       profileId: actorA.userId,
     } as const;
-    const acknowledgement = await this.newHireAEventChannel.send({
+    const acknowledgement = await newHireAEventChannel.send({
       content: forged,
       type: OFFICE_EVENT_MESSAGE_TYPE,
     });
     await waitFor(() =>
-      Boolean(
-        messageById(
-          this.newHireBEventChannel as ChannelHandle<unknown>,
-          acknowledgement.id,
-        ),
-      ),
+      Boolean(messageById(newHireBEventChannel, acknowledgement.id)),
     );
-    const message = messageById(this.newHireBEventChannel, acknowledgement.id);
+    const message = messageById(newHireBEventChannel, acknowledgement.id);
     assertSmoke(parseOfficeEventMessage(message, this.eventChannelId) === null);
     const after = await this.profileBatch(
       this.actor("new-hire-b"),
@@ -713,6 +752,9 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
 
   private async verifyProfileInvalidation(): Promise<void> {
     assertSmoke(this.newHireBEventChannel);
+    assertSmoke(this.newHireBChannel);
+    const newHireBEventChannel = this.newHireBEventChannel;
+    const newHireBChannel = this.newHireBChannel;
     const actorA = this.actor("new-hire-a");
     const current = await this.clerkClient().users.getUser(actorA.userId);
     this.originalProfile = {
@@ -741,30 +783,26 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
     }, WEBHOOK_WAIT_TIMEOUT_MS);
     await waitFor(
       () =>
-        this.newHireBEventChannel?.messages.some((message) => {
+        newHireBEventChannel.messages.some((message) => {
           const parsed = parseOfficeEventMessage(message, this.eventChannelId);
           return (
             parsed?.senderId === "office-events:profiles" &&
             parsed.event.type === "profile.invalidated" &&
             parsed.event.profileId === actorA.userId
           );
-        }) ?? false,
+        }),
       WEBHOOK_WAIT_TIMEOUT_MS,
     );
-    const historical = messageById(
-      this.newHireBChannel as ChannelHandle<ChatContent>,
-      this.persistentMessageId,
-    );
+    const historical = messageById(newHireBChannel, this.persistentMessageId);
     assertSmoke(historical?.sender.id === actorA.userId);
   }
 
   private async verifyHRReportsAndInbox(): Promise<void> {
     const operator = this.actor("operator");
-    assertSmoke(operator.portal);
-    this.operatorInbox = operator.portal.inbox();
-    const unsubscribe = this.operatorInbox.subscribe(() => undefined);
+    const operatorInbox = this.actorPortal(operator).inbox();
+    const unsubscribe = operatorInbox.subscribe(() => undefined);
     this.inboxUnsubscribes.push(unsubscribe);
-    await waitFor(() => this.operatorInbox?.status === "ready");
+    await waitFor(() => operatorInbox.status === "ready");
 
     const actorB = this.actor("new-hire-b");
     const messageReport = await this.appRequest(
@@ -812,14 +850,12 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
     await waitFor(
       () =>
         notificationIds.every((id) =>
-          this.operatorInbox?.items.some((item) => item.id === id),
+          operatorInbox.items.some((item) => item.id === id),
         ),
       WEBHOOK_WAIT_TIMEOUT_MS,
     );
     for (const id of notificationIds) {
-      const item = this.operatorInbox.items.find(
-        (candidate) => candidate.id === id,
-      );
+      const item = operatorInbox.items.find((candidate) => candidate.id === id);
       assertSmoke(
         item && isObject(item.data) && typeof item.data.href === "string",
       );
@@ -889,7 +925,7 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
     const actorB = this.actor("new-hire-b");
     const historicalPortal = new Portal({
       apiKey: this.config().portalPublishableKey,
-      token: actorB.portalSession?.token as string,
+      token: this.actorPortalSession(actorB).token,
     });
     const historical = this.trackChannel(
       await connectChannel<ChatContent>(
@@ -966,7 +1002,7 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
       await expectBlockedChannel<ChatContent>(
         new Portal({
           apiKey: this.config().portalPublishableKey,
-          token: target.portalSession?.token as string,
+          token: this.actorPortalSession(target).token,
         }),
         this.generalChannelId,
       ),
@@ -994,10 +1030,14 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
         access.body.eligible === true,
     );
     const session = await this.issuePortalSession(target);
+    const generalChannelId = session.channelIds.find((id) =>
+      id.startsWith("general:"),
+    );
+    assertSmoke(generalChannelId);
     const reconnected = this.trackChannel(
       await connectChannel<ChatContent>(
-        target.portal as Portal,
-        session.channelIds.find((id) => id.startsWith("general:")) as string,
+        this.actorPortal(target),
+        generalChannelId,
       ),
     );
     assertSmoke(reconnected.status === "ready");
@@ -1057,14 +1097,15 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
   private async verifyDisposableLifecycle(): Promise<void> {
     const operator = this.actor("operator");
     const sentHome = await this.createDisposable("send-home");
-    assertSmoke(sentHome.portal && sentHome.portalSession);
-    const sentHomeChannelId = sentHome.portalSession.channelIds.find((id) =>
+    const sentHomePortal = this.actorPortal(sentHome);
+    const sentHomeSession = this.actorPortalSession(sentHome);
+    const sentHomeChannelId = sentHomeSession.channelIds.find((id) =>
       id.startsWith("general:"),
     );
     assertSmoke(sentHomeChannelId);
     const sentHomeOfficeDay = sentHomeChannelId.slice("general:".length);
     const sentHomeChannel = this.trackChannel(
-      await connectChannel<ChatContent>(sentHome.portal, sentHomeChannelId),
+      await connectChannel<ChatContent>(sentHomePortal, sentHomeChannelId),
     );
     const action = await this.appRequest(
       operator,
@@ -1104,11 +1145,12 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
     );
 
     const deleted = await this.createDisposable("clerk-deletion");
-    assertSmoke(deleted.portal && deleted.portalSession);
+    const deletedPortal = this.actorPortal(deleted);
+    const deletedSession = this.actorPortalSession(deleted);
     const deletedChannel = this.trackChannel(
-      await connectChannel<ChatContent>(deleted.portal, this.generalChannelId),
+      await connectChannel<ChatContent>(deletedPortal, this.generalChannelId),
     );
-    const oldPortalToken = deleted.portalSession.token;
+    const oldPortalToken = deletedSession.token;
     await this.clerkClient().users.deleteUser(deleted.userId);
     this.deletedDisposableIds.add(deleted.userId);
     await waitFor(async () => {

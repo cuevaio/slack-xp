@@ -20,6 +20,7 @@ export const SMOKE_SCENARIOS = [
 
 export type SmokeScenarioId = (typeof SMOKE_SCENARIOS)[number][0];
 export type SmokeCheckStatus = "passed" | "failed" | "skipped" | "not-run";
+export type SmokeScenarioResult = "passed" | "skipped";
 
 export type SmokeCleanupResidual =
   | "active-termination"
@@ -65,7 +66,7 @@ export type SmokeScenarioAdapter = {
   run(
     scenario: SmokeScenarioId,
     configuration: SmokeConfiguration,
-  ): Promise<"passed" | "skipped" | undefined>;
+  ): Promise<SmokeScenarioResult>;
   cleanup(): Promise<SmokeCleanupResidual[]>;
 };
 
@@ -184,17 +185,15 @@ export async function runSmokeContract(
   }
 
   const checks = emptyChecks("not-run");
-  let failed = false;
   let cleanupResiduals: SmokeCleanupResidual[] = [];
   try {
     for (const check of checks) {
-      if (failed) break;
       try {
         const result = await adapter.run(check.id, inspection.configuration);
         check.status = result === "skipped" ? "skipped" : "passed";
       } catch {
         check.status = "failed";
-        failed = true;
+        break;
       }
     }
   } finally {
@@ -205,9 +204,12 @@ export async function runSmokeContract(
     }
   }
 
+  const hasFailedCheck = checks.some(({ status }) => status === "failed");
+  const exitCode = hasFailedCheck || cleanupResiduals.length > 0 ? 1 : 0;
+
   return {
     kind: "portal-messenger-real-service-smoke",
-    exitCode: failed || cleanupResiduals.length > 0 ? 1 : 0,
+    exitCode,
     preflightIssues: [],
     checks,
     cleanupResiduals,

@@ -7,29 +7,38 @@ import {
 } from "@/lib/smoke/contract";
 import { LiveRealServiceSmokeAdapter } from "@/lib/smoke/live";
 
-function parseArguments(args: string[]): {
+type SmokeCommandOptions = {
   preflight: boolean;
   artifactPath: string | null;
-} {
+};
+
+function parseArguments(args: string[]): SmokeCommandOptions {
   let preflight = false;
   let artifactPath: string | null = null;
+
   for (let index = 0; index < args.length; index += 1) {
     const argument = args[index];
-    if (argument === "--") continue;
-    if (argument === "--preflight") {
-      preflight = true;
-      continue;
-    }
-    if (argument === "--artifact") {
-      const value = args[index + 1];
-      if (!value || value.startsWith("--"))
+
+    switch (argument) {
+      case "--":
+        break;
+      case "--preflight":
+        preflight = true;
+        break;
+      case "--artifact": {
+        const value = args[index + 1];
+        if (!value || value.startsWith("--")) {
+          throw new Error("invalid_arguments");
+        }
+        artifactPath = value;
+        index += 1;
+        break;
+      }
+      default:
         throw new Error("invalid_arguments");
-      artifactPath = value;
-      index += 1;
-      continue;
     }
-    throw new Error("invalid_arguments");
   }
+
   return { preflight, artifactPath };
 }
 

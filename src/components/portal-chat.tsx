@@ -204,6 +204,37 @@ type DraftMention = {
   label: string;
 };
 
+function DraftMentionOverlay({
+  text,
+  mentions,
+}: {
+  text: string;
+  mentions: readonly DraftMention[];
+}) {
+  const ranges = mentions
+    .map((mention) => ({
+      ...mention,
+      start: text.indexOf(mention.label),
+    }))
+    .filter(({ start }) => start >= 0)
+    .toSorted((left, right) => left.start - right.start);
+  const content: ReactNode[] = [];
+  let cursor = 0;
+  for (const range of ranges) {
+    if (range.start < cursor) continue;
+    content.push(text.slice(cursor, range.start));
+    content.push(
+      <mark className="composer-mention" key={`${range.userId}-${range.start}`}>
+        {range.label}
+      </mark>,
+    );
+    cursor = range.start + range.label.length;
+  }
+  content.push(text.slice(cursor));
+
+  return <>{content}</>;
+}
+
 const REACTION_NAMES: Record<OfficeReaction, string> = {
   "👍": "Thumbs up",
   "❤️": "Heart",
@@ -952,6 +983,7 @@ function ChatSurface({
   const [isSending, setIsSending] = useState(false);
   const scrollRegionRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const composerOverlayRef = useRef<HTMLDivElement>(null);
   const followingLatestMessage = useRef(true);
   const surfaceRef = useRef<HTMLElement>(null);
   const latestOnContentVisible = useRef(onContentVisible);
@@ -1170,6 +1202,7 @@ function ChatSurface({
       return;
     }
 
+    const submittedMentions = draftMentions;
     setDraft("");
     setDraftMentions([]);
     setMentionSearch(null);
@@ -1183,20 +1216,43 @@ function ChatSurface({
       );
     } catch {
       setDraft(content.text);
+      setDraftMentions(submittedMentions);
       setSendError("Message not delivered. Your text is ready to retry.");
     } finally {
       setIsSending(false);
     }
   }
 
-  function updateMentionSearch(text: string, cursor: number): void {
-    const match = text.slice(0, cursor).match(/(?:^|\s)@([^@\n]*)$/u);
-    if (!match || match[1].length > 40) {
+  function updateMentionSearch(
+    text: string,
+    cursor: number,
+    previousText: string,
+  ): void {
+    if (!mentionSearch) {
+      const typedAt =
+        text.length === previousText.length + 1 && text[cursor - 1] === "@";
+      if (typedAt) {
+        setMentionSearch({ start: cursor - 1, end: cursor, query: "" });
+      }
+      return;
+    }
+
+    const query = text.slice(mentionSearch.start + 1, cursor);
+    if (
+      cursor <= mentionSearch.start ||
+      text[mentionSearch.start] !== "@" ||
+      query.includes("@") ||
+      query.includes("\n") ||
+      query.length > 40
+    ) {
       setMentionSearch(null);
       return;
     }
-    const at = cursor - match[1].length - 1;
-    setMentionSearch({ start: at, end: cursor, query: match[1].trimStart() });
+    setMentionSearch({
+      start: mentionSearch.start,
+      end: cursor,
+      query: query.trimStart(),
+    });
   }
 
   function selectMention(profile: ProfileAttribution): void {
@@ -1319,44 +1375,62 @@ function ChatSurface({
         <label htmlFor={`message-${channel.id}`}>
           Message # {channel.name}
         </label>
-        <Textarea
-          disabled={!canPublish}
-          id={`message-${channel.id}`}
-          maxLength={CHAT_TEXT_LIMIT}
-          onChange={(event) => {
-            const nextDraft = event.target.value;
-            setDraft(nextDraft);
-            updateMentionSearch(
-              nextDraft,
-              event.target.selectionStart ?? nextDraft.length,
-            );
-            if (
-              visible &&
-              canPublish &&
-              channel.mode === "standard" &&
-              nextDraft.trim().length > 0
-            ) {
-              onTyping();
-            }
-          }}
-          onKeyDown={(event) => {
-            if (!mentionSearch) return;
-            if (event.key === "Escape") {
-              event.preventDefault();
-              setMentionSearch(null);
-            } else if (
-              (event.key === "Enter" || event.key === "Tab") &&
-              mentionCandidates[0]
-            ) {
-              event.preventDefault();
-              selectMention(mentionCandidates[0]);
-            }
-          }}
-          placeholder={canPublish ? "Type a message…" : "Reconnecting…"}
-          ref={composerRef}
-          rows={3}
-          value={draft}
-        />
+        <div className="composer-input-shell">
+          <div
+            aria-hidden="true"
+            className="composer-highlight-layer"
+            ref={composerOverlayRef}
+          >
+            <DraftMentionOverlay mentions={draftMentions} text={draft} />
+            {draft.endsWith("\n") ? "\n " : null}
+          </div>
+          <Textarea
+            disabled={!canPublish}
+            id={`message-${channel.id}`}
+            maxLength={CHAT_TEXT_LIMIT}
+            onChange={(event) => {
+              const nextDraft = event.target.value;
+              setDraft(nextDraft);
+              updateMentionSearch(
+                nextDraft,
+                event.target.selectionStart ?? nextDraft.length,
+                draft,
+              );
+              if (
+                visible &&
+                canPublish &&
+                channel.mode === "standard" &&
+                nextDraft.trim().length > 0
+              ) {
+                onTyping();
+              }
+            }}
+            onKeyDown={(event) => {
+              if (!mentionSearch) return;
+              if (event.key === "Escape") {
+                event.preventDefault();
+                setMentionSearch(null);
+              } else if (
+                (event.key === "Enter" || event.key === "Tab") &&
+                mentionCandidates[0]
+              ) {
+                event.preventDefault();
+                selectMention(mentionCandidates[0]);
+              }
+            }}
+            onScroll={(event) => {
+              if (!composerOverlayRef.current) return;
+              composerOverlayRef.current.scrollTop =
+                event.currentTarget.scrollTop;
+              composerOverlayRef.current.scrollLeft =
+                event.currentTarget.scrollLeft;
+            }}
+            placeholder={canPublish ? "Type a message…" : "Reconnecting…"}
+            ref={composerRef}
+            rows={3}
+            value={draft}
+          />
+        </div>
         {mentionSearch ? (
           <div className="mention-autocomplete">
             <strong className="mention-autocomplete-heading">

@@ -202,7 +202,11 @@ function HRReportControls<Category extends HRReportCategory>({
             <span aria-hidden="true">•••</span>
           </Menu.Trigger>
           <Menu.Portal>
-            <Menu.Positioner align="end" sideOffset={4}>
+            <Menu.Positioner
+              align="end"
+              className="message-actions-menu-positioner"
+              sideOffset={4}
+            >
               <Menu.Popup className="message-actions-menu">
                 {menuLabel ? (
                   <div className="message-actions-menu-label">{menuLabel}</div>

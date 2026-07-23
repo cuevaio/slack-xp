@@ -3,10 +3,18 @@ import type { NextRequest } from "next/server";
 import { createServiceAdapters } from "@/lib/adapters";
 import { readAppConfiguration } from "@/lib/config";
 import {
+  deleteClerkProfile,
+  type ProfileDeletionPortal,
+} from "@/lib/profiles/deletion";
+import {
+  deletedProfileFromClerkPayload,
   InvalidClerkProfilePayloadError,
   profileFromClerkPayload,
 } from "@/lib/profiles/domain";
-import { projectAndPropagateProfile } from "@/lib/profiles/propagation";
+import {
+  flushProfileInvalidations,
+  projectAndPropagateProfile,
+} from "@/lib/profiles/propagation";
 import type {
   ProfileInvalidationPublisher,
   ProfileRepository,
@@ -17,7 +25,9 @@ export const runtime = "nodejs";
 type ClerkWebhookDependencies = {
   repository: ProfileRepository;
   publisher?: ProfileInvalidationPublisher;
+  accessRevoker?: Pick<ProfileDeletionPortal, "applyTerminationBans">;
   signingSecret: string;
+  now?: Date;
 };
 
 export async function handleClerkProfileWebhook(
@@ -34,24 +44,57 @@ export async function handleClerkProfileWebhook(
     return Response.json({ error: "invalid_webhook" }, { status: 400 });
   }
 
-  if (event.type === "user.created" || event.type === "user.updated") {
-    try {
+  try {
+    if (event.type === "user.created" || event.type === "user.updated") {
       const profile = profileFromClerkPayload(event.data);
       if (dependencies.publisher) {
         await projectAndPropagateProfile({
           repository: dependencies.repository,
           publisher: dependencies.publisher,
           profile,
+          options: {
+            allowTombstoneRestore: event.type === "user.created",
+          },
         });
       } else {
-        await dependencies.repository.projectProfile(profile);
+        await dependencies.repository.projectProfile(profile, {
+          allowTombstoneRestore: event.type === "user.created",
+        });
       }
-    } catch (error) {
-      if (error instanceof InvalidClerkProfilePayloadError) {
-        return Response.json({ error: "invalid_webhook" }, { status: 400 });
+    } else if (event.type === "user.deleted") {
+      const tombstone = deletedProfileFromClerkPayload(
+        event.data,
+        request.headers.get("svix-timestamp"),
+      );
+      const publisher = dependencies.publisher;
+      const accessRevoker = dependencies.accessRevoker;
+      if (publisher && accessRevoker) {
+        await deleteClerkProfile({
+          repository: dependencies.repository,
+          portal: {
+            publishProfileInvalidation: (event) =>
+              publisher.publishProfileInvalidation(event),
+            applyTerminationBans: (input) =>
+              accessRevoker.applyTerminationBans(input),
+          },
+          tombstone,
+          now: dependencies.now,
+        });
+      } else {
+        await dependencies.repository.tombstoneProfile(tombstone);
+        if (dependencies.publisher) {
+          await flushProfileInvalidations(
+            dependencies.repository,
+            dependencies.publisher,
+          );
+        }
       }
-      throw error;
     }
+  } catch (error) {
+    if (error instanceof InvalidClerkProfilePayloadError) {
+      return Response.json({ error: "invalid_webhook" }, { status: 400 });
+    }
+    throw error;
   }
 
   return new Response(null, { status: 204 });
@@ -70,6 +113,7 @@ export async function POST(request: NextRequest) {
   return handleClerkProfileWebhook(request, {
     repository: adapters.neon,
     publisher: adapters.portal,
+    accessRevoker: adapters.portal,
     signingSecret: configuration.values.CLERK_WEBHOOK_SECRET,
   });
 }

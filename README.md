@@ -173,8 +173,8 @@ Termination reference, followed by `employment.invalidated` hints that clients
 use only to refetch Neon.
 
 In the Clerk Dashboard, create a webhook endpoint for
-`https://<deployment>/api/webhooks/clerk`, subscribe it to `user.created` and
-`user.updated`, and put that endpoint's signing secret in
+`https://<deployment>/api/webhooks/clerk`, subscribe it to `user.created`,
+`user.updated`, and `user.deleted`, and put that endpoint's signing secret in
 `CLERK_WEBHOOK_SECRET`. The Node.js route verifies the signature before parsing
 profile fields and returns a generic `400` for invalid signatures or payloads;
 it does not log secrets or profile data. Clerk's current name and picture are
@@ -182,11 +182,25 @@ also projected when an authenticated session is established. That repair uses
 the same source-version rule as webhooks, so a stale session read cannot roll a
 newer projection backward.
 
+A verified `user.deleted` event writes a source-ordered tombstone in the same
+profile row, clearing first name, last name, display name, and picture. Its
+stable-reference-only profile invalidation refreshes live and historical
+attribution before the existing persistent Portal ban mechanism disconnects
+current channels. Page entry, onboarding, Employee Record access, membership
+repair, reconnect, and token minting all consult the same canonical `deleted`
+employment decision used by the composed access controls. Replays safely reuse
+the outbox event and bans; delayed updates and authenticated session repair
+cannot restore a tombstone. Only a newer verified `user.created` Clerk lifecycle
+event may restore the projection. Account deletion creates no Operator action,
+private audit, Termination, public employment System Event, or reinstatement
+control.
+
 Authenticated server consumers batch attribution through
 `POST /api/office/profiles` with `{ "clerkUserIds": [...] }`. A request accepts
 at most 100 supplied stable Clerk user IDs, deduplicates them, and performs one
 Neon query. Results contain only the stable ID, current display name and
-picture, and a status. A
+picture, and a status. A tombstone returns `Former Employee` with no picture and
+the `former` status. A
 missing projection returns the non-identifying `New Hire`/`unavailable`
 fallback. Portal messages keep only the stable Clerk user ID, so both old and
 new messages resolve to the latest projection instead of retaining historical

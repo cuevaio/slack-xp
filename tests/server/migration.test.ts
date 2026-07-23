@@ -12,6 +12,8 @@ import {
   buildOperatorActionInsertQuery,
   buildProfileOutboxQuery,
   buildProfileProjectionQuery,
+  buildProfileTombstoneOutboxQuery,
+  buildProfileTombstoneQuery,
   buildReinstatementQueries,
   buildSendHomeQueries,
   buildTerminationQueries,
@@ -83,6 +85,32 @@ describe("initial Neon migration", () => {
     expect(query.sql).toContain("select");
     expect(query.sql).toContain("source_version");
     expect(query.sql).toContain("on conflict");
+  });
+
+  test("orders privacy-clearing profile tombstones with a stable-only outbox", () => {
+    const database = createDatabase("postgresql://test:test@localhost/test");
+    const tombstone = {
+      clerkUserId: "user_deleted_sql_contract",
+      sourceVersion: 1_753_268_400_999,
+      deletedAt: new Date("2026-07-23T12:00:00.000Z"),
+    };
+    const deletion = buildProfileTombstoneQuery(database, tombstone).toSQL();
+    const outbox = buildProfileTombstoneOutboxQuery(
+      database,
+      tombstone,
+      tombstone.deletedAt,
+    ).toSQL();
+
+    expect(deletion.sql).toContain("on conflict");
+    expect(deletion.sql).toContain("excluded.source_version");
+    expect(deletion.sql).toContain('"first_name" = $');
+    expect(deletion.sql).toContain('"deleted_at" = $');
+    expect(deletion.sql).toContain('returning "clerk_user_id"');
+    expect(outbox.sql).toContain("insert into");
+    expect(outbox.sql).toContain('"profile_id"');
+    expect(outbox.sql).not.toMatch(
+      /Former Employee|Privacy Please|img\.example/iu,
+    );
   });
 
   test("adds constrained Office Day and retry-state outbox records", async () => {

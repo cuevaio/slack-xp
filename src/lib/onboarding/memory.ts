@@ -44,10 +44,16 @@ import { officeDay } from "@/lib/portal/office-day";
 import { toProfileAttribution } from "@/lib/profiles/domain";
 import { createProfileInvalidationOutboxEntry } from "@/lib/profiles/outbox";
 import type {
+  DeletedClerkProfile,
   ProfileInvalidationOutboxEntry,
   ProfileProjectionResult,
   ProfileRepository,
+  ProjectProfileOptions,
 } from "@/lib/profiles/types";
+
+type StoredProfile =
+  | (NewHireProfile & { deletedAt: null })
+  | DeletedClerkProfile;
 
 type StoredOnboarding = {
   jobTitle: string;
@@ -69,11 +75,19 @@ function hasSameProfileValues(
 }
 
 function shouldApplyProfile(
-  current: NewHireProfile | undefined,
+  current: StoredProfile | undefined,
   candidate: NewHireProfile,
+  options?: ProjectProfileOptions,
 ): boolean {
   if (!current) {
     return true;
+  }
+
+  if (current.deletedAt) {
+    return (
+      options?.allowTombstoneRestore === true &&
+      candidate.sourceVersion > current.sourceVersion
+    );
   }
 
   if (candidate.sourceVersion !== current.sourceVersion) {
@@ -198,7 +212,7 @@ export type InMemoryNeonRepository = OnboardingRepository &
 export function createInMemoryNeonRepository(
   now: () => Date = () => new Date(),
 ): InMemoryNeonRepository {
-  const profiles = new Map<string, NewHireProfile>();
+  const profiles = new Map<string, StoredProfile>();
   const onboardings = new Map<string, StoredOnboarding>();
   const profileOutbox = new Map<
     string,
@@ -242,7 +256,7 @@ export function createInMemoryNeonRepository(
 
   function requireProfile(clerkUserId: string): NewHireProfile {
     const profile = profiles.get(clerkUserId);
-    if (!profile) {
+    if (!profile || profile.deletedAt) {
       throw new OnboardingError(
         "onboarding_not_found",
         "Start New Employee Setup before continuing.",
@@ -251,16 +265,48 @@ export function createInMemoryNeonRepository(
     return profile;
   }
 
+  function hasCurrentProfile(clerkUserId: string): boolean {
+    const profile = profiles.get(clerkUserId);
+    return Boolean(profile && !profile.deletedAt);
+  }
+
   function applyProfileProjection(
     profile: NewHireProfile,
+    options?: ProjectProfileOptions,
   ): ProfileProjectionResult {
     const current = profiles.get(profile.clerkUserId);
-    if (!shouldApplyProfile(current, profile)) {
+    if (!shouldApplyProfile(current, profile, options)) {
       return "unchanged";
     }
 
-    profiles.set(profile.clerkUserId, { ...profile });
+    profiles.set(profile.clerkUserId, { ...profile, deletedAt: null });
     const outboxEntry = createProfileInvalidationOutboxEntry(profile, now());
+    profileOutbox.set(outboxEntry.outboxId, {
+      ...outboxEntry,
+      publishedAt: null,
+    });
+    projectionWrites += 1;
+    return "applied";
+  }
+
+  function applyProfileTombstone(
+    tombstone: DeletedClerkProfile,
+  ): ProfileProjectionResult {
+    const current = profiles.get(tombstone.clerkUserId);
+    if (
+      current &&
+      (current.sourceVersion > tombstone.sourceVersion ||
+        (current.sourceVersion === tombstone.sourceVersion &&
+          current.deletedAt !== null))
+    ) {
+      return "unchanged";
+    }
+
+    profiles.set(tombstone.clerkUserId, {
+      ...tombstone,
+      deletedAt: new Date(tombstone.deletedAt),
+    });
+    const outboxEntry = createProfileInvalidationOutboxEntry(tombstone, now());
     profileOutbox.set(outboxEntry.outboxId, {
       ...outboxEntry,
       publishedAt: null,
@@ -316,8 +362,12 @@ export function createInMemoryNeonRepository(
       }
     },
 
-    async projectProfile(profile) {
-      return applyProfileProjection(profile);
+    async projectProfile(profile, options) {
+      return applyProfileProjection(profile, options);
+    },
+
+    async tombstoneProfile(tombstone) {
+      return applyProfileTombstone(tombstone);
     },
 
     async getProfiles(clerkUserIds) {
@@ -599,7 +649,7 @@ export function createInMemoryNeonRepository(
 
     async recordSendHome(input) {
       const target = profiles.get(input.targetNewHireId);
-      if (!target) {
+      if (!target || target.deletedAt) {
         throw new EmploymentActionError(
           "new_hire_not_found",
           "The requested New Hire does not exist.",
@@ -687,6 +737,7 @@ export function createInMemoryNeonRepository(
     },
 
     async getEmploymentAccess(newHireId, checkedAt) {
+      const profile = profiles.get(newHireId);
       const active = [...employmentActions.values()]
         .filter(
           (action) =>
@@ -705,12 +756,12 @@ export function createInMemoryNeonRepository(
               termination.targetNewHireId === newHireId &&
               termination.reinstatedAt === null,
           )?.terminatedAt ?? null,
-        deletedAt: profiles.has(newHireId) ? null : checkedAt,
+        deletedAt: profile ? profile.deletedAt : checkedAt,
       });
     },
 
     async recordTermination(input) {
-      if (!profiles.has(input.targetNewHireId)) {
+      if (!hasCurrentProfile(input.targetNewHireId)) {
         throw new EmploymentActionError(
           "new_hire_not_found",
           "The requested New Hire does not exist.",
@@ -796,7 +847,7 @@ export function createInMemoryNeonRepository(
     },
 
     async recordReinstatement(input) {
-      if (!profiles.has(input.targetNewHireId)) {
+      if (!hasCurrentProfile(input.targetNewHireId)) {
         throw new EmploymentActionError(
           "new_hire_deleted",
           "A deleted New Hire cannot be reinstated.",
@@ -1005,7 +1056,9 @@ export function createInMemoryNeonRepository(
     async getNewHire(clerkUserId) {
       const profile = profiles.get(clerkUserId);
       const onboarding = onboardings.get(clerkUserId);
-      return profile && onboarding ? toSnapshot(profile, onboarding) : null;
+      return profile && !profile.deletedAt && onboarding
+        ? toSnapshot(profile, onboarding)
+        : null;
     },
 
     recordCount() {

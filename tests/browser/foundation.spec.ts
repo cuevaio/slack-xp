@@ -983,6 +983,80 @@ test("a New Hire edits an Employee Record with accessible recovery and current a
   await expect(historicalMessage.getByRole("strong")).toHaveText("Taylor Byte");
 });
 
+test("Clerk account deletion preserves messages as Former Employee and removes current access", async ({
+  browser,
+  page,
+}) => {
+  const formerEmployeeContext = await browser.newContext({
+    baseURL: "http://127.0.0.1:3100",
+  });
+  const formerEmployeePage = await formerEmployeeContext.newPage();
+  await formerEmployeePage.goto("/office");
+  await formerEmployeePage
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+  await expectOfficeConnected(formerEmployeePage);
+  const preservedText = "Please keep this historical handoff.";
+  await formerEmployeePage.getByLabel("Message # General").fill(preservedText);
+  await formerEmployeePage.getByRole("button", { name: "Send" }).click();
+  await expect(
+    formerEmployeePage.getByRole("listitem").filter({ hasText: preservedText }),
+  ).toBeVisible();
+
+  await page.goto("/office");
+  await page.getByRole("button", { name: "Sign in as Operator" }).click();
+  const historicalMessage = page
+    .getByRole("listitem")
+    .filter({ hasText: preservedText });
+  await expect(historicalMessage.getByRole("strong")).toHaveText("Terry Byte");
+
+  const deletion = await page.request.post("/api/auth/mock-profile", {
+    form: {
+      intent: "delete-account",
+      clerkUserId: "user_mock_returning_new_hire",
+    },
+  });
+  expect(deletion.status()).toBe(204);
+
+  await expect(
+    formerEmployeePage.getByRole("heading", {
+      name: "Your desk is unavailable",
+    }),
+  ).toBeVisible();
+  expect(
+    (
+      await formerEmployeePage.request.post("/api/office/portal/token")
+    ).status(),
+  ).toBe(403);
+  await expect(historicalMessage.getByRole("strong")).toHaveText(
+    "Former Employee",
+  );
+  await expect(historicalMessage).toHaveCount(1);
+
+  await historicalMessage.getByRole("link").click();
+  const profile = page.getByRole("dialog", { name: "New Hire Profile" });
+  await expect(
+    profile.getByRole("heading", { name: "Former Employee" }),
+  ).toBeVisible();
+  await expect(profile.getByRole("button", { name: "Reinstate" })).toHaveCount(
+    0,
+  );
+  await expect(profile.getByRole("button", { name: "Terminate" })).toHaveCount(
+    0,
+  );
+
+  const history = await page.request.get(
+    "/api/office/portal/mock-chat?channel=general",
+  );
+  const messages = (await history.json()).messages as Array<{
+    content?: { text?: string };
+  }>;
+  expect(
+    messages.filter((message) => message.content?.text === preservedText),
+  ).toHaveLength(1);
+  await formerEmployeeContext.close();
+});
+
 test("the complete Office Channel directory switches without losing per-channel state", async ({
   page,
 }) => {

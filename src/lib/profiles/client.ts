@@ -37,7 +37,9 @@ function isProfileAttribution(value: unknown): value is ProfileAttribution {
     typeof profile.clerkUserId === "string" &&
     typeof profile.displayName === "string" &&
     (profile.imageUrl === null || typeof profile.imageUrl === "string") &&
-    (profile.status === "current" || profile.status === "unavailable")
+    (profile.status === "current" ||
+      profile.status === "former" ||
+      profile.status === "unavailable")
   );
 }
 

@@ -70,8 +70,10 @@ import { officeDay } from "@/lib/portal/office-day";
 import { toProfileAttribution } from "@/lib/profiles/domain";
 import { createProfileInvalidationOutboxEntry } from "@/lib/profiles/outbox";
 import type {
+  DeletedClerkProfile,
   ProfileAttribution,
   ProfileInvalidationOutboxEntry,
+  ProjectProfileOptions,
 } from "@/lib/profiles/types";
 
 type OnboardingRow = {
@@ -80,6 +82,7 @@ type OnboardingRow = {
   lastName: string | null;
   displayName: string | null;
   imageUrl: string | null;
+  deletedAt: Date | null;
   jobTitle: string;
   profileConfirmedAt: Date | null;
   conductAcceptedAt: Date | null;
@@ -117,10 +120,17 @@ function toSnapshot(row: OnboardingRow): OnboardingSnapshot {
 export function buildProfileProjectionQuery(
   database: Database,
   profile: NewHireProfile,
+  options?: ProjectProfileOptions,
 ) {
+  const restoreTombstone = options?.allowTombstoneRestore
+    ? sql`or (
+        ${clerkProfiles.deletedAt} is not null
+        and ${clerkProfiles.sourceVersion} < excluded.source_version
+      )`
+    : sql``;
   return database
     .insert(clerkProfiles)
-    .values(profile)
+    .values({ ...profile, deletedAt: null })
     .onConflictDoUpdate({
       target: clerkProfiles.clerkUserId,
       set: {
@@ -129,21 +139,29 @@ export function buildProfileProjectionQuery(
         displayName: profile.displayName,
         imageUrl: profile.imageUrl,
         sourceVersion: profile.sourceVersion,
+        deletedAt: null,
         updatedAt: new Date(),
       },
-      // A newer webhook always wins. Equal-version repair may correct drift,
-      // but an exact replay performs no write and leaves updated_at stable.
+      // Active rows accept newer state and equal-version drift repair. A
+      // tombstone can be restored only by an explicitly allowed newer Clerk
+      // creation lifecycle event.
       setWhere: sql`
-        ${clerkProfiles.sourceVersion} < excluded.source_version
-        or (
-          ${clerkProfiles.sourceVersion} = excluded.source_version
+        (
+          ${clerkProfiles.deletedAt} is null
           and (
-            ${clerkProfiles.firstName} is distinct from excluded.first_name
-            or ${clerkProfiles.lastName} is distinct from excluded.last_name
-            or ${clerkProfiles.displayName} is distinct from excluded.display_name
-            or ${clerkProfiles.imageUrl} is distinct from excluded.image_url
+            ${clerkProfiles.sourceVersion} < excluded.source_version
+            or (
+              ${clerkProfiles.sourceVersion} = excluded.source_version
+              and (
+                ${clerkProfiles.firstName} is distinct from excluded.first_name
+                or ${clerkProfiles.lastName} is distinct from excluded.last_name
+                or ${clerkProfiles.displayName} is distinct from excluded.display_name
+                or ${clerkProfiles.imageUrl} is distinct from excluded.image_url
+              )
+            )
           )
         )
+        ${restoreTombstone}
       `,
     })
     .returning({ clerkUserId: clerkProfiles.clerkUserId });
@@ -171,12 +189,84 @@ export function buildProfileOutboxQuery(
           and(
             eq(clerkProfiles.clerkUserId, profile.clerkUserId),
             eq(clerkProfiles.sourceVersion, profile.sourceVersion),
+            isNull(clerkProfiles.deletedAt),
             eq(clerkProfiles.firstName, profile.firstName),
             eq(clerkProfiles.lastName, profile.lastName),
             eq(clerkProfiles.displayName, profile.displayName),
             profile.imageUrl === null
               ? isNull(clerkProfiles.imageUrl)
               : eq(clerkProfiles.imageUrl, profile.imageUrl),
+          ),
+        ),
+    )
+    .onConflictDoNothing({ target: profileInvalidationOutbox.eventKey });
+}
+
+export function buildProfileTombstoneQuery(
+  database: Database,
+  tombstone: DeletedClerkProfile,
+) {
+  return database
+    .insert(clerkProfiles)
+    .values({
+      clerkUserId: tombstone.clerkUserId,
+      firstName: null,
+      lastName: null,
+      displayName: null,
+      imageUrl: null,
+      sourceVersion: tombstone.sourceVersion,
+      deletedAt: tombstone.deletedAt,
+    })
+    .onConflictDoUpdate({
+      target: clerkProfiles.clerkUserId,
+      set: {
+        firstName: null,
+        lastName: null,
+        displayName: null,
+        imageUrl: null,
+        sourceVersion: tombstone.sourceVersion,
+        deletedAt: tombstone.deletedAt,
+        updatedAt: new Date(),
+      },
+      setWhere: sql`
+        ${clerkProfiles.sourceVersion} < excluded.source_version
+        or (
+          ${clerkProfiles.sourceVersion} = excluded.source_version
+          and ${clerkProfiles.deletedAt} is null
+        )
+      `,
+    })
+    .returning({ clerkUserId: clerkProfiles.clerkUserId });
+}
+
+export function buildProfileTombstoneOutboxQuery(
+  database: Database,
+  tombstone: DeletedClerkProfile,
+  occurredAt: Date,
+) {
+  const outboxEntry = createProfileInvalidationOutboxEntry(
+    tombstone,
+    occurredAt,
+  );
+  return database
+    .insert(profileInvalidationOutbox)
+    .select(
+      database
+        .select({
+          eventKey: sql<string>`${outboxEntry.event.eventKey}`.as("event_key"),
+          profileId: clerkProfiles.clerkUserId,
+          occurredAt: sql<Date>`${occurredAt}`.as("occurred_at"),
+          publishedAt: sql<Date | null>`null`.as("published_at"),
+          createdAt: sql<Date>`${occurredAt}`.as("created_at"),
+        })
+        .from(clerkProfiles)
+        .where(
+          and(
+            eq(clerkProfiles.clerkUserId, tombstone.clerkUserId),
+            eq(clerkProfiles.sourceVersion, tombstone.sourceVersion),
+            eq(clerkProfiles.deletedAt, tombstone.deletedAt),
+            isNull(clerkProfiles.displayName),
+            isNull(clerkProfiles.imageUrl),
           ),
         ),
     )
@@ -868,6 +958,7 @@ export function createNeonRepository(database: Database): NeonAdapter {
         lastName: clerkProfiles.lastName,
         displayName: clerkProfiles.displayName,
         imageUrl: clerkProfiles.imageUrl,
+        deletedAt: clerkProfiles.deletedAt,
         jobTitle: newHireOnboarding.jobTitle,
         profileConfirmedAt: newHireOnboarding.profileConfirmedAt,
         conductAcceptedAt: newHireOnboarding.conductAcceptedAt,
@@ -881,7 +972,7 @@ export function createNeonRepository(database: Database): NeonAdapter {
       .where(eq(newHireOnboarding.clerkUserId, clerkUserId))
       .limit(1);
 
-    return row ? toSnapshot(row) : null;
+    return row && !row.deletedAt ? toSnapshot(row) : null;
   }
 
   async function requireOnboarding(
@@ -897,12 +988,24 @@ export function createNeonRepository(database: Database): NeonAdapter {
     return onboarding;
   }
 
-  async function projectProfile(profile: NewHireProfile) {
+  async function projectProfile(
+    profile: NewHireProfile,
+    options?: ProjectProfileOptions,
+  ) {
     const [changed] = await database.batch([
-      buildProfileProjectionQuery(database, profile),
+      buildProfileProjectionQuery(database, profile, options),
       buildProfileOutboxQuery(database, profile, new Date()),
     ]);
 
+    return changed.length > 0 ? "applied" : "unchanged";
+  }
+
+  async function tombstoneProfile(tombstone: DeletedClerkProfile) {
+    const occurredAt = new Date();
+    const [changed] = await database.batch([
+      buildProfileTombstoneQuery(database, tombstone),
+      buildProfileTombstoneOutboxQuery(database, tombstone, occurredAt),
+    ]);
     return changed.length > 0 ? "applied" : "unchanged";
   }
 
@@ -918,6 +1021,7 @@ export function createNeonRepository(database: Database): NeonAdapter {
         clerkUserId: clerkProfiles.clerkUserId,
         displayName: clerkProfiles.displayName,
         imageUrl: clerkProfiles.imageUrl,
+        deletedAt: clerkProfiles.deletedAt,
       })
       .from(clerkProfiles)
       .where(inArray(clerkProfiles.clerkUserId, [...clerkUserIds]));
@@ -1006,6 +1110,7 @@ export function createNeonRepository(database: Database): NeonAdapter {
     },
 
     projectProfile,
+    tombstoneProfile,
     getProfiles,
     async pendingProfileInvalidations(limit) {
       const rows = await database

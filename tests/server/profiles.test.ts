@@ -4,6 +4,7 @@ import { NextRequest } from "next/server";
 import { handleProfileBatchRequest } from "@/app/api/office/profiles/route";
 import { handleClerkProfileWebhook } from "@/app/api/webhooks/clerk/route";
 import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
+import { createMockPortalAdapter } from "@/lib/portal/mock";
 import {
   readProfileBatch,
   repairProfileProjection,
@@ -40,13 +41,28 @@ function clerkEvent(
   };
 }
 
+function clerkDeletionEvent(id = "user_profile_projection") {
+  return {
+    type: "user.deleted" as const,
+    data: {
+      id,
+      object: "user",
+      deleted: true,
+    },
+    event_attributes: {
+      http_request: { client_ip: "127.0.0.1", user_agent: "test" },
+    },
+  };
+}
+
 function signedWebhookRequest(
-  event: ReturnType<typeof clerkEvent>,
+  event: ReturnType<typeof clerkEvent> | ReturnType<typeof clerkDeletionEvent>,
   signingSecret = SIGNING_SECRET,
+  timestampSeconds = Math.floor(Date.now() / 1000),
 ): NextRequest {
   const body = JSON.stringify(event);
-  const messageId = `msg_${event.data.updated_at}`;
-  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const messageId = `msg_${event.type}_${timestampSeconds}`;
+  const timestamp = timestampSeconds.toString();
   const secret = Buffer.from(signingSecret.slice("whsec_".length), "base64");
   const signature = createHmac("sha256", secret)
     .update(`${messageId}.${timestamp}.${body}`)
@@ -68,7 +84,7 @@ describe("Clerk profile webhook boundary", () => {
   test("rejects an invalid signature before changing the projection", async () => {
     const repository = createInMemoryNeonRepository();
     const request = signedWebhookRequest(
-      clerkEvent(10),
+      clerkDeletionEvent(),
       `whsec_${Buffer.from("wrong-signing-key").toString("base64")}`,
     );
 
@@ -127,6 +143,116 @@ describe("Clerk profile webhook boundary", () => {
 
     expect(response.status).toBe(400);
     expect(repository.projectionWriteCount()).toBe(0);
+  });
+
+  test("tombstones verified deletion once and rejects delayed updates", async () => {
+    const signedTimestamp = Math.floor(Date.now() / 1_000);
+    const deletionSourceVersion = signedTimestamp * 1_000 + 999;
+    const now = new Date("2026-07-23T12:00:00.000Z");
+    const repository = createInMemoryNeonRepository(() => now);
+    const portal = createMockPortalAdapter({ now: () => now });
+    const dependencies = {
+      repository,
+      publisher: portal,
+      accessRevoker: portal,
+      signingSecret: SIGNING_SECRET,
+      now,
+    };
+    await repository.projectProfile({
+      clerkUserId: "user_profile_projection",
+      firstName: "Private",
+      lastName: "Person",
+      displayName: "Private Person",
+      imageUrl: "https://img.example/private.png",
+      sourceVersion: deletionSourceVersion - 1_000,
+    });
+    const deletion = clerkDeletionEvent();
+
+    for (const event of [deletion, deletion]) {
+      const response = await handleClerkProfileWebhook(
+        signedWebhookRequest(event, SIGNING_SECRET, signedTimestamp),
+        dependencies,
+      );
+      expect(response.status).toBe(204);
+    }
+    await handleClerkProfileWebhook(
+      signedWebhookRequest(
+        clerkEvent(deletionSourceVersion - 1, {
+          first_name: "Delayed",
+          last_name: "Update",
+          image_url: "https://img.example/delayed.png",
+        }),
+        SIGNING_SECRET,
+        signedTimestamp,
+      ),
+      dependencies,
+    );
+
+    expect(await repository.getProfiles(["user_profile_projection"])).toEqual([
+      {
+        clerkUserId: "user_profile_projection",
+        displayName: "Former Employee",
+        imageUrl: null,
+        status: "former",
+      },
+    ]);
+    expect(repository.projectionWriteCount()).toBe(2);
+    expect(portal.activeBans("user_profile_projection")).toHaveLength(6);
+  });
+
+  test("keeps deletion ahead of concurrent session repair until a newer creation lifecycle", async () => {
+    const signedTimestamp = Math.floor(Date.now() / 1_000);
+    const deletionSourceVersion = signedTimestamp * 1_000 + 999;
+    const repository = createInMemoryNeonRepository();
+    const identity = {
+      id: "user_profile_projection",
+      sessionId: "session_being_removed",
+      firstName: "Private",
+      lastName: "Person",
+      fullName: "Private Person",
+      imageUrl: "https://img.example/private.png",
+      sourceVersion: deletionSourceVersion - 1_000,
+      isOperator: false,
+      authentication: "clerk" as const,
+    };
+    await repairProfileProjection(repository, identity);
+
+    await Promise.all([
+      handleClerkProfileWebhook(
+        signedWebhookRequest(
+          clerkDeletionEvent(),
+          SIGNING_SECRET,
+          signedTimestamp,
+        ),
+        { repository, signingSecret: SIGNING_SECRET },
+      ),
+      repairProfileProjection(repository, identity),
+    ]);
+    expect((await repository.getProfiles([identity.id]))[0]?.status).toBe(
+      "former",
+    );
+
+    await handleClerkProfileWebhook(
+      signedWebhookRequest(
+        clerkEvent(deletionSourceVersion + 1_000, {
+          type: "user.created",
+          first_name: "Valid",
+          last_name: "Lifecycle",
+          image_url: "",
+        }),
+        SIGNING_SECRET,
+        signedTimestamp,
+      ),
+      { repository, signingSecret: SIGNING_SECRET },
+    );
+    expect(await repository.getProfiles([identity.id])).toEqual([
+      {
+        clerkUserId: identity.id,
+        displayName: "Valid Lifecycle",
+        imageUrl: null,
+        status: "current",
+      },
+    ]);
   });
 });
 

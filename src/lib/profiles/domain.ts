@@ -1,7 +1,11 @@
 import type { NewHireProfile } from "@/lib/onboarding/types";
-import type { ProfileAttribution } from "@/lib/profiles/types";
+import type {
+  DeletedClerkProfile,
+  ProfileAttribution,
+} from "@/lib/profiles/types";
 
 export const UNAVAILABLE_PROFILE_NAME = "New Hire";
+export const FORMER_EMPLOYEE_PROFILE_NAME = "Former Employee";
 export const MAX_PROFILE_BATCH_SIZE = 100;
 
 type ClerkProfilePayload = {
@@ -27,14 +31,24 @@ export class ProfileBatchError extends Error {
 }
 
 type ProfileAttributionSource = {
-  displayName: string | null;
-  imageUrl: string | null;
+  displayName?: string | null;
+  imageUrl?: string | null;
+  deletedAt?: Date | null;
 };
 
 export function toProfileAttribution(
   clerkUserId: string,
   profile: ProfileAttributionSource | undefined,
 ): ProfileAttribution {
+  if (profile?.deletedAt) {
+    return {
+      clerkUserId,
+      displayName: FORMER_EMPLOYEE_PROFILE_NAME,
+      imageUrl: null,
+      status: "former",
+    };
+  }
+
   if (!profile?.displayName) {
     return {
       clerkUserId,
@@ -47,8 +61,46 @@ export function toProfileAttribution(
   return {
     clerkUserId,
     displayName: profile.displayName,
-    imageUrl: profile.imageUrl,
+    imageUrl: profile.imageUrl ?? null,
     status: "current",
+  };
+}
+
+export function deletedProfileFromClerkPayload(
+  payload: unknown,
+  signedTimestamp: unknown,
+): DeletedClerkProfile {
+  if (
+    !payload ||
+    typeof payload !== "object" ||
+    !("id" in payload) ||
+    typeof payload.id !== "string" ||
+    payload.id.length < 1 ||
+    payload.id.length > 255 ||
+    !("deleted" in payload) ||
+    payload.deleted !== true ||
+    typeof signedTimestamp !== "string" ||
+    !/^\d{1,12}$/u.test(signedTimestamp)
+  ) {
+    throw new InvalidClerkProfilePayloadError();
+  }
+
+  const timestampSeconds = Number(signedTimestamp);
+  const deletedAtMilliseconds = timestampSeconds * 1_000;
+  // Clerk profile updates use millisecond source versions. Put a deletion at
+  // the end of its signed second so an earlier same-second update cannot win.
+  const sourceVersion = deletedAtMilliseconds + 999;
+  if (
+    !Number.isSafeInteger(sourceVersion) ||
+    !Number.isFinite(new Date(deletedAtMilliseconds).getTime())
+  ) {
+    throw new InvalidClerkProfilePayloadError();
+  }
+
+  return {
+    clerkUserId: payload.id,
+    sourceVersion,
+    deletedAt: new Date(deletedAtMilliseconds),
   };
 }
 

@@ -1,9 +1,14 @@
-import { isMockAuthenticationAllowed } from "@/lib/auth/mock-session";
+import { createMockAdapters } from "@/lib/adapters/mock";
+import {
+  isMockAuthenticationAllowed,
+  MOCK_AUTH_IDENTITIES,
+} from "@/lib/auth/mock-session";
 import { readAppConfiguration } from "@/lib/config";
 import {
   delayNextMockProfileProjection,
   failNextMockProfileUpdate,
 } from "@/lib/onboarding/profile-authority";
+import { deleteClerkProfile } from "@/lib/profiles/deletion";
 
 export const runtime = "nodejs";
 
@@ -27,6 +32,30 @@ export async function POST(request: Request) {
     case "delay-next-projection":
       delayNextMockProfileProjection(2);
       break;
+    case "delete-account": {
+      const clerkUserId = formData.get("clerkUserId");
+      if (
+        typeof clerkUserId !== "string" ||
+        !Object.values(MOCK_AUTH_IDENTITIES).some(
+          (identity) => identity.id === clerkUserId,
+        )
+      ) {
+        return Response.json({ error: "invalid_profile" }, { status: 400 });
+      }
+      const now = new Date();
+      const adapters = createMockAdapters();
+      await deleteClerkProfile({
+        repository: adapters.neon,
+        portal: adapters.portal,
+        tombstone: {
+          clerkUserId,
+          sourceVersion: now.getTime(),
+          deletedAt: now,
+        },
+        now,
+      });
+      break;
+    }
     default:
       return Response.json({ error: "invalid_intent" }, { status: 400 });
   }

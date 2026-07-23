@@ -1646,6 +1646,15 @@ function LivePortalWorkspace({
       switch (event.type) {
         case "profile.invalidated":
           void invalidateProfileBatches(queryClient, event.profileId);
+          if (event.profileId === identityId) {
+            void fetchEmploymentAccess()
+              .then((access) => {
+                if (!access.eligible) {
+                  onEmploymentAccessEnded(access);
+                }
+              })
+              .catch(() => window.location.reload());
+          }
           break;
         case "report.invalidated":
           void invalidateHRReportQueue(queryClient);
@@ -1944,6 +1953,7 @@ function MockOfficeChannel({
 function MockPortalOffice(
   props: Omit<MockPortalOfficeProps, "mode"> & {
     onOfficeDayExpired(): void;
+    onEmploymentAccessEnded(access: EmploymentAccessDeniedDecision): void;
   },
 ) {
   const queryClient = useQueryClient();
@@ -1957,6 +1967,7 @@ function MockPortalOffice(
     isOperator,
     canSignOut,
     onOfficeDayExpired,
+    onEmploymentAccessEnded,
   } = props;
   const { activeChannelId, setActiveChannelId } = useActiveOfficeChannel(
     channels,
@@ -2016,6 +2027,25 @@ function MockPortalOffice(
               case "report.invalidated":
                 void invalidateHRReportQueue(queryClient);
                 break;
+              case "profile.invalidated":
+                void invalidateProfileBatches(queryClient, event.profileId);
+                if (event.profileId === identityId) {
+                  void fetchEmploymentAccess()
+                    .then((access) => {
+                      if (!access.eligible) onEmploymentAccessEnded(access);
+                    })
+                    .catch(() => {});
+                }
+                break;
+              case "employment.invalidated":
+                if (event.newHireId === identityId) {
+                  void fetchEmploymentAccess()
+                    .then((access) => {
+                      if (!access.eligible) onEmploymentAccessEnded(access);
+                    })
+                    .catch(() => {});
+                }
+                break;
             }
           }
           setReactionStatus("ready");
@@ -2024,6 +2054,13 @@ function MockPortalOffice(
         if (!cancelled) {
           setReactionEvents([]);
           setReactionStatus("reconnecting");
+          void fetchEmploymentAccess()
+            .then((access) => {
+              if (!access.eligible) {
+                onEmploymentAccessEnded(access);
+              }
+            })
+            .catch(() => {});
         }
       }
     }
@@ -2036,7 +2073,7 @@ function MockPortalOffice(
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [eventChannelId, queryClient]);
+  }, [eventChannelId, identityId, onEmploymentAccessEnded, queryClient]);
 
   const publishMockReaction = useCallback(
     async (event: ReactionOfficeEvent): Promise<void> => {
@@ -2146,6 +2183,7 @@ function SentHomeDialog({
 }: {
   access: EmploymentAccessDeniedDecision;
 }) {
+  const sentHome = access.reason === "sent-home";
   return (
     <div className="shift-ended-backdrop">
       <section
@@ -2158,9 +2196,15 @@ function SentHomeDialog({
           <span>Portal Messenger</span>
         </header>
         <div className="shift-ended-content">
-          <h2 id="sent-home-title">You were sent home for this Office Day</h2>
+          <h2 id="sent-home-title">
+            {sentHome
+              ? "You were sent home for this Office Day"
+              : "Your desk is unavailable"}
+          </h2>
           <p>
-            You can return automatically at the start of the next Office Day.
+            {sentHome
+              ? "You can return automatically at the start of the next Office Day."
+              : "Your New Hire Profile is not currently eligible to enter the Shared Public Office."}
           </p>
           {access.until ? (
             <time dateTime={access.until.toISOString()}>
@@ -2267,6 +2311,7 @@ function PortalChatWorkspace(props: PortalChatProps): ReactNode {
       {...workspace}
       key={workspace.officeDay}
       onOfficeDayExpired={endOfficeDay}
+      onEmploymentAccessEnded={setEmploymentAccessEnded}
     />
   );
 }

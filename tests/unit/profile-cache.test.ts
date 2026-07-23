@@ -111,4 +111,61 @@ describe("New Hire Profile query cache", () => {
     historicalAndPresence.unsubscribe();
     unrelated.unsubscribe();
   });
+
+  test("refreshes live and historical attribution to Former Employee", async () => {
+    let deleted = false;
+    const connect = async () => {
+      const client = new QueryClient();
+      const queryKey = profileBatchQueryKey(["user_deleted"]);
+      const observer = new QueryObserver(client, {
+        queryKey,
+        queryFn: async () => [
+          deleted
+            ? {
+                clerkUserId: "user_deleted",
+                displayName: "Former Employee",
+                imageUrl: null,
+                status: "former" as const,
+              }
+            : {
+                clerkUserId: "user_deleted",
+                displayName: "Private Person",
+                imageUrl: "https://img.example/private.png",
+                status: "current" as const,
+              },
+        ],
+        staleTime: 0,
+      });
+      const unsubscribe = observer.subscribe(() => {});
+      await observer.refetch();
+      return { client, queryKey, unsubscribe };
+    };
+    const live = await connect();
+    const historical = await connect();
+
+    deleted = true;
+    await Promise.all([
+      invalidateProfileBatches(live.client, "user_deleted"),
+      invalidateProfileBatches(historical.client, "user_deleted"),
+    ]);
+
+    for (const connection of [live, historical]) {
+      expect(
+        connection.client.getQueryData<
+          Array<{
+            displayName: string;
+            imageUrl: string | null;
+            status: string;
+          }>
+        >(connection.queryKey),
+      ).toEqual([
+        expect.objectContaining({
+          displayName: "Former Employee",
+          imageUrl: null,
+          status: "former",
+        }),
+      ]);
+      connection.unsubscribe();
+    }
+  });
 });

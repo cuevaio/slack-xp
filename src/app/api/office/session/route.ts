@@ -18,6 +18,13 @@ export async function GET() {
 
   const adapters = createServiceAdapters(configuration);
   await repairProfileProjection(adapters.neon, identity, adapters.portal);
+  const employmentAccess = await adapters.neon.getEmploymentAccess(
+    identity.id,
+    new Date(),
+  );
+  if (!employmentAccess.eligible) {
+    return Response.json({ error: "new_hire_ineligible" }, { status: 403 });
+  }
 
   return Response.json({
     id: identity.id,

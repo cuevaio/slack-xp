@@ -21,6 +21,13 @@ async function authenticatedDependencies(): Promise<
     return Response.json({ error: "authentication_required" }, { status: 401 });
   }
   const adapters = createServiceAdapters(configuration);
+  const access = await adapters.neon.getEmploymentAccess(
+    identity.id,
+    new Date(),
+  );
+  if (!access.eligible) {
+    return Response.json({ error: "new_hire_ineligible" }, { status: 403 });
+  }
   return {
     configuration,
     identity,

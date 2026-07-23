@@ -5,21 +5,34 @@ import {
 } from "@/lib/office-events/contract";
 import type { NewHireProfile } from "@/lib/onboarding/types";
 import type {
+  DeletedClerkProfile,
   ProfileInvalidationEvent,
   ProfileInvalidationOutboxEntry,
 } from "@/lib/profiles/types";
 
-function profileChangeSourceId(profile: NewHireProfile): string {
+type ProfileProjectionChange = NewHireProfile | DeletedClerkProfile;
+
+function isDeletedProfile(
+  profile: ProfileProjectionChange,
+): profile is DeletedClerkProfile {
+  return "deletedAt" in profile;
+}
+
+function profileChangeSourceId(profile: ProfileProjectionChange): string {
   const digest = createHash("sha256")
     .update(
-      JSON.stringify([
-        profile.clerkUserId,
-        profile.sourceVersion,
-        profile.firstName,
-        profile.lastName,
-        profile.displayName,
-        profile.imageUrl,
-      ]),
+      JSON.stringify(
+        isDeletedProfile(profile)
+          ? [profile.clerkUserId, profile.sourceVersion, "deleted"]
+          : [
+              profile.clerkUserId,
+              profile.sourceVersion,
+              profile.firstName,
+              profile.lastName,
+              profile.displayName,
+              profile.imageUrl,
+            ],
+      ),
     )
     .digest("hex")
     .slice(0, 32);
@@ -27,7 +40,7 @@ function profileChangeSourceId(profile: NewHireProfile): string {
 }
 
 export function createProfileInvalidationOutboxEntry(
-  profile: NewHireProfile,
+  profile: ProfileProjectionChange,
   occurredAt: Date,
 ): ProfileInvalidationOutboxEntry {
   const event: ProfileInvalidationEvent = {

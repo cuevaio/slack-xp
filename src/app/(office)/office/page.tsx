@@ -9,6 +9,7 @@ import { requireOfficeIdentity } from "@/lib/auth/server";
 import { readAppConfiguration } from "@/lib/config";
 import { profileFromIdentity } from "@/lib/onboarding/profile-authority";
 import { officeNowForRequest } from "@/lib/portal/request-time";
+import { repairProfileProjection } from "@/lib/profiles/service";
 
 export const runtime = "nodejs";
 
@@ -23,6 +24,16 @@ export default async function OfficePage() {
   const identity = await requireOfficeIdentity(configuration);
   const adapters = createServiceAdapters(configuration);
   const now = officeNowForRequest(await headers(), configuration);
+  await repairProfileProjection(adapters.neon, identity, adapters.portal);
+
+  const employmentAccess = await adapters.neon.getEmploymentAccess(
+    identity.id,
+    now,
+  );
+  if (!employmentAccess.eligible) {
+    return <EmploymentAccessEnded access={employmentAccess} />;
+  }
+
   const onboarding = await adapters.neon.enterNewHire(
     profileFromIdentity(identity),
   );
@@ -34,14 +45,6 @@ export default async function OfficePage() {
         isMock={adapters.kind === "mock"}
       />
     );
-  }
-
-  const employmentAccess = await adapters.neon.getEmploymentAccess(
-    identity.id,
-    now,
-  );
-  if (!employmentAccess.eligible) {
-    return <EmploymentAccessEnded access={employmentAccess} />;
   }
 
   return (

@@ -4,7 +4,9 @@ import { readAppConfiguration } from "@/lib/config";
 import { OnboardingError } from "@/lib/onboarding/domain";
 import { profileFromIdentity } from "@/lib/onboarding/profile-authority";
 import { acceptNewHireConduct } from "@/lib/onboarding/service";
+import { officeNowForRequest } from "@/lib/portal/request-time";
 import { handleEmployeeRecordUpdate } from "@/lib/profiles/employee-record-api";
+import { repairProfileProjection } from "@/lib/profiles/service";
 
 export const runtime = "nodejs";
 
@@ -24,6 +26,14 @@ export async function POST(request: Request) {
   const intent = formData.get("intent");
 
   try {
+    await repairProfileProjection(adapters.neon, identity, adapters.portal);
+    const access = await adapters.neon.getEmploymentAccess(
+      identity.id,
+      officeNowForRequest(request.headers, configuration),
+    );
+    if (!access.eligible) {
+      return Response.json({ error: "new_hire_ineligible" }, { status: 403 });
+    }
     // Ensure direct or retried requests have the same stable onboarding row.
     await adapters.neon.enterNewHire(profileFromIdentity(identity));
 

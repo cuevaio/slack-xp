@@ -36,8 +36,10 @@ describe("Removed Message query cache", () => {
 
     await invalidateMessageRemovals(queryClient);
 
-    expect(queryClient.getQueryData(general)).toBeUndefined();
-    expect(queryClient.getQueryData(urgent)).toBeUndefined();
+    expect(queryClient.getQueryData<unknown[]>(general)).toEqual([]);
+    expect(queryClient.getQueryData<unknown[]>(urgent)).toEqual([]);
+    expect(queryClient.getQueryState(general)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(urgent)?.isInvalidated).toBe(true);
     expect(queryClient.getQueryState(["unrelated"])?.isInvalidated).toBe(false);
   });
 });

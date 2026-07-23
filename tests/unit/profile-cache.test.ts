@@ -6,6 +6,7 @@ import {
   PROFILE_REPAIR_INTERVAL_MS,
   profileBatchQueryKey,
 } from "@/lib/profiles/client";
+import { MAX_PROFILE_BATCH_SIZE } from "@/lib/profiles/domain";
 
 describe("New Hire Profile query cache", () => {
   test("rejects incomplete canonical profile batches", async () => {
@@ -57,6 +58,42 @@ describe("New Hire Profile query cache", () => {
     );
   });
 
+  test("reads profile sets larger than the server batch limit", async () => {
+    const clerkUserIds = Array.from(
+      { length: MAX_PROFILE_BATCH_SIZE + 1 },
+      (_, index) => `user_${index}`,
+    );
+    const requestedBatchSizes: number[] = [];
+    const fetcher = async (
+      _input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
+      const body = JSON.parse(String(init?.body)) as {
+        clerkUserIds: string[];
+      };
+      requestedBatchSizes.push(body.clerkUserIds.length);
+      if (body.clerkUserIds.length > MAX_PROFILE_BATCH_SIZE) {
+        return Response.json(
+          { error: "invalid_profile_batch" },
+          { status: 400 },
+        );
+      }
+      return Response.json({
+        profiles: body.clerkUserIds.map((clerkUserId) => ({
+          clerkUserId,
+          displayName: clerkUserId,
+          imageUrl: null,
+          status: "current",
+        })),
+      });
+    };
+
+    const profiles = await fetchProfileAttributions(clerkUserIds, fetcher);
+
+    expect(profiles).toHaveLength(clerkUserIds.length);
+    expect(requestedBatchSizes).toEqual([MAX_PROFILE_BATCH_SIZE, 1]);
+  });
+
   test("invalidates only batches containing the affected stable ID", async () => {
     const queryClient = new QueryClient();
     const affectedSingle = profileBatchQueryKey(["user_a"]);
@@ -68,8 +105,12 @@ describe("New Hire Profile query cache", () => {
 
     await invalidateProfileBatches(queryClient, "user_a");
 
-    expect(queryClient.getQueryData(affectedSingle)).toBeUndefined();
-    expect(queryClient.getQueryData(affectedHistory)).toBeUndefined();
+    expect(queryClient.getQueryData<unknown[]>(affectedSingle)).toEqual([]);
+    expect(queryClient.getQueryData<unknown[]>(affectedHistory)).toEqual([]);
+    expect(queryClient.getQueryState(affectedSingle)?.isInvalidated).toBe(true);
+    expect(queryClient.getQueryState(affectedHistory)?.isInvalidated).toBe(
+      true,
+    );
     expect(queryClient.getQueryState(unaffected)?.isInvalidated).toBe(false);
   });
 

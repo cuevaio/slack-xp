@@ -107,8 +107,9 @@ export function useMessageRemovals(officeChannelId: string) {
 }
 
 export function invalidateMessageRemovals(queryClient: QueryClient) {
-  return queryClient.resetQueries({
+  return queryClient.invalidateQueries({
     queryKey: [MESSAGE_REMOVAL_QUERY_NAMESPACE],
+    refetchType: "all",
   });
 }
 

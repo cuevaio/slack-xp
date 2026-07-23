@@ -42,6 +42,7 @@ import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import {
   invalidateMessageRemovals,
   messageRemovalQueryKey,
+  messageRemovalQueryOptions,
   submitMessageRemoval,
   useMessageRemovals,
 } from "@/lib/message-removals/client";
@@ -79,11 +80,11 @@ import {
 } from "@/lib/portal/chat-composer";
 import { createPortalTokenSource } from "@/lib/portal/client";
 import { type OfficeInboxRow, reconcileOfficeInbox } from "@/lib/portal/inbox";
+import { channelMessageQueryKey } from "@/lib/portal/message-cache";
 import {
-  channelMessageQueryKey,
-  readCachedChannelMessages,
-  writeCachedChannelMessages,
-} from "@/lib/portal/message-cache";
+  type MessageHistorySnapshot,
+  selectMessageHistorySnapshot,
+} from "@/lib/portal/message-history-snapshot";
 import {
   fetchObserverChannelHistory,
   OBSERVER_HISTORY_REFRESH_MS,
@@ -109,6 +110,7 @@ import {
 } from "@/lib/portal/visible-messages";
 import {
   invalidateProfileBatches,
+  profileBatchQueryOptions,
   useProfileBatch,
 } from "@/lib/profiles/client";
 import { ProfileQueryProvider } from "@/lib/profiles/provider";
@@ -930,7 +932,6 @@ function MessageHistory({
                 profilesById={profilesById}
               />
             </p>
-            {message.status === "pending" ? <small>Sending…</small> : null}
             {message.status === "failed" ? (
               <small role="alert">
                 Not delivered. Retry from the composer.
@@ -1079,6 +1080,49 @@ function ChatSurface({
       ),
     [profileQuery.data],
   );
+  const currentMessageHistorySnapshot = useMemo<
+    MessageHistorySnapshot<SafeOfficeChannelMessage, ProfileAttribution>
+  >(
+    () => ({ messages, profileIds, profilesById }),
+    [messages, profileIds, profilesById],
+  );
+  const [lastVerifiedMessageHistory, setLastVerifiedMessageHistory] =
+    useState<MessageHistorySnapshot<
+      SafeOfficeChannelMessage,
+      ProfileAttribution
+    > | null>(null);
+  const previousProfileQuery = useProfileBatch(
+    lastVerifiedMessageHistory?.profileIds ?? [],
+  );
+  const previousProfileSafetyStatus =
+    useSafetyProjectionStatus(previousProfileQuery);
+  const previousProfilesById = useMemo(
+    () =>
+      new Map(
+        (previousProfileQuery.data ?? []).map((profile) => [
+          profile.clerkUserId,
+          profile,
+        ]),
+      ),
+    [previousProfileQuery.data],
+  );
+  const previousMessageHistory = useMemo(
+    () =>
+      lastVerifiedMessageHistory
+        ? {
+            ...lastVerifiedMessageHistory,
+            profilesById: previousProfilesById,
+          }
+        : null,
+    [lastVerifiedMessageHistory, previousProfilesById],
+  );
+  const selectedMessageHistory = selectMessageHistorySnapshot({
+    current: currentMessageHistorySnapshot,
+    previous: previousMessageHistory,
+    previousProfileSafetyStatus,
+    profileSafetyStatus,
+    removalSafetyStatus,
+  });
   const mentionCandidates = mentionSearch
     ? [...profilesById.values()]
         .filter(({ clerkUserId }) => clerkUserId !== identityId)
@@ -1107,7 +1151,7 @@ function ChatSurface({
         </span>
       </div>
     );
-  } else if (!messageHistoryReady) {
+  } else if (!selectedMessageHistory) {
     messageHistory = (
       <p className="profile-status">Verifying message safety…</p>
     );
@@ -1117,16 +1161,21 @@ function ChatSurface({
         activeIds={new Set(activeNewHireIds)}
         channel={channel}
         identityId={identityId}
-        messages={messages}
+        messages={selectedMessageHistory.messages}
         onReact={onReact}
         onRemoveMessage={removeMessage}
-        profilesById={profilesById}
+        profilesById={selectedMessageHistory.profilesById}
         reactionEvents={reactionEvents}
         reactionsEnabled={reactionsEnabled}
         removedMessageIds={removedMessageIds}
       />
     );
   }
+
+  useEffect(() => {
+    if (!messageHistoryReady) return;
+    setLastVerifiedMessageHistory(currentMessageHistorySnapshot);
+  }, [currentMessageHistorySnapshot, messageHistoryReady]);
 
   useEffect(() => {
     latestOnContentVisible.current = onContentVisible;
@@ -2042,22 +2091,6 @@ function LiveOfficeChannel({
     queryKey: channelMessageQueryKey(officeChannel.id),
     queryFn: skipToken,
   });
-  useEffect(() => {
-    if (cachedMessages.data !== undefined) return;
-    let messages: readonly unknown[] = [];
-    try {
-      messages = readCachedChannelMessages(
-        window.localStorage,
-        officeChannel.id,
-      );
-    } catch {
-      // Access to local storage can be disabled; the live query remains available.
-    }
-    queryClient.setQueryData(
-      channelMessageQueryKey(officeChannel.id),
-      messages,
-    );
-  }, [cachedMessages.data, officeChannel.id, queryClient]);
   const channel = useChannel<{ text: string }>({
     channelId: officeChannel.id,
     history: 50,
@@ -2069,6 +2102,30 @@ function LiveOfficeChannel({
       );
     },
   });
+  const prefetchedProfileIds = useMemo(() => {
+    const { messages } = parseOfficeChannelMessages(
+      channel.messages,
+      officeChannel.id,
+    );
+    return [
+      ...new Set([
+        identityId,
+        ...activeNewHireIds,
+        ...messages.filter(isNewHireMessage).map(({ senderId }) => senderId),
+      ]),
+    ];
+  }, [activeNewHireIds, channel.messages, identityId, officeChannel.id]);
+  useEffect(() => {
+    void queryClient.prefetchQuery(
+      messageRemovalQueryOptions(officeChannel.id),
+    );
+  }, [officeChannel.id, queryClient]);
+  useEffect(() => {
+    if (!isChatContentReady(channel.status)) return;
+    void queryClient.prefetchQuery(
+      profileBatchQueryOptions(prefetchedProfileIds),
+    );
+  }, [channel.status, prefetchedProfileIds, queryClient]);
   useEffect(() => {
     if (channel.status === "ready") setChannelError(null);
   }, [channel.status]);
@@ -2078,15 +2135,6 @@ function LiveOfficeChannel({
       channelMessageQueryKey(officeChannel.id),
       channel.messages,
     );
-    try {
-      writeCachedChannelMessages(
-        window.localStorage,
-        officeChannel.id,
-        channel.messages,
-      );
-    } catch {
-      // Access to local storage can be disabled; live Portal data still works.
-    }
   }, [channel.messages, channel.status, officeChannel.id, queryClient]);
   const markVisibleContentRead = useCallback(() => {
     channel.markAsRead();
@@ -2380,6 +2428,7 @@ function LivePortalWorkspace({
       onOpenMobileNavigation={navigation.openMobileNavigation}
       onSelectChannel={selectChannel}
     >
+      {/* Channel controllers stay mounted so Portal and safety data prefetch once. */}
       {channels.map((channel) => (
         <LiveOfficeChannel
           activeNewHireIds={activeNewHireIds}

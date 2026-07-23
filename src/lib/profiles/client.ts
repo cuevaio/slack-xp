@@ -5,6 +5,7 @@ import {
   queryOptions,
   useQuery,
 } from "@tanstack/react-query";
+import { MAX_PROFILE_BATCH_SIZE } from "@/lib/profiles/domain";
 import type { ProfileAttribution } from "@/lib/profiles/types";
 import { SAFETY_PROJECTION_TIMEOUT_MS } from "@/lib/safety/contract";
 
@@ -52,45 +53,58 @@ export async function fetchProfileAttributions(
   const stableIds = stableProfileIds(clerkUserIds);
   if (stableIds.length === 0) return [];
 
-  const response = await fetcher("/api/office/profiles", {
-    method: "POST",
-    credentials: "include",
-    cache: "no-store",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ clerkUserIds: stableIds }),
-    signal: signal
-      ? AbortSignal.any([
-          signal,
-          AbortSignal.timeout(SAFETY_PROJECTION_TIMEOUT_MS),
-        ])
-      : AbortSignal.timeout(SAFETY_PROJECTION_TIMEOUT_MS),
-  });
-  const payload: unknown = await response.json().catch(() => null);
-  if (
-    !response.ok ||
-    typeof payload !== "object" ||
-    payload === null ||
-    !("profiles" in payload) ||
-    !Array.isArray(payload.profiles) ||
-    !payload.profiles.every(isProfileAttribution)
-  ) {
-    throw new Error("New Hire Profiles are unavailable.");
-  }
-
-  const profilesById = new Map(
-    payload.profiles.map((profile) => [profile.clerkUserId, profile]),
+  const batches = Array.from(
+    { length: Math.ceil(stableIds.length / MAX_PROFILE_BATCH_SIZE) },
+    (_, index) =>
+      stableIds.slice(
+        index * MAX_PROFILE_BATCH_SIZE,
+        (index + 1) * MAX_PROFILE_BATCH_SIZE,
+      ),
   );
-  if (
-    profilesById.size !== stableIds.length ||
-    stableIds.some((clerkUserId) => !profilesById.has(clerkUserId))
-  ) {
-    throw new Error("New Hire Profiles are unavailable.");
-  }
-  return stableIds.map((clerkUserId) => {
-    const profile = profilesById.get(clerkUserId);
-    if (!profile) throw new Error("New Hire Profiles are unavailable.");
-    return profile;
-  });
+  const profiles = await Promise.all(
+    batches.map(async (batch) => {
+      const response = await fetcher("/api/office/profiles", {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ clerkUserIds: batch }),
+        signal: signal
+          ? AbortSignal.any([
+              signal,
+              AbortSignal.timeout(SAFETY_PROJECTION_TIMEOUT_MS),
+            ])
+          : AbortSignal.timeout(SAFETY_PROJECTION_TIMEOUT_MS),
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (
+        !response.ok ||
+        typeof payload !== "object" ||
+        payload === null ||
+        !("profiles" in payload) ||
+        !Array.isArray(payload.profiles) ||
+        !payload.profiles.every(isProfileAttribution)
+      ) {
+        throw new Error("New Hire Profiles are unavailable.");
+      }
+
+      const profilesById = new Map(
+        payload.profiles.map((profile) => [profile.clerkUserId, profile]),
+      );
+      if (
+        profilesById.size !== batch.length ||
+        batch.some((clerkUserId) => !profilesById.has(clerkUserId))
+      ) {
+        throw new Error("New Hire Profiles are unavailable.");
+      }
+      return batch.map((clerkUserId) => {
+        const profile = profilesById.get(clerkUserId);
+        if (!profile) throw new Error("New Hire Profiles are unavailable.");
+        return profile;
+      });
+    }),
+  );
+  return profiles.flat();
 }
 
 export function profileBatchQueryOptions(clerkUserIds: readonly string[]) {
@@ -129,9 +143,10 @@ export function invalidateProfileBatches(
   queryClient: QueryClient,
   clerkUserId: string,
 ): Promise<void> {
-  return queryClient.resetQueries({
+  return queryClient.invalidateQueries({
     predicate: (query) =>
       isProfileBatchQueryKey(query.queryKey) &&
       query.queryKey[1].includes(clerkUserId),
+    refetchType: "all",
   });
 }

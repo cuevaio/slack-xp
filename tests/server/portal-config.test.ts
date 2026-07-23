@@ -14,10 +14,14 @@ describe("deployed Portal customer contract", () => {
       "tech-support:*",
       "urgent:*",
     ]) {
-      expect(portalConfig.channels?.[channel]).toEqual({ anonymous: false });
+      expect(portalConfig.channels?.[channel]).toEqual({
+        anonymous: false,
+        onPublish: [moderateChatMessage],
+      });
     }
     expect(portalConfig.channels?.["all-hands:*"]).toEqual({
       anonymous: false,
+      onPublish: [moderateChatMessage],
       mode: "broadcast",
     });
     expect(portalConfig.channels?.["office-events:*"]).toEqual({
@@ -26,7 +30,7 @@ describe("deployed Portal customer contract", () => {
     expect(portalConfig.channels?.["hr-reports"]).toEqual({ anonymous: false });
   });
 
-  test("does not attach hosted hooks while retaining moderation rules", () => {
+  test("attaches non-blocking moderation to public Office Channels", () => {
     for (const channel of [
       "general:*",
       "watercooler:*",
@@ -35,12 +39,54 @@ describe("deployed Portal customer contract", () => {
       "all-hands:*",
     ]) {
       expect(portalConfig.channels?.[channel]?.authz).toBeUndefined();
-      expect(portalConfig.channels?.[channel]?.onPublish).toBeUndefined();
+      expect(portalConfig.channels?.[channel]?.onPublish).toEqual([
+        moderateChatMessage,
+      ]);
     }
-    expect(moderateChatMessage).toBeDefined();
   });
 
-  test("blocks whole-word profanity and basic evasions", () => {
+  test("allows immediately and only retracts after a moderation alert", async () => {
+    async function moderate(text: string) {
+      let deferred: (() => Promise<unknown>) | undefined;
+      const decision = await moderateChatMessage({
+        message: {
+          id: "message-1",
+          type: "message",
+          content: { text },
+          kind: "text",
+          timestamp: Date.now(),
+          ephemeral: false,
+        },
+        sender: { id: "user-1", anon: false, claims: {} },
+        capabilities: { publish: true },
+        channel: {
+          id: "general:2026-07-23",
+          key: "general:*",
+          mode: "standard",
+        },
+        defer(callback) {
+          deferred = callback;
+        },
+        notify() {},
+      });
+      return { decision, deferred: await deferred?.() };
+    }
+
+    expect(await moderate("please assist the class")).toEqual({
+      decision: { action: "allow" },
+      deferred: undefined,
+    });
+    expect(await moderate("what the FUCK")).toEqual({
+      decision: { action: "allow" },
+      deferred: {
+        action: "retract",
+        reason:
+          "That message contains language that is not allowed in the Shared Public Office.",
+      },
+    });
+  });
+
+  test("detects whole-word profanity and basic evasions", () => {
     expect(containsBlockedLanguage("what the FUCK")).toBe(true);
     expect(containsBlockedLanguage("this is sh1t")).toBe(true);
     expect(containsBlockedLanguage("f.u.c.k that")).toBe(true);

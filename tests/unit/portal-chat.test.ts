@@ -19,24 +19,8 @@ import {
   shouldSendChatComposerMessage,
 } from "@/lib/portal/chat-composer";
 import { createPortalTokenSource } from "@/lib/portal/client";
-import {
-  CACHED_MESSAGE_LIMIT,
-  channelMessageQueryKey,
-  readCachedChannelMessages,
-  writeCachedChannelMessages,
-} from "@/lib/portal/message-cache";
-
-function createMemoryStorage() {
-  const values = new Map<string, string>();
-  return {
-    getItem(key: string) {
-      return values.get(key) ?? null;
-    },
-    setItem(key: string, value: string) {
-      values.set(key, value);
-    },
-  };
-}
+import { channelMessageQueryKey } from "@/lib/portal/message-cache";
+import { selectMessageHistorySnapshot } from "@/lib/portal/message-history-snapshot";
 
 describe("chat composer keyboard behavior", () => {
   test("sends with Enter", () => {
@@ -92,6 +76,78 @@ describe("chat composer keyboard behavior", () => {
 });
 
 describe("Office Channel chat contract", () => {
+  test("keeps verified history mounted while a newly seen sender is checked", () => {
+    const previous = {
+      messages: [{ id: "message-1" }],
+      profileIds: ["user-1"],
+      profilesById: new Map([["user-1", { displayName: "Pat" }]]),
+    };
+    const current = {
+      messages: [{ id: "message-1" }, { id: "message-2" }],
+      profileIds: ["user-1", "user-2"],
+      profilesById: new Map<string, { displayName: string }>(),
+    };
+
+    expect(
+      selectMessageHistorySnapshot({
+        current,
+        previous,
+        previousProfileSafetyStatus: "ready",
+        profileSafetyStatus: "loading",
+        removalSafetyStatus: "ready",
+      }),
+    ).toBe(previous);
+  });
+
+  test("does not retain history while existing safety data is rechecked", () => {
+    const previous = {
+      messages: [{ id: "message-1" }],
+      profileIds: ["user-1"],
+      profilesById: new Map([["user-1", { displayName: "Pat" }]]),
+    };
+    const expanded = {
+      ...previous,
+      profileIds: ["user-1", "user-2"],
+    };
+
+    expect(
+      selectMessageHistorySnapshot({
+        current: previous,
+        previous,
+        previousProfileSafetyStatus: "loading",
+        profileSafetyStatus: "loading",
+        removalSafetyStatus: "ready",
+      }),
+    ).toBeNull();
+    expect(
+      selectMessageHistorySnapshot({
+        current: expanded,
+        previous,
+        previousProfileSafetyStatus: "loading",
+        profileSafetyStatus: "loading",
+        removalSafetyStatus: "ready",
+      }),
+    ).toBeNull();
+    expect(
+      selectMessageHistorySnapshot({
+        current: expanded,
+        previous,
+        previousProfileSafetyStatus: "ready",
+        profileSafetyStatus: "unavailable",
+        removalSafetyStatus: "ready",
+      }),
+    ).toBeNull();
+    expect(
+      selectMessageHistorySnapshot({
+        current: expanded,
+        previous,
+        previousProfileSafetyStatus: "ready",
+        profileSafetyStatus: "loading",
+        removalSafetyStatus: "loading",
+      }),
+    ).toBeNull();
+  });
+
   test("defines the complete curated directory with channel-first UTC Office Day ids", () => {
     const beforeMidnight = new Date("2026-07-22T23:59:59.999Z");
 
@@ -241,40 +297,6 @@ describe("Office Channel chat contract", () => {
     expect(
       parsePortalChatMessage({ ...message, timestamp: Number.MAX_VALUE }),
     ).toBeNull();
-  });
-
-  test("keeps a bounded validated local fallback for each Office Channel", () => {
-    const storage = createMemoryStorage();
-    const channelId = "general:2026-07-22";
-    const messages = Array.from(
-      { length: CACHED_MESSAGE_LIMIT + 5 },
-      (_, index) => ({
-        id: `message-${index}`,
-        channelId,
-        sender: { id: "user-1", anon: false },
-        timestamp: 1_753_184_800_000 + index,
-        kind: "text",
-        type: "message",
-        ephemeral: false,
-        retracted: false,
-        status: "sent",
-        content: { text: `Message ${index}` },
-      }),
-    );
-
-    writeCachedChannelMessages(storage, channelId, [
-      { unsafe: true },
-      { ...messages[0], channelId: "urgent:2026-07-22" },
-      ...messages,
-    ]);
-
-    const cached = readCachedChannelMessages(storage, channelId) as Array<{
-      id: string;
-    }>;
-    expect(cached).toHaveLength(CACHED_MESSAGE_LIMIT);
-    expect(cached[0]?.id).toBe("message-5");
-    expect(cached.at(-1)?.id).toBe(`message-${CACHED_MESSAGE_LIMIT + 4}`);
-    expect(readCachedChannelMessages(storage, "urgent:2026-07-22")).toEqual([]);
   });
 
   test("isolates cached message snapshots by Office Channel", () => {

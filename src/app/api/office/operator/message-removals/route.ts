@@ -9,7 +9,7 @@ import type {
 import { parseMessageRemovalRequest } from "@/lib/message-removals/domain";
 import { removeMessage } from "@/lib/message-removals/service";
 import { officeDay } from "@/lib/portal/office-day";
-import { officeNowForRequest } from "@/lib/portal/request-time";
+import { officeNowForRequest } from "@/lib/portal/request-controls";
 
 export const runtime = "nodejs";
 

@@ -1,9 +1,14 @@
-type SafetyUnavailableReason = "maintenance" | "projection";
+type SafetyUnavailableReason = "authentication" | "maintenance" | "projection";
 
 const SAFETY_UNAVAILABLE_CONTENT: Record<
   SafetyUnavailableReason,
   { heading: string; detail: string }
 > = {
+  authentication: {
+    heading: "Sign-in is temporarily unavailable",
+    detail:
+      "Portal Messenger cannot verify a New Hire right now, so the Shared Public Office remains closed.",
+  },
   maintenance: {
     heading: "Portal Messenger is under maintenance",
     detail:

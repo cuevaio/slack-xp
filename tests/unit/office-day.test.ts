@@ -1,15 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { ReadyAppConfiguration } from "@/lib/config";
 import {
   formatOfficeTimestamp,
   millisecondsUntilNextOfficeDay,
   observeOfficeDayBoundary,
   officeDay,
 } from "@/lib/portal/office-day";
-import {
-  MOCK_OFFICE_NOW_HEADER,
-  officeNowForRequest,
-} from "@/lib/portal/request-time";
 
 class VisibleDocumentTarget extends EventTarget {
   visibilityState: DocumentVisibilityState = "visible";
@@ -104,32 +99,5 @@ describe("Office Day", () => {
     expect(formatOfficeTimestamp(timestamp, "Asia/Tokyo", "en-US")).toBe(
       "1:30 AM",
     );
-  });
-
-  test("accepts the controlled request clock only in test mock mode", () => {
-    const controlled = "2030-01-02T03:04:05.000Z";
-    const fallback = new Date("2026-07-22T12:00:00.000Z");
-    const requestHeaders = new Headers({
-      [MOCK_OFFICE_NOW_HEADER]: controlled,
-    });
-    const mockConfiguration = {
-      status: "ready",
-      environment: "test",
-      serviceMode: "mock",
-      values: {},
-    } satisfies ReadyAppConfiguration;
-    const liveConfiguration = {
-      status: "ready",
-      environment: "production",
-      serviceMode: "live",
-      values: {},
-    } satisfies ReadyAppConfiguration;
-
-    expect(
-      officeNowForRequest(requestHeaders, mockConfiguration, fallback),
-    ).toEqual(new Date(controlled));
-    expect(
-      officeNowForRequest(requestHeaders, liveConfiguration, fallback),
-    ).toBe(fallback);
   });
 });

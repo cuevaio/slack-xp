@@ -9,6 +9,7 @@ import {
   readMockSessionToken,
 } from "@/lib/auth/mock-session";
 import { readAppConfiguration } from "@/lib/config";
+import { officeFaultForRequest } from "@/lib/portal/request-controls";
 import { maintenanceUnavailableResponse } from "@/lib/safety/contract";
 import { isMaintenanceActive, requestCorrelationId } from "@/lib/safety/server";
 
@@ -57,13 +58,24 @@ export async function proxy(request: NextRequest, event: NextFetchEvent) {
     return clerkAuthenticationProxy(request, event);
   }
 
+  const targetsOfficeServerOperation = isOfficeServerOperation(
+    request.nextUrl.pathname,
+  );
+  const controlledFault = officeFaultForRequest(request.headers, configuration);
+  if (
+    !targetsOfficeServerOperation &&
+    (controlledFault === "installation" || controlledFault === "authentication")
+  ) {
+    return NextResponse.next();
+  }
+
   const identity = readMockSessionToken(
     request.cookies.get(MOCK_SESSION_COOKIE)?.value,
   );
   if (identity) {
     if (
-      isOfficeServerOperation(request.nextUrl.pathname) &&
-      isMaintenanceActive()
+      targetsOfficeServerOperation &&
+      (controlledFault === "maintenance" || isMaintenanceActive())
     ) {
       return maintenanceUnavailableResponse(
         requestCorrelationId(request.headers),
@@ -72,7 +84,7 @@ export async function proxy(request: NextRequest, event: NextFetchEvent) {
     return NextResponse.next();
   }
 
-  if (isOfficeServerOperation(request.nextUrl.pathname)) {
+  if (targetsOfficeServerOperation) {
     return NextResponse.json(
       { error: "authentication_required" },
       { status: 401 },

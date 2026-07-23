@@ -6,7 +6,7 @@ import { flushHRReportNotifications } from "@/lib/hr-reports/service";
 import { flushMessageRemovalInvalidations } from "@/lib/message-removals/service";
 import { repairOfficeDayOnEntry } from "@/lib/office-days/cron";
 import { MockPortalUnavailableError } from "@/lib/portal/mock";
-import { officeNowForRequest } from "@/lib/portal/request-time";
+import { officeNowForRequest } from "@/lib/portal/request-controls";
 import { PortalServiceError } from "@/lib/portal/server";
 import {
   issueOfficePortalSession,

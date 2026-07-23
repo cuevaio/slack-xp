@@ -6,7 +6,7 @@ import { parseMessageRemovalChannelQuery } from "@/lib/message-removals/domain";
 import { listMessageRemovals } from "@/lib/message-removals/service";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 import { officeDay } from "@/lib/portal/office-day";
-import { officeNowForRequest } from "@/lib/portal/request-time";
+import { officeNowForRequest } from "@/lib/portal/request-controls";
 import {
   SAFETY_PROJECTION_TIMEOUT_MS,
   safetyProjectionUnavailableResponse,

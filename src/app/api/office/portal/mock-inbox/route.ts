@@ -9,7 +9,7 @@ import {
   type MockPortalInboxEntry,
   MockPortalUnavailableError,
 } from "@/lib/portal/mock";
-import { officeNowForRequest } from "@/lib/portal/request-time";
+import { officeNowForRequest } from "@/lib/portal/request-controls";
 import {
   issueOfficePortalSession,
   type OfficePortalSession,

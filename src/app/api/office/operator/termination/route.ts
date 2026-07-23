@@ -13,7 +13,7 @@ import {
   parseTerminationRequest,
 } from "@/lib/employment/domain";
 import { reinstateNewHire, terminateNewHire } from "@/lib/employment/service";
-import { officeNowForRequest } from "@/lib/portal/request-time";
+import { officeNowForRequest } from "@/lib/portal/request-controls";
 
 export const runtime = "nodejs";
 

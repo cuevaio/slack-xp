@@ -197,6 +197,14 @@ test("message HR Reports stay private and deep-link Operators to review context"
   await expect(
     dialog.getByRole("radio", { name: "Harassment or bullying" }),
   ).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  await expect(
+    dialog.getByRole("button", { name: "Submit private report" }),
+  ).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(
+    dialog.getByRole("radio", { name: "Harassment or bullying" }),
+  ).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();
   await expect(
@@ -741,7 +749,9 @@ test("general chat confirms, reconnects, validates text, and recovers from Porta
   });
   await composer.fill("Please retry this memo");
   await page.getByRole("button", { name: "Send" }).click();
-  await expect(page.getByText("Message not delivered")).toBeVisible();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "Message not delivered" }),
+  ).toBeVisible();
   await expect(composer).toHaveValue("Please retry this memo");
   const retryConfirmation = page.waitForResponse(
     (response) =>
@@ -757,7 +767,15 @@ test("general chat confirms, reconnects, validates text, and recovers from Porta
     form: { intent: "offline" },
   });
   await page.reload();
-  await expect(page.getByText("Connection lost.")).toBeVisible();
+  const offlineAnnouncement = page.getByText(
+    "Connection lost. Portal is offline.",
+    { exact: true },
+  );
+  await expect(offlineAnnouncement).toBeVisible();
+  await expect(offlineAnnouncement.locator("..")).toHaveAttribute(
+    "aria-live",
+    "polite",
+  );
   await expect(composer).toBeDisabled();
   await page.request.post("/api/auth/mock-portal", {
     form: { intent: "online" },
@@ -990,6 +1008,7 @@ test("emoji reactions use the fixed accessible palette and survive reconnect", a
 });
 
 test("a New Hire edits an Employee Record with accessible recovery and current attribution", async ({
+  browser,
   page,
 }) => {
   await page.goto("/office");
@@ -1003,6 +1022,15 @@ test("a New Hire edits an Employee Record with accessible recovery and current a
     hasText: "This memo should follow my current profile.",
   });
   await expect(historicalMessage.getByRole("strong")).toHaveText("Terry Byte");
+
+  const colleagueContext = await browser.newContext();
+  const colleague = await colleagueContext.newPage();
+  await colleague.goto("/office");
+  await colleague.getByRole("button", { name: "Sign in as Operator" }).click();
+  const colleagueMessage = colleague.getByRole("listitem").filter({
+    hasText: "This memo should follow my current profile.",
+  });
+  await expect(colleagueMessage.getByRole("strong")).toHaveText("Terry Byte");
 
   const trigger = page.getByRole("button", { name: "Edit profile" });
   await trigger.click();
@@ -1067,6 +1095,8 @@ test("a New Hire edits an Employee Record with accessible recovery and current a
     page.getByRole("heading", { name: "Welcome, Taylor Byte" }),
   ).toBeVisible();
   await expect(historicalMessage.getByRole("strong")).toHaveText("Taylor Byte");
+  await expect(colleagueMessage.getByRole("strong")).toHaveText("Taylor Byte");
+  await colleagueContext.close();
 });
 
 test("Clerk account deletion preserves messages as Former Employee and removes current access", async ({

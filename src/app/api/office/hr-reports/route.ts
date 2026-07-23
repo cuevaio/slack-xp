@@ -11,7 +11,7 @@ import {
   submitMessageHRReport,
   submitProfileHRReport,
 } from "@/lib/hr-reports/service";
-import { officeNowForRequest } from "@/lib/portal/request-time";
+import { officeNowForRequest } from "@/lib/portal/request-controls";
 
 export const runtime = "nodejs";
 

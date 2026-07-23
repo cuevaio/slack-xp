@@ -381,6 +381,12 @@ the protected surface. The private reason is visible only in the Operator audit
 and is never placed in the tombstone, public projection response, logs, or
 Office Event.
 
+Application-owned retention selection keeps HR Reports, Operator audits, and
+reversed Terminations for 90 days. Office Days, completed outbox work, and
+Removed Message projections are selected after 30 days. Pending outbox work and
+active Terminations are never selected; an active Termination remains durable
+until reinstatement, after which its 90-day period starts at the reversal.
+
 The Office Day is the pure UTC date of the current instant. A client monitor
 arms for the next UTC boundary and also rechecks at least once per minute and
 after visibility, page-show, focus, and online recovery events, so sleep,
@@ -596,7 +602,10 @@ bunx playwright install chromium
 Browser boundary tests control both clocks with Playwright and the
 `x-portal-mock-now` request header. The server honors that header only when
 `APP_ENV=test` and `SERVICE_MODE=mock`; live and production requests always use
-the server clock.
+the server clock. The acceptance suite uses `x-portal-mock-fault` under the same
+guard to render deterministic installation, authentication, and maintenance
+failures through the real `/office` boundary. Live and production requests
+ignore that header.
 
 ## Architecture Boundaries
 

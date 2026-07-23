@@ -2277,7 +2277,7 @@ a {
 }
 
 .character-count {
-  color: #626a75;
+  color: #4e5662;
   font-family: var(--font-geist-mono), monospace;
   font-size: 0.66rem;
 }
@@ -2611,6 +2611,11 @@ a {
     min-height: calc(100svh - 52px);
   }
 
+  .office-body button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
   .channel-panel {
     min-height: calc(100svh - 52px);
     padding: 0.85rem 1rem;
@@ -2680,6 +2685,12 @@ a {
 }
 
 @media (max-width: 520px) {
+  .installation-shell button,
+  .onboarding-shell button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
   .conversation-heading {
     align-items: flex-start;
     flex-direction: column;
@@ -2786,6 +2797,11 @@ body:has(.office-fullscreen-toggle:checked) {
   .primary-action,
   .preview-window {
     transition-duration: 0.01ms;
+  }
+
+  :where(a[href], button, summary, [role="button"]) {
+    transition-duration: 0.01ms;
+    animation-duration: 0.01ms;
   }
 
   :where(a[href], button, summary, [role="button"]):active {

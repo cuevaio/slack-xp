@@ -7,7 +7,9 @@ import {
   officeDay,
 } from "@/lib/portal/office-day";
 import {
+  MOCK_OFFICE_FAULT_HEADER,
   MOCK_OFFICE_NOW_HEADER,
+  officeFaultForRequest,
   officeNowForRequest,
 } from "@/lib/portal/request-time";
 
@@ -131,5 +133,43 @@ describe("Office Day", () => {
     expect(
       officeNowForRequest(requestHeaders, liveConfiguration, fallback),
     ).toBe(fallback);
+  });
+
+  test("accepts controlled office faults only in test mock mode", () => {
+    const mockConfiguration = {
+      status: "ready",
+      environment: "test",
+      serviceMode: "mock",
+      values: {},
+    } satisfies ReadyAppConfiguration;
+    const liveConfiguration = {
+      status: "ready",
+      environment: "production",
+      serviceMode: "live",
+      values: {},
+    } satisfies ReadyAppConfiguration;
+
+    for (const fault of [
+      "installation",
+      "authentication",
+      "maintenance",
+    ] as const) {
+      const requestHeaders = new Headers({
+        [MOCK_OFFICE_FAULT_HEADER]: fault,
+      });
+      expect(officeFaultForRequest(requestHeaders, mockConfiguration)).toBe(
+        fault,
+      );
+      expect(
+        officeFaultForRequest(requestHeaders, liveConfiguration),
+      ).toBeNull();
+    }
+
+    expect(
+      officeFaultForRequest(
+        new Headers({ [MOCK_OFFICE_FAULT_HEADER]: "unknown" }),
+        mockConfiguration,
+      ),
+    ).toBeNull();
   });
 });

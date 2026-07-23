@@ -9,6 +9,7 @@ import {
   readMockSessionToken,
 } from "@/lib/auth/mock-session";
 import { readAppConfiguration } from "@/lib/config";
+import { officeFaultForRequest } from "@/lib/portal/request-time";
 import { maintenanceUnavailableResponse } from "@/lib/safety/contract";
 import { isMaintenanceActive, requestCorrelationId } from "@/lib/safety/server";
 
@@ -57,13 +58,21 @@ export async function proxy(request: NextRequest, event: NextFetchEvent) {
     return clerkAuthenticationProxy(request, event);
   }
 
+  const controlledFault = officeFaultForRequest(request.headers, configuration);
+  if (
+    !isOfficeServerOperation(request.nextUrl.pathname) &&
+    (controlledFault === "installation" || controlledFault === "authentication")
+  ) {
+    return NextResponse.next();
+  }
+
   const identity = readMockSessionToken(
     request.cookies.get(MOCK_SESSION_COOKIE)?.value,
   );
   if (identity) {
     if (
       isOfficeServerOperation(request.nextUrl.pathname) &&
-      isMaintenanceActive()
+      (controlledFault === "maintenance" || isMaintenanceActive())
     ) {
       return maintenanceUnavailableResponse(
         requestCorrelationId(request.headers),

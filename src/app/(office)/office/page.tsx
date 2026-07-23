@@ -7,11 +7,14 @@ import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { SafetyUnavailable } from "@/components/safety-unavailable";
 import { createServiceAdapters } from "@/lib/adapters";
 import { requireOfficeIdentity } from "@/lib/auth/server";
-import { readAppConfiguration } from "@/lib/config";
+import { type AppConfiguration, readAppConfiguration } from "@/lib/config";
 import type { EmploymentAccessDecision } from "@/lib/employment/contract";
 import { profileFromIdentity } from "@/lib/onboarding/profile-authority";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
-import { officeNowForRequest } from "@/lib/portal/request-time";
+import {
+  officeFaultForRequest,
+  officeNowForRequest,
+} from "@/lib/portal/request-time";
 import { repairProfileProjection } from "@/lib/profiles/service";
 import { SAFETY_PROJECTION_TIMEOUT_MS } from "@/lib/safety/contract";
 import { portalOrNeonAuthority } from "@/lib/safety/failure-authority";
@@ -27,17 +30,31 @@ export const runtime = "nodejs";
 export default async function OfficePage() {
   await connection();
   const configuration = readAppConfiguration();
+  const requestHeaders = await headers();
 
   if (configuration.status === "incomplete") {
     return <InstallationIncomplete configuration={configuration} />;
   }
 
+  const controlledFault = officeFaultForRequest(requestHeaders, configuration);
+  if (controlledFault === "installation") {
+    const incompleteConfiguration = {
+      status: "incomplete",
+      environment: configuration.environment,
+      serviceMode: configuration.serviceMode,
+      issues: [{ name: "CONTROLLED_TEST_FAULT", reason: "missing" }],
+    } satisfies AppConfiguration;
+    return <InstallationIncomplete configuration={incompleteConfiguration} />;
+  }
+  if (controlledFault === "authentication") {
+    return <SafetyUnavailable reason="authentication" />;
+  }
+
   const identity = await requireOfficeIdentity(configuration);
-  if (isMaintenanceActive()) {
+  if (controlledFault === "maintenance" || isMaintenanceActive()) {
     return <SafetyUnavailable reason="maintenance" />;
   }
   const adapters = createServiceAdapters(configuration);
-  const requestHeaders = await headers();
   const correlationId = requestCorrelationId(requestHeaders);
   const now = officeNowForRequest(requestHeaders, configuration);
 

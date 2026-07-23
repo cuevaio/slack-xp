@@ -1206,6 +1206,31 @@ a {
   width: min(1120px, 100%);
 }
 
+@media (min-width: 851px) {
+  html:has(.office-shell),
+  body:has(.office-shell) {
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .office-shell {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .messenger-window {
+    display: flex;
+    max-height: 100%;
+    flex-direction: column;
+  }
+
+  .office-body {
+    min-height: 0;
+    flex-shrink: 1;
+  }
+}
+
 .office-body {
   display: grid;
   height: 620px;

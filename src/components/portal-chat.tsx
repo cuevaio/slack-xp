@@ -13,6 +13,23 @@ import { createPortalTokenSource } from "@/lib/portal/client";
 
 type ChatContent = { text: string };
 
+type SendChatMessage = (input: { content: ChatContent }) => Promise<unknown>;
+
+export async function sendChatMessage(send: SendChatMessage, draft: string) {
+  const text = draft.trim();
+  if (!text) return false;
+  await send({ content: { text } });
+  return true;
+}
+
+export function readChannel(
+  markChannelRead: () => void,
+  inboxEntry: { markAsRead(): void } | undefined,
+) {
+  markChannelRead();
+  inboxEntry?.markAsRead();
+}
+
 function messageText(message: Message<ChatContent>) {
   return !message.retracted && typeof message.content?.text === "string"
     ? message.content.text
@@ -57,6 +74,7 @@ function LiveChannel({ channel }: { channel: OfficeChannel }) {
     readOn: "manual",
     onError: () => setError("Connection lost. Portal will keep retrying."),
   });
+  const inbox = useInbox();
   const participants = live.presence?.count ?? 0;
 
   async function send() {
@@ -65,7 +83,7 @@ function LiveChannel({ channel }: { channel: OfficeChannel }) {
     setDraft("");
     setError(null);
     try {
-      await live.send({ content: { text } });
+      await sendChatMessage(live.send, text);
     } catch {
       setDraft(text);
       setError("Message not sent. Try again.");
@@ -83,7 +101,12 @@ function LiveChannel({ channel }: { channel: OfficeChannel }) {
           {live.status === "ready" ? `${participants} online` : live.status}
         </span>
         {live.unread > 0 ? (
-          <button onClick={live.markAsRead} type="button">
+          <button
+            onClick={() =>
+              readChannel(live.markAsRead, inbox.channels.get(channel.id))
+            }
+            type="button"
+          >
             Mark {live.unread} read
           </button>
         ) : null}

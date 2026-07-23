@@ -7,7 +7,7 @@ This version has breaking changes — APIs, conventions, and file structure may 
 ## Toolchain
 
 - Use Bun; `bun.lock` is the only lockfile. Install with `bun install` and run the app with `bun run dev`.
-- Verification commands are `bun run lint`, `bunx tsc --noEmit`, and `bun run build`. No automated test suite is configured.
+- Verification commands are `bun run test`, `bun run lint`, `bunx tsc --noEmit`, and `bun run build`.
 - For a focused Biome check, run `bunx biome check <path>`. `bun run format` writes formatting across the repository; it is not a lint-fix command.
 
 ## Application

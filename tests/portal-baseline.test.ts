@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { Message } from "@portalsdk/core";
 import config, { containsBlockedLanguage } from "../portal.config";
-import { messageText } from "../src/components/portal-chat";
+import {
+  messageText,
+  readChannel,
+  sendChatMessage,
+} from "../src/components/portal-chat";
 import { listOfficeChannels } from "../src/lib/portal/channels";
 import { createPortalTokenSource } from "../src/lib/portal/client";
 import { createPortalSession } from "../src/lib/portal/server";
@@ -36,6 +40,21 @@ describe("Portal teaching baseline", () => {
         headers: { Authorization: "Bearer clerk-token" },
       }),
     );
+  });
+
+  test("trims and sends chat messages without inventing Portal state", async () => {
+    const send = mock(async () => ({ id: "message_1" }));
+    expect(await sendChatMessage(send, "  Hello  ")).toBe(true);
+    expect(send).toHaveBeenCalledWith({ content: { text: "Hello" } });
+    expect(await sendChatMessage(send, "   ")).toBe(false);
+  });
+
+  test("manual read advances both channel and inbox positions", () => {
+    const markChannelRead = mock(() => undefined);
+    const markInboxRead = mock(() => undefined);
+    readChannel(markChannelRead, { markAsRead: markInboxRead });
+    expect(markChannelRead).toHaveBeenCalledTimes(1);
+    expect(markInboxRead).toHaveBeenCalledTimes(1);
   });
 });
 

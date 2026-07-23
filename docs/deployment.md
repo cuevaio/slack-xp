@@ -88,9 +88,17 @@ selected by `PORTAL_SECRET`. It configures all visible channels, the hidden
 Office Event channel, and the Operator notification channel with
 `anonymous: false`; All Hands uses broadcast mode. It adds no content
 middleware. Broadcast presentation is not a publish-authorization boundary.
-Office Channels from the 2026-07-23 rollout onward use the `v2` channel
-namespace so coordinators pinned to the earlier authorization policy cannot
-keep authenticated New Hires on stale configuration.
+Every Office Day uses the permanent `v3` channel namespace. Access control
+grants only the five visible `v3` channels and the hidden `v3` Office Event
+channel for that day; legacy and `v2` IDs are not accepted.
+
+Portal v1 does not expose supported channel or message deletion operations.
+Channels are implicit resources created through use, so do not infer a reset
+endpoint or delete dashboard archive records. Switching to the unused `v3`
+namespace provides the clean conversation start. Run `bun run portal:deploy`
+before entering the app so only the current policy is published. The fixed
+`hr-reports` Operator notification channel remains separate from Office Day
+conversation history.
 
 In the Clerk development dashboard, create
 `https://<development-origin>/api/webhooks/clerk`, subscribe to `user.created`,

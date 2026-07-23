@@ -39,7 +39,7 @@ describe("Office Channel inbox projection", () => {
         href: "https://office.example.com/office?officeDay=2026-07-22&channel=general&message=message-17",
         subjectType: "message",
         officeDay: "2026-07-22",
-        officeChannelId: "general:2026-07-22",
+        officeChannelId: "general:v3:2026-07-22",
         messageId: "message-17",
       },
       at: 1_753_188_000_000,
@@ -51,7 +51,7 @@ describe("Office Channel inbox projection", () => {
       href: "/office?officeDay=2026-07-22&channel=general&message=message-17",
       subjectType: "message",
       officeDay: "2026-07-22",
-      officeChannelId: "general:2026-07-22",
+      officeChannelId: "general:v3:2026-07-22",
       messageId: "message-17",
       at: 1_753_188_000_000,
       read: false,
@@ -73,7 +73,7 @@ describe("Office Channel inbox projection", () => {
           href: "/office?officeDay=2026-07-22&channel=general&message=message-17",
           subjectType: "message",
           officeDay: "2026-07-22",
-          officeChannelId: "general:2026-07-22",
+          officeChannelId: "general:v3:2026-07-22",
           messageId: "message-17",
           at: 1_753_188_000_000,
           read: false,
@@ -164,9 +164,9 @@ describe("Office Channel inbox projection", () => {
   test("keeps curated order while applying authoritative unread rows and safe previews", () => {
     const channels = listOfficeChannels(new Date("2026-07-22T12:00:00.000Z"));
     const entries = [
-      inboxEntry("urgent:2026-07-22", 4, "Deploy <script>alert(1)</script>"),
+      inboxEntry("urgent:v3:2026-07-22", 4, "Deploy <script>alert(1)</script>"),
       inboxEntry(
-        "general:2026-07-22",
+        "general:v3:2026-07-22",
         2,
         "My own update",
         "user_current",
@@ -174,13 +174,13 @@ describe("Office Channel inbox projection", () => {
       ),
       inboxEntry("watercooler:2026-07-21", 99, "Yesterday"),
       inboxEntry(
-        "watercooler:2026-07-22",
+        "watercooler:v3:2026-07-22",
         3,
         "The decaf pot is evidence.",
         "office-character:dot-matrix",
       ),
-      inboxEntry("tech-support:2026-07-22", 1, " ".repeat(4)),
-      inboxEntry("all-hands:2026-07-22", 8, "x".repeat(1_001)),
+      inboxEntry("tech-support:v3:2026-07-22", 1, " ".repeat(4)),
+      inboxEntry("all-hands:v3:2026-07-22", 8, "x".repeat(1_001)),
     ];
 
     const rows = reconcileOfficeInbox({

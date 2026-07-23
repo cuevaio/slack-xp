@@ -5,7 +5,7 @@ import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 import {
   listOfficeChannels,
   OFFICE_CHANNEL_DEFINITIONS,
-  officeDayChannelIdsForAccessControl,
+  officeDayChannelIds,
 } from "@/lib/portal/channels";
 import { officeDay } from "@/lib/portal/office-day";
 import type { PortalAuthority, PortalToken } from "@/lib/portal/types";
@@ -55,7 +55,7 @@ export async function issueOfficePortalSession({
   const channelIds = listOfficeChannels(now).map(({ id }) => id);
   const eventChannelId = officeEventChannelId(now);
   const membershipChannelIds = [
-    ...officeDayChannelIdsForAccessControl(
+    ...officeDayChannelIds(
       [...OFFICE_CHANNEL_DEFINITIONS.map(({ slug }) => slug), "office-events"],
       officeDay(now),
     ),

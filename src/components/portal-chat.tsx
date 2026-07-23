@@ -1,5 +1,6 @@
 "use client";
 
+import { Popover } from "@base-ui/react/popover";
 import { SignInButton, useAuth } from "@clerk/nextjs";
 import {
   type AggregatePresence,
@@ -14,7 +15,6 @@ import { PortalProvider, useChannel, useInbox } from "@portalsdk/react";
 import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
 import {
-  Activity,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
@@ -532,24 +532,18 @@ function ReactionControls({
   identityId,
   enabled,
   onReact,
+  children,
 }: {
   message: SafePortalChatMessage;
   reactions: readonly ProjectedOfficeReaction[];
   identityId: string;
   enabled: boolean;
   onReact(input: ReactionMutation): Promise<void>;
+  children: ReactNode;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const firstReactionRef = useRef<HTMLButtonElement>(null);
-  const pickerId = `reaction-picker-${message.id}`;
-
-  useEffect(() => {
-    if (pickerOpen) {
-      firstReactionRef.current?.focus();
-    }
-  }, [pickerOpen]);
 
   function operationFor(reaction: OfficeReaction): "add" | "remove" {
     return reactions
@@ -562,7 +556,6 @@ function ReactionControls({
   async function updateReaction(reaction: OfficeReaction): Promise<void> {
     setError(null);
     setPickerOpen(false);
-    requestAnimationFrame(() => triggerRef.current?.focus());
     try {
       await onReact({
         officeChannelId: message.channelId,
@@ -578,15 +571,46 @@ function ReactionControls({
   function handlePickerKeyDown(
     event: KeyboardEvent<HTMLFieldSetElement>,
   ): void {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      setPickerOpen(false);
-      triggerRef.current?.focus();
+    if (
+      ![
+        "ArrowLeft",
+        "ArrowRight",
+        "ArrowUp",
+        "ArrowDown",
+        "Home",
+        "End",
+      ].includes(event.key)
+    ) {
+      return;
     }
+
+    event.preventDefault();
+    const options = [
+      ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+        "button:not(:disabled)",
+      ),
+    ];
+    const currentIndex = options.indexOf(
+      document.activeElement as HTMLButtonElement,
+    );
+    const nextIndex =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? options.length - 1
+          : (currentIndex +
+              (event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1) +
+              options.length) %
+            options.length;
+    options[nextIndex]?.focus();
   }
 
   return (
-    <div className="reaction-controls">
+    <div
+      className="reaction-controls"
+      data-has-reactions={reactions.length > 0}
+      data-picker-open={pickerOpen}
+    >
       <fieldset className="reaction-summary">
         <legend className="sr-only">Message reactions</legend>
         {reactions.map(({ reaction, actorIds }) => {
@@ -607,48 +631,104 @@ function ReactionControls({
           );
         })}
       </fieldset>
-      <button
-        aria-controls={pickerId}
-        aria-expanded={pickerOpen}
-        className="reaction-picker-trigger"
-        disabled={!enabled}
-        onClick={() => setPickerOpen((current) => !current)}
-        ref={triggerRef}
-        type="button"
-      >
-        <span aria-hidden="true">+</span>
-        <span className="sr-only">Add or remove a reaction</span>
-      </button>
-      {pickerOpen ? (
-        <fieldset
-          className="reaction-picker"
-          id={pickerId}
-          onKeyDown={handlePickerKeyDown}
-        >
-          <legend className="sr-only">Choose a reaction</legend>
-          {OFFICE_REACTIONS.map((reaction, index) => {
-            const operation = operationFor(reaction);
-            return (
-              <button
-                aria-label={`${REACTION_NAMES[reaction]} (${reaction}), ${operation} reaction`}
-                aria-pressed={operation === "remove"}
-                key={reaction}
-                onClick={() => void updateReaction(reaction)}
-                ref={index === 0 ? firstReactionRef : undefined}
-                type="button"
+      <div className="message-action-toolbar">
+        <Popover.Root onOpenChange={setPickerOpen} open={pickerOpen}>
+          <Popover.Trigger
+            aria-label="Add or remove a reaction"
+            className="message-action-button reaction-picker-trigger"
+            disabled={!enabled}
+          >
+            <span aria-hidden="true">☺+</span>
+          </Popover.Trigger>
+          <Popover.Portal>
+            <Popover.Positioner
+              align="end"
+              className="reaction-picker-positioner"
+              side="bottom"
+              sideOffset={4}
+            >
+              <Popover.Popup
+                className="reaction-picker"
+                initialFocus={firstReactionRef}
               >
-                <span aria-hidden="true">{reaction}</span>
-              </button>
-            );
-          })}
-        </fieldset>
-      ) : null}
+                <Popover.Title className="sr-only">
+                  Choose a reaction
+                </Popover.Title>
+                <fieldset
+                  className="reaction-picker-options"
+                  onKeyDown={handlePickerKeyDown}
+                >
+                  <legend className="sr-only">Choose a reaction</legend>
+                  {OFFICE_REACTIONS.map((reaction, index) => {
+                    const operation = operationFor(reaction);
+                    return (
+                      <button
+                        aria-label={`${REACTION_NAMES[reaction]} (${reaction}), ${operation} reaction`}
+                        aria-pressed={operation === "remove"}
+                        key={reaction}
+                        onClick={() => void updateReaction(reaction)}
+                        ref={index === 0 ? firstReactionRef : undefined}
+                        type="button"
+                      >
+                        <span aria-hidden="true">{reaction}</span>
+                      </button>
+                    );
+                  })}
+                </fieldset>
+              </Popover.Popup>
+            </Popover.Positioner>
+          </Popover.Portal>
+        </Popover.Root>
+        {children}
+      </div>
       {error ? (
         <small className="reaction-error" role="alert">
           {error}
         </small>
       ) : null}
     </div>
+  );
+}
+
+function MessageActions({
+  message,
+  reactions,
+  identityId,
+  enabled,
+  onReact,
+  onRemoveMessage,
+}: {
+  message: SafePortalChatMessage;
+  reactions: readonly ProjectedOfficeReaction[];
+  identityId: string;
+  enabled: boolean;
+  onReact(input: ReactionMutation): Promise<void>;
+  onRemoveMessage(privateReason: string): Promise<void>;
+}) {
+  const overflowTriggerRef = useRef<HTMLButtonElement>(null);
+
+  return (
+    <ReactionControls
+      enabled={enabled}
+      identityId={identityId}
+      message={message}
+      onReact={onReact}
+      reactions={reactions}
+    >
+      <MessageRemovalControls
+        onRemove={onRemoveMessage}
+        returnFocusRef={overflowTriggerRef}
+      >
+        {(removalMenuItem) => (
+          <MessageHRReportControls
+            message={message}
+            triggerRef={overflowTriggerRef}
+          >
+            {removalMenuItem}
+          </MessageHRReportControls>
+        )}
+      </MessageRemovalControls>
+    </ReactionControls>
   );
 }
 
@@ -938,21 +1018,16 @@ function MessageHistory({
               </small>
             ) : null}
             {message.status === "sent" ? (
-              <div className="message-actions">
-                <ReactionControls
-                  enabled={reactionsEnabled}
-                  identityId={identityId}
-                  message={message}
-                  onReact={onReact}
-                  reactions={projection.read(channel.id, message.id)}
-                />
-                <MessageHRReportControls message={message} />
-                <MessageRemovalControls
-                  onRemove={(privateReason) =>
-                    onRemoveMessage(message, privateReason)
-                  }
-                />
-              </div>
+              <MessageActions
+                enabled={reactionsEnabled}
+                identityId={identityId}
+                message={message}
+                onReact={onReact}
+                onRemoveMessage={(privateReason) =>
+                  onRemoveMessage(message, privateReason)
+                }
+                reactions={projection.read(channel.id, message.id)}
+              />
             ) : null}
           </li>
         );
@@ -1138,24 +1213,7 @@ function ChatSurface({
     : [];
   const activeMention = mentionCandidates[activeMentionIndex];
   let messageHistory: ReactNode;
-  if (
-    removalSafetyStatus === "unavailable" ||
-    profileSafetyStatus === "unavailable"
-  ) {
-    messageHistory = (
-      <div className="safety-outage" role="alert">
-        <strong>Message safety checks are unavailable.</strong>
-        <span className="outage-detail">
-          No conversation content is shown until New Hire Profiles and Removed
-          Messages can be verified.
-        </span>
-      </div>
-    );
-  } else if (!selectedMessageHistory) {
-    messageHistory = (
-      <p className="profile-status">Verifying message safety…</p>
-    );
-  } else {
+  if (selectedMessageHistory) {
     messageHistory = (
       <MessageHistory
         activeIds={new Set(activeNewHireIds)}
@@ -1169,6 +1227,23 @@ function ChatSurface({
         reactionsEnabled={reactionsEnabled}
         removedMessageIds={removedMessageIds}
       />
+    );
+  } else if (
+    removalSafetyStatus === "unavailable" ||
+    profileSafetyStatus === "unavailable"
+  ) {
+    messageHistory = (
+      <div className="safety-outage" role="alert">
+        <strong>Message safety checks are unavailable.</strong>
+        <span className="outage-detail">
+          No conversation content is shown until New Hire Profiles and Removed
+          Messages can be verified.
+        </span>
+      </div>
+    );
+  } else {
+    messageHistory = (
+      <p className="profile-status">Verifying message safety…</p>
     );
   }
 
@@ -1442,6 +1517,7 @@ function ChatSurface({
 
   const canPublish = isChatContentReady(status) && messageHistoryReady;
   const headingId = `office-channel-heading-${channel.slug}`;
+  if (!visible) return null;
 
   return (
     <section
@@ -1497,18 +1573,18 @@ function ChatSurface({
               {isLoadingPrevious ? "Loading…" : "Load earlier messages"}
             </Button>
           ) : null}
-          {status === "blocked" || status === "reconnecting" ? (
+          {status === "blocked" ? (
             <div className="portal-outage" aria-live="polite">
-              <strong>Connection lost. Portal is offline.</strong>
+              <strong>This Office Channel is unavailable.</strong>
               <span className="outage-detail">
-                Live conversation service is temporarily unavailable.
+                Cached conversation history remains available below.
               </span>
               <Button onClick={onRetryConnection} type="button">
                 Retry
               </Button>
             </div>
           ) : null}
-          {channelError ? (
+          {channelError && status === "blocked" ? (
             <p className="chat-error" role="alert">
               {channelError}
             </p>
@@ -2142,39 +2218,37 @@ function LiveOfficeChannel({
   }, [channel.markAsRead, officeChannel.id, onInboxRead]);
 
   return (
-    <Activity mode={visible ? "visible" : "hidden"}>
-      <ChatSurface
-        activeNewHireIds={activeNewHireIds}
-        channel={officeChannel}
-        hasPrevious={channel.hasPrevious}
-        identityId={identityId}
-        isLoadingPrevious={channel.isLoadingPrevious}
-        loadPrevious={channel.loadPrevious}
-        messages={
-          isChatContentReady(channel.status)
-            ? channel.messages
-            : (cachedMessages.data ?? [])
-        }
-        mentionMessageId={mentionMessageId}
-        onMentionVisible={() => onMentionVisible(officeChannel.id)}
-        onTyping={channel.sendTyping}
-        onReact={onReact}
-        onRetryConnection={() => window.location.reload()}
-        onContentVisible={markVisibleContentRead}
-        onSend={async (content, mentions) => {
-          await channel.send({
-            content,
-            ...(mentions.length > 0 ? { mentions: [...mentions] } : {}),
-          });
-        }}
-        reactionEvents={reactionEvents}
-        reactionsEnabled={reactionsEnabled}
-        status={channel.status}
-        presence={channel.presence}
-        channelError={channelError}
-        visible={visible}
-      />
-    </Activity>
+    <ChatSurface
+      activeNewHireIds={activeNewHireIds}
+      channel={officeChannel}
+      hasPrevious={channel.hasPrevious}
+      identityId={identityId}
+      isLoadingPrevious={channel.isLoadingPrevious}
+      loadPrevious={channel.loadPrevious}
+      messages={
+        isChatContentReady(channel.status)
+          ? channel.messages
+          : (cachedMessages.data ?? [])
+      }
+      mentionMessageId={mentionMessageId}
+      onMentionVisible={() => onMentionVisible(officeChannel.id)}
+      onTyping={channel.sendTyping}
+      onReact={onReact}
+      onRetryConnection={() => window.location.reload()}
+      onContentVisible={markVisibleContentRead}
+      onSend={async (content, mentions) => {
+        await channel.send({
+          content,
+          ...(mentions.length > 0 ? { mentions: [...mentions] } : {}),
+        });
+      }}
+      reactionEvents={reactionEvents}
+      reactionsEnabled={reactionsEnabled}
+      status={channel.status}
+      presence={channel.presence}
+      channelError={channelError}
+      visible={visible}
+    />
   );
 }
 
@@ -2556,11 +2630,11 @@ function EmploymentAccessEndedDialog({
 
 function PortalChatWorkspace(props: LivePortalChatProps): ReactNode {
   const applicationSafety = useApplicationSafetyControl();
-  const [workspace] = useState<OfficeDayWorkspace>(() => ({
+  const workspace: OfficeDayWorkspace = {
     channels: props.channels,
     eventChannelId: props.eventChannelId,
     officeDay: props.officeDay,
-  }));
+  };
   const [endedOfficeDay, setEndedOfficeDay] = useState<string | null>(null);
   const [employmentAccessEnded, setEmploymentAccessEnded] =
     useState<EmploymentAccessDeniedDecision | null>(null);
@@ -2604,7 +2678,7 @@ function PortalChatWorkspace(props: LivePortalChatProps): ReactNode {
     <LivePortalOffice
       {...props}
       {...workspace}
-      key={workspace.officeDay}
+      key={`${workspace.officeDay}:${workspace.eventChannelId}:${workspace.channels.map(({ id }) => id).join(",")}`}
       onOfficeDayExpired={endOfficeDay}
       onEmploymentAccessEnded={setEmploymentAccessEnded}
     />

@@ -12,9 +12,9 @@ import {
   type ProfileHRReportInput,
 } from "@/lib/hr-reports/contract";
 import {
+  isOfficeChannelIdForDay,
   isOfficeChannelSlug,
   listOfficeChannelsForDay,
-  officeDayChannelGeneration,
 } from "@/lib/portal/channels";
 import { isOfficeDay, officeDay } from "@/lib/portal/office-day";
 
@@ -100,15 +100,7 @@ function stableMessageContext(
   ) {
     return null;
   }
-  const channels = listOfficeChannelsForDay(officeDayValue);
-  let channel = channels.find(({ id }) => id === officeChannelId);
-  if (!channel && officeDayChannelGeneration(officeDayValue) === 2) {
-    const legacyChannel = channels.find(
-      ({ slug }) => `${slug}:${officeDayValue}` === officeChannelId,
-    );
-    if (legacyChannel) channel = { ...legacyChannel, id: officeChannelId };
-  }
-  if (!channel) return null;
+  if (!isOfficeChannelIdForDay(officeChannelId, officeDayValue)) return null;
 
   return {
     subjectType: "message",
@@ -208,10 +200,7 @@ export function createHRReportDeepLink(
     throw new TypeError("A valid HR Report message context is required.");
   }
   const channel = listOfficeChannelsForDay(validated.officeDay).find(
-    ({ id, slug }) =>
-      id === validated.officeChannelId ||
-      (officeDayChannelGeneration(validated.officeDay) === 2 &&
-        `${slug}:${validated.officeDay}` === validated.officeChannelId),
+    ({ id }) => id === validated.officeChannelId,
   );
   if (!channel) {
     throw new TypeError("A valid HR Report Office Channel is required.");
@@ -220,12 +209,6 @@ export function createHRReportDeepLink(
   url.searchParams.set("officeDay", validated.officeDay);
   url.searchParams.set("channel", channel.slug);
   url.searchParams.set("message", validated.messageId);
-  if (
-    officeDayChannelGeneration(validated.officeDay) === 2 &&
-    channel.id === validated.officeChannelId
-  ) {
-    url.searchParams.set("channelGeneration", "v2");
-  }
   return url.toString();
 }
 
@@ -244,24 +227,17 @@ export function parseHRReportReviewTarget(
   const officeDayValue = searchParams.get("officeDay");
   const channelSlug = searchParams.get("channel");
   const messageId = searchParams.get("message");
-  const channelGeneration = searchParams.get("channelGeneration");
-  if (!officeDayValue || !channelSlug || !isOfficeChannelSlug(channelSlug)) {
+  if (
+    searchParams.size !== 3 ||
+    !officeDayValue ||
+    !channelSlug ||
+    !isOfficeChannelSlug(channelSlug)
+  ) {
     return null;
   }
   const channel = listOfficeChannelsForDay(officeDayValue).find(
     ({ slug }) => slug === channelSlug,
   );
   if (!channel) return null;
-  const generation = officeDayChannelGeneration(officeDayValue);
-  if (
-    (channelGeneration !== null && channelGeneration !== "v2") ||
-    (channelGeneration === "v2" && generation !== 2)
-  ) {
-    return null;
-  }
-  const channelId =
-    generation === 2 && channelGeneration === null
-      ? `${channelSlug}:${officeDayValue}`
-      : channel.id;
-  return stableMessageContext(officeDayValue, channelId, messageId);
+  return stableMessageContext(officeDayValue, channel.id, messageId);
 }

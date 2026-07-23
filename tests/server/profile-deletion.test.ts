@@ -6,7 +6,7 @@ import {
 import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
 import {
   OFFICE_CHANNEL_DEFINITIONS,
-  officeDayChannelIdsForAccessControl,
+  officeDayChannelIds,
 } from "@/lib/portal/channels";
 import {
   issueOfficePortalSession,
@@ -44,7 +44,7 @@ describe("Clerk account deletion", () => {
     await repository.confirmProfile(profile.clerkUserId);
     await repository.acceptConduct(profile.clerkUserId);
     const completed = await repository.clockIn(profile.clerkUserId);
-    const channelIds = officeDayChannelIdsForAccessControl(
+    const channelIds = officeDayChannelIds(
       [...OFFICE_CHANNEL_DEFINITIONS.map(({ slug }) => slug), "office-events"],
       "2026-07-23",
     );
@@ -57,12 +57,12 @@ describe("Clerk account deletion", () => {
     }
     const connection = portal.connect({
       clientId: "deleted-account-client",
-      channelId: "general:2026-07-23",
+      channelId: "general:v3:2026-07-23",
       userId: profile.clerkUserId,
       mode: "standard",
     });
     const preservedMessage = await portal.sendMessage({
-      channelId: "general:2026-07-23",
+      channelId: "general:v3:2026-07-23",
       senderId: profile.clerkUserId,
       content: { text: "Preserved Portal history" },
     });
@@ -127,7 +127,7 @@ describe("Clerk account deletion", () => {
     expect(repository.getNewHire(profile.clerkUserId)).resolves.toBeNull();
     expect(repository.operatorActionRecords()).toEqual([]);
     expect(portal.publicTerminationEvents()).toEqual([]);
-    expect(await portal.history("general:2026-07-23")).toEqual([
+    expect(await portal.history("general:v3:2026-07-23")).toEqual([
       preservedMessage,
     ]);
     await expect(

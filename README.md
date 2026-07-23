@@ -304,15 +304,15 @@ visible Office Channels:
 
 | ID | Name | Purpose | Portal mode |
 | --- | --- | --- | --- |
-| `general:v2:{YYYY-MM-DD}` | General | Company-wide conversation | standard |
-| `watercooler:v2:{YYYY-MM-DD}` | Watercooler | Casual conversation and breakroom chatter | standard |
-| `tech-support:v2:{YYYY-MM-DD}` | Technical Support | Comedic technical support for suspicious office technology | standard |
-| `urgent:v2:{YYYY-MM-DD}` | Urgent | Urgent workplace chatter | standard |
-| `all-hands:v2:{YYYY-MM-DD}` | All Hands | System Events and company-wide announcements | broadcast |
+| `general:v3:{YYYY-MM-DD}` | General | Company-wide conversation | standard |
+| `watercooler:v3:{YYYY-MM-DD}` | Watercooler | Casual conversation and breakroom chatter | standard |
+| `tech-support:v3:{YYYY-MM-DD}` | Technical Support | Comedic technical support for suspicious office technology | standard |
+| `urgent:v3:{YYYY-MM-DD}` | Urgent | Urgent workplace chatter | standard |
+| `all-hands:v3:{YYYY-MM-DD}` | All Hands | System Events and company-wide announcements | broadcast |
 
-Office Days before the 2026-07-23 authorization-policy rollout use the legacy
-`{slug}:{YYYY-MM-DD}` format. IDs deliberately omit branch, deployment, tenant,
-user, and internal alias namespaces.
+Every Office Day uses the permanent `v3` namespace. Daily IDs preserve Office
+Day isolation while keeping page rendering, token membership, and report links
+on one deterministic channel format. Legacy and `v2` IDs are not accepted.
 
 Portal dependencies are exact because its APIs are pre-1.0:
 

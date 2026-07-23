@@ -9,14 +9,14 @@ describe("Removed Message input", () => {
     expect(
       parseMessageRemovalRequest(
         {
-          officeChannelId: "general:2026-07-22",
+          officeChannelId: "general:v3:2026-07-22",
           messageId: "message-20",
           privateReason: "  Contains a direct threat.  ",
         },
         "2026-07-22",
       ),
     ).toEqual({
-      officeChannelId: "general:2026-07-22",
+      officeChannelId: "general:v3:2026-07-22",
       messageId: "message-20",
       privateReason: "Contains a direct threat.",
     });
@@ -55,25 +55,28 @@ describe("Removed Message input", () => {
 
   test("validates canonical removal queries against the Office Day", () => {
     expect(
-      parseMessageRemovalChannelQuery("tech-support:2026-07-22", "2026-07-22"),
-    ).toBe("tech-support:2026-07-22");
+      parseMessageRemovalChannelQuery(
+        "tech-support:v3:2026-07-22",
+        "2026-07-22",
+      ),
+    ).toBe("tech-support:v3:2026-07-22");
     expect(
       parseMessageRemovalChannelQuery("private:2026-07-22", "2026-07-22"),
     ).toBeNull();
     expect(
-      parseMessageRemovalChannelQuery("urgent:2026-07-23", "2026-07-23"),
-    ).toBe("urgent:2026-07-23");
+      parseMessageRemovalChannelQuery("urgent:v3:2026-07-23", "2026-07-23"),
+    ).toBe("urgent:v3:2026-07-23");
     expect(
       parseMessageRemovalRequest(
         {
-          officeChannelId: "urgent:2026-07-23",
+          officeChannelId: "urgent:v3:2026-07-23",
           messageId: "message-legacy-review",
           privateReason: "Reviewed from the preserved rollout channel.",
         },
         "2026-07-23",
       ),
     ).toEqual({
-      officeChannelId: "urgent:2026-07-23",
+      officeChannelId: "urgent:v3:2026-07-23",
       messageId: "message-legacy-review",
       privateReason: "Reviewed from the preserved rollout channel.",
     });

@@ -3,7 +3,7 @@ import {
   listOfficeChannels,
   listOfficeChannelsForDay,
   officeChannelId,
-  officeDayChannelIdsForAccessControl,
+  officeDayChannelIds,
 } from "@/lib/portal/channels";
 import {
   createChatContentWithMentions,
@@ -99,7 +99,7 @@ describe("Office Channel chat contract", () => {
     ).toBe(previous);
   });
 
-  test("does not retain history while existing safety data is rechecked", () => {
+  test("retains only verified history while safety data is repaired", () => {
     const previous = {
       messages: [{ id: "message-1" }],
       profileIds: ["user-1"],
@@ -136,7 +136,7 @@ describe("Office Channel chat contract", () => {
         profileSafetyStatus: "unavailable",
         removalSafetyStatus: "ready",
       }),
-    ).toBeNull();
+    ).toBe(previous);
     expect(
       selectMessageHistorySnapshot({
         current: expanded,
@@ -164,35 +164,35 @@ describe("Office Channel chat contract", () => {
     ).toEqual([
       {
         slug: "general",
-        id: "general:2026-07-22",
+        id: "general:v3:2026-07-22",
         name: "General",
         purpose: "Company-wide conversation",
         mode: "standard",
       },
       {
         slug: "watercooler",
-        id: "watercooler:2026-07-22",
+        id: "watercooler:v3:2026-07-22",
         name: "Watercooler",
         purpose: "Casual conversation and breakroom chatter",
         mode: "standard",
       },
       {
         slug: "tech-support",
-        id: "tech-support:2026-07-22",
+        id: "tech-support:v3:2026-07-22",
         name: "Technical Support",
         purpose: "Comedic technical support for suspicious office technology",
         mode: "standard",
       },
       {
         slug: "urgent",
-        id: "urgent:2026-07-22",
+        id: "urgent:v3:2026-07-22",
         name: "Urgent",
         purpose: "Urgent workplace chatter",
         mode: "standard",
       },
       {
         slug: "all-hands",
-        id: "all-hands:2026-07-22",
+        id: "all-hands:v3:2026-07-22",
         name: "All Hands",
         purpose: "System Events and company-wide announcements",
         mode: "broadcast",
@@ -200,25 +200,20 @@ describe("Office Channel chat contract", () => {
     ]);
 
     expect(generalChannelId(new Date("2026-07-22T23:59:59.999Z"))).toBe(
-      "general:2026-07-22",
+      "general:v3:2026-07-22",
     );
     expect(generalChannelId(new Date("2026-07-23T00:00:00.000Z"))).toBe(
-      "general:v2:2026-07-23",
+      "general:v3:2026-07-23",
     );
     expect(
       officeChannelId("all-hands", new Date("2026-07-23T00:00:00.000Z")),
-    ).toBe("all-hands:v2:2026-07-23");
+    ).toBe("all-hands:v3:2026-07-23");
     expect(
-      officeDayChannelIdsForAccessControl(
-        ["general", "office-events"],
-        "2026-07-23",
-      ),
-    ).toEqual([
-      "general:v2:2026-07-23",
-      "office-events:v2:2026-07-23",
-      "general:2026-07-23",
-      "office-events:2026-07-23",
-    ]);
+      officeDayChannelIds(["general", "office-events"], "2026-07-23"),
+    ).toEqual(["general:v3:2026-07-23", "office-events:v3:2026-07-23"]);
+    expect(
+      officeDayChannelIds(["general", "office-events"], "2026-07-24"),
+    ).toEqual(["general:v3:2026-07-24", "office-events:v3:2026-07-24"]);
   });
 
   test("accepts only non-empty text payloads of at most 1,000 characters", () => {
@@ -335,7 +330,7 @@ describe("Office Channel chat contract", () => {
           channelIds: listOfficeChannelsForDay("2026-07-22").map(
             ({ id }) => id,
           ),
-          eventChannelId: "office-events:2026-07-22",
+          eventChannelId: "office-events:v3:2026-07-22",
         });
       },
     });
@@ -360,7 +355,7 @@ describe("Office Channel chat contract", () => {
           channelIds: listOfficeChannelsForDay("2026-07-22").map(
             ({ id }) => id,
           ),
-          eventChannelId: "office-events:2026-07-22",
+          eventChannelId: "office-events:v3:2026-07-22",
         });
       },
     });
@@ -394,7 +389,7 @@ describe("Office Channel chat contract", () => {
           channelIds: listOfficeChannelsForDay("2026-07-22").map(
             ({ id }) => id,
           ),
-          eventChannelId: "office-events:2026-07-22",
+          eventChannelId: "office-events:v3:2026-07-22",
         });
       },
     });

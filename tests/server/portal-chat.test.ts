@@ -147,8 +147,8 @@ describe("Portal control-plane boundary", () => {
     await publisher.publishProfileInvalidation(event);
 
     expect(requests.map(({ url }) => url)).toEqual([
-      "https://api.useportal.co/v1/channels/office-events%3A2026-07-22/members",
-      "https://api.useportal.co/v1/channels/office-events%3A2026-07-22/messages",
+      "https://api.useportal.co/v1/channels/office-events%3Av3%3A2026-07-22/members",
+      "https://api.useportal.co/v1/channels/office-events%3Av3%3A2026-07-22/messages",
     ]);
     expect(JSON.parse(String(requests[0]?.init?.body))).toMatchObject({
       userId: "office-events:profiles",
@@ -200,23 +200,23 @@ describe("Portal control-plane boundary", () => {
 
     expect(session).toEqual({
       channelIds: [
-        "general:2026-07-22",
-        "watercooler:2026-07-22",
-        "tech-support:2026-07-22",
-        "urgent:2026-07-22",
-        "all-hands:2026-07-22",
+        "general:v3:2026-07-22",
+        "watercooler:v3:2026-07-22",
+        "tech-support:v3:2026-07-22",
+        "urgent:v3:2026-07-22",
+        "all-hands:v3:2026-07-22",
       ],
-      eventChannelId: "office-events:2026-07-22",
+      eventChannelId: "office-events:v3:2026-07-22",
       token: "portal-user-token",
       expiresAt: "2026-07-22T12:15:00.000Z",
     });
     expect(requests.map(({ url }) => url)).toEqual([
-      "https://api.useportal.co/v1/channels/general%3A2026-07-22/members",
-      "https://api.useportal.co/v1/channels/watercooler%3A2026-07-22/members",
-      "https://api.useportal.co/v1/channels/tech-support%3A2026-07-22/members",
-      "https://api.useportal.co/v1/channels/urgent%3A2026-07-22/members",
-      "https://api.useportal.co/v1/channels/all-hands%3A2026-07-22/members",
-      "https://api.useportal.co/v1/channels/office-events%3A2026-07-22/members",
+      "https://api.useportal.co/v1/channels/general%3Av3%3A2026-07-22/members",
+      "https://api.useportal.co/v1/channels/watercooler%3Av3%3A2026-07-22/members",
+      "https://api.useportal.co/v1/channels/tech-support%3Av3%3A2026-07-22/members",
+      "https://api.useportal.co/v1/channels/urgent%3Av3%3A2026-07-22/members",
+      "https://api.useportal.co/v1/channels/all-hands%3Av3%3A2026-07-22/members",
+      "https://api.useportal.co/v1/channels/office-events%3Av3%3A2026-07-22/members",
       "https://api.useportal.co/v1/tokens",
     ]);
     expect(requests[0]?.init?.headers).toEqual({
@@ -227,12 +227,12 @@ describe("Portal control-plane boundary", () => {
       userId: "user_portal_test",
       claims: { username: "Pat Pending", avatar: null },
       channels: {
-        "general:2026-07-22": ["connect", "publish"],
-        "watercooler:2026-07-22": ["connect", "publish"],
-        "tech-support:2026-07-22": ["connect", "publish"],
-        "urgent:2026-07-22": ["connect", "publish"],
-        "all-hands:2026-07-22": ["connect", "publish"],
-        "office-events:2026-07-22": ["connect", "publish"],
+        "general:v3:2026-07-22": ["connect", "publish"],
+        "watercooler:v3:2026-07-22": ["connect", "publish"],
+        "tech-support:v3:2026-07-22": ["connect", "publish"],
+        "urgent:v3:2026-07-22": ["connect", "publish"],
+        "all-hands:v3:2026-07-22": ["connect", "publish"],
+        "office-events:v3:2026-07-22": ["connect", "publish"],
       },
       ttl: "15m",
     });
@@ -399,13 +399,13 @@ describe("controlled Portal adapter", () => {
     for (const channelId of session.channelIds) {
       expect(portal.membershipCount(channelId)).toBe(1);
     }
-    expect(session.eventChannelId).toBe("office-events:2026-07-22");
+    expect(session.eventChannelId).toBe("office-events:v3:2026-07-22");
     expect(portal.membershipCount(session.eventChannelId)).toBe(1);
   });
 
-  test("grants rollout-day legacy channels without exposing them in the directory", async () => {
+  test("grants only current v3 channels", async () => {
     const portal = createMockPortalAdapter({
-      now: () => new Date("2026-07-23T12:00:00.000Z"),
+      now: () => new Date("2026-07-24T12:00:00.000Z"),
     });
 
     const session = await issueOfficePortalSession({
@@ -417,15 +417,17 @@ describe("controlled Portal adapter", () => {
       onboarding: completedNewHire,
       employmentAccess: eligibleEmploymentAccess,
       portal,
-      now: new Date("2026-07-23T12:00:00.000Z"),
+      now: new Date("2026-07-24T12:00:00.000Z"),
     });
 
-    expect(session.channelIds).toContain("general:v2:2026-07-23");
-    expect(session.channelIds).not.toContain("general:2026-07-23");
-    expect(portal.membershipCount("general:v2:2026-07-23")).toBe(1);
-    expect(portal.membershipCount("general:2026-07-23")).toBe(1);
-    expect(portal.membershipCount("office-events:v2:2026-07-23")).toBe(1);
-    expect(portal.membershipCount("office-events:2026-07-23")).toBe(1);
+    expect(session.channelIds).toContain("general:v3:2026-07-24");
+    expect(session.channelIds).not.toContain("general:2026-07-24");
+    expect(portal.membershipCount("general:v3:2026-07-24")).toBe(1);
+    expect(portal.membershipCount("general:v2:2026-07-24")).toBe(0);
+    expect(portal.membershipCount("general:2026-07-24")).toBe(0);
+    expect(portal.membershipCount("office-events:v3:2026-07-24")).toBe(1);
+    expect(portal.membershipCount("office-events:v2:2026-07-24")).toBe(0);
+    expect(portal.membershipCount("office-events:2026-07-24")).toBe(0);
   });
 
   test("keeps membership and confirmed history idempotent across retry and reconnect", async () => {
@@ -554,8 +556,8 @@ describe("controlled Portal adapter", () => {
     const portal = createMockPortalAdapter({
       now: () => new Date(1_753_184_800_000 + tick++),
     });
-    const officeChannelId = "general:2026-07-22";
-    const eventChannelId = "office-events:2026-07-22";
+    const officeChannelId = "general:v3:2026-07-22";
+    const eventChannelId = "office-events:v3:2026-07-22";
     for (const userId of ["user_reactor", "user_observer"]) {
       for (const channelId of [officeChannelId, eventChannelId]) {
         await portal.ensureMembership({
@@ -638,8 +640,8 @@ describe("controlled Portal adapter", () => {
     const portal = createMockPortalAdapter({
       now: () => new Date("2026-07-22T12:00:00.000Z"),
     });
-    const officeChannelId = "general:2026-07-22";
-    const eventChannelId = "office-events:2026-07-22";
+    const officeChannelId = "general:v3:2026-07-22";
+    const eventChannelId = "office-events:v3:2026-07-22";
     for (const channelId of [officeChannelId, eventChannelId]) {
       await portal.ensureMembership({
         channelId,
@@ -688,7 +690,7 @@ describe("controlled Portal adapter", () => {
         content: {
           ...event,
           eventKey: "office-event:v1:reaction.changed:cross-channel",
-          officeChannelId: "watercooler:2026-07-22",
+          officeChannelId: "watercooler:v3:2026-07-22",
         },
       }),
     ).rejects.toThrow("target");

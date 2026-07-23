@@ -20,7 +20,7 @@ import {
 } from "@/lib/office-events/contract";
 import {
   OFFICE_CHANNEL_DEFINITIONS,
-  officeDayChannelIdsForAccessControl,
+  officeDayChannelIds,
 } from "@/lib/portal/channels";
 import { officeDay } from "@/lib/portal/office-day";
 
@@ -31,10 +31,7 @@ const EMPLOYMENT_PORTAL_CHANNEL_NAMES = [
 ] as const;
 
 function employmentPortalChannelIds(currentOfficeDay: string): string[] {
-  return officeDayChannelIdsForAccessControl(
-    EMPLOYMENT_PORTAL_CHANNEL_NAMES,
-    currentOfficeDay,
-  );
+  return officeDayChannelIds(EMPLOYMENT_PORTAL_CHANNEL_NAMES, currentOfficeDay);
 }
 
 function terminationSystemEventDetails(action: "terminated" | "reinstated"): {

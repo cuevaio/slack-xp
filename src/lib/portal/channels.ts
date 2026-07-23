@@ -1,7 +1,6 @@
 import { isOfficeDay, officeDay } from "@/lib/portal/office-day";
 
-const VERSIONED_CHANNEL_ROLLOUT_DAY = "2026-07-23";
-const VERSIONED_CHANNEL_NAMESPACE = "v2";
+export const OFFICE_CHANNEL_VERSION = "v3" as const;
 
 export const OFFICE_CHANNEL_DEFINITIONS = [
   {
@@ -59,25 +58,13 @@ export function officeDayFromChannelId(value: string): string | null {
     : null;
 }
 
-export function officeDayChannelGeneration(currentOfficeDay: string): 1 | 2 {
-  if (!isOfficeDay(currentOfficeDay)) {
-    throw new TypeError("A valid UTC Office Day is required.");
-  }
-  return currentOfficeDay >= VERSIONED_CHANNEL_ROLLOUT_DAY ? 2 : 1;
-}
-
-export function officeDayChannelIdsForAccessControl(
+export function officeDayChannelIds(
   channelNames: readonly string[],
   currentOfficeDay: string,
 ): string[] {
-  const canonical = channelNames.map((channelName) =>
+  return channelNames.map((channelName) =>
     officeDayChannelId(channelName, currentOfficeDay),
   );
-  if (currentOfficeDay !== VERSIONED_CHANNEL_ROLLOUT_DAY) return canonical;
-  return [
-    ...canonical,
-    ...channelNames.map((channelName) => `${channelName}:${currentOfficeDay}`),
-  ];
 }
 
 export function isOfficeChannelIdForDay(
@@ -87,7 +74,7 @@ export function isOfficeChannelIdForDay(
   return (
     typeof value === "string" &&
     isOfficeDay(currentOfficeDay) &&
-    officeDayChannelIdsForAccessControl(
+    officeDayChannelIds(
       OFFICE_CHANNEL_DEFINITIONS.map(({ slug }) => slug),
       currentOfficeDay,
     ).includes(value)
@@ -106,11 +93,7 @@ export function officeDayChannelId(
       "A valid channel name and UTC Office Day are required.",
     );
   }
-  const namespace =
-    officeDayChannelGeneration(currentOfficeDay) === 2
-      ? `:${VERSIONED_CHANNEL_NAMESPACE}`
-      : "";
-  return `${channelName}${namespace}:${currentOfficeDay}`;
+  return `${channelName}:${OFFICE_CHANNEL_VERSION}:${currentOfficeDay}`;
 }
 
 export function officeChannelId(

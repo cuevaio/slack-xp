@@ -16,11 +16,11 @@ describe("scripted Office Days", () => {
     expect(first).toHaveLength(5);
     expect(new Set(first.map(({ eventKey }) => eventKey)).size).toBe(5);
     expect(first.map(({ channelId }) => channelId)).toEqual([
-      "general:2026-07-22",
-      "watercooler:2026-07-22",
-      "tech-support:2026-07-22",
-      "urgent:2026-07-22",
-      "all-hands:2026-07-22",
+      "general:v3:2026-07-22",
+      "watercooler:v3:2026-07-22",
+      "tech-support:v3:2026-07-22",
+      "urgent:v3:2026-07-22",
+      "all-hands:v3:2026-07-22",
     ]);
     expect(
       first.every(({ eventKey }) =>
@@ -34,21 +34,21 @@ describe("scripted Office Days", () => {
     ).toBe(true);
   });
 
-  test("revisions script identities with the v2 channel namespace", () => {
-    const planned = planOfficeDay("2026-07-23");
+  test("uses stable script identities with the v3 channel namespace", () => {
+    const planned = planOfficeDay("2026-07-24");
 
     expect(planned.map(({ channelId }) => channelId)).toEqual([
-      "general:v2:2026-07-23",
-      "watercooler:v2:2026-07-23",
-      "tech-support:v2:2026-07-23",
-      "urgent:v2:2026-07-23",
-      "all-hands:v2:2026-07-23",
+      "general:v3:2026-07-24",
+      "watercooler:v3:2026-07-24",
+      "tech-support:v3:2026-07-24",
+      "urgent:v3:2026-07-24",
+      "all-hands:v3:2026-07-24",
     ]);
     expect(
       planned.every(
         ({ eventKey, scriptId }) =>
-          eventKey.startsWith("system-event:v1:2026-07-23:v2-") &&
-          scriptId.startsWith("v2-"),
+          eventKey.startsWith("system-event:v1:2026-07-24:") &&
+          !scriptId.startsWith("v3-"),
       ),
     ).toBe(true);
   });

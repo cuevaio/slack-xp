@@ -17,7 +17,7 @@ describe("message HR Report contract", () => {
         parseMessageHRReportRequest(
           {
             category,
-            officeChannelId: "general:2026-07-22",
+            officeChannelId: "general:v3:2026-07-22",
             messageId: "message-17",
           },
           now,
@@ -25,7 +25,7 @@ describe("message HR Report contract", () => {
       ).toEqual({
         category,
         officeDay: "2026-07-22",
-        officeChannelId: "general:2026-07-22",
+        officeChannelId: "general:v3:2026-07-22",
         messageId: "message-17",
       });
     }
@@ -65,7 +65,7 @@ describe("message HR Report contract", () => {
   test("builds and parses a same-origin review deep link without private report details", () => {
     const href = createHRReportDeepLink("https://office.example.com", {
       officeDay: "2026-07-22",
-      officeChannelId: "urgent:2026-07-22",
+      officeChannelId: "urgent:v3:2026-07-22",
       messageId: "message-urgent-17",
     });
 
@@ -75,7 +75,7 @@ describe("message HR Report contract", () => {
     expect(parseHRReportReviewTarget(new URL(href).search)).toEqual({
       subjectType: "message",
       officeDay: "2026-07-22",
-      officeChannelId: "urgent:2026-07-22",
+      officeChannelId: "urgent:v3:2026-07-22",
       messageId: "message-urgent-17",
     });
     expect(href).not.toMatch(/category|reporter|harassment/i);
@@ -86,35 +86,38 @@ describe("message HR Report contract", () => {
     ).toBeNull();
 
     const versionedHref = createHRReportDeepLink("https://office.example.com", {
-      officeDay: "2026-07-23",
-      officeChannelId: "urgent:v2:2026-07-23",
+      officeDay: "2026-07-24",
+      officeChannelId: "urgent:v3:2026-07-24",
       messageId: "message-versioned-18",
     });
-    expect(versionedHref).toContain("channelGeneration=v2");
+    expect(versionedHref).not.toContain("channelGeneration");
     expect(parseHRReportReviewTarget(new URL(versionedHref).search)).toEqual({
       subjectType: "message",
-      officeDay: "2026-07-23",
-      officeChannelId: "urgent:v2:2026-07-23",
+      officeDay: "2026-07-24",
+      officeChannelId: "urgent:v3:2026-07-24",
       messageId: "message-versioned-18",
     });
 
-    const legacyRolloverHref = createHRReportDeepLink(
-      "https://office.example.com",
-      {
-        officeDay: "2026-07-23",
-        officeChannelId: "urgent:2026-07-23",
+    expect(() =>
+      createHRReportDeepLink("https://office.example.com", {
+        officeDay: "2026-07-24",
+        officeChannelId: "urgent:v2:2026-07-24",
+        messageId: "message-superseded-18",
+      }),
+    ).toThrow("A valid HR Report message context is required.");
+
+    expect(() =>
+      createHRReportDeepLink("https://office.example.com", {
+        officeDay: "2026-07-24",
+        officeChannelId: "urgent:2026-07-24",
         messageId: "message-legacy-19",
-      },
-    );
-    expect(legacyRolloverHref).not.toContain("channelGeneration");
+      }),
+    ).toThrow("A valid HR Report message context is required.");
     expect(
-      parseHRReportReviewTarget(new URL(legacyRolloverHref).search),
-    ).toEqual({
-      subjectType: "message",
-      officeDay: "2026-07-23",
-      officeChannelId: "urgent:2026-07-23",
-      messageId: "message-legacy-19",
-    });
+      parseHRReportReviewTarget(
+        "?officeDay=2026-07-24&channel=urgent&message=message-19&channelGeneration=v2",
+      ),
+    ).toBeNull();
   });
 
   test("accepts only approved New Hire Profile categories and stable identities", () => {

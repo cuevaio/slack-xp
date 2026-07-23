@@ -81,7 +81,7 @@ describe("Send Home policy", () => {
   test("accepts only the privacy-safe Send Home System Event envelope", () => {
     const message = {
       id: "send-home-message-21",
-      channelId: "all-hands:2026-07-22",
+      channelId: "all-hands:v3:2026-07-22",
       sender: { id: OFFICE_EVENT_SENDERS.operations, anon: false },
       timestamp: 1_753_219_800_000,
       kind: "text",
@@ -102,7 +102,7 @@ describe("Send Home policy", () => {
     };
 
     expect(
-      parsePublicSendHomeSystemEventMessage(message, "all-hands:2026-07-22"),
+      parsePublicSendHomeSystemEventMessage(message, "all-hands:v3:2026-07-22"),
     ).toMatchObject({
       eventKey: message.content.eventKey,
       operatorId: message.content.operatorId,
@@ -110,12 +110,12 @@ describe("Send Home policy", () => {
     });
     const versionedMessage = {
       ...message,
-      channelId: "all-hands:v2:2026-07-23",
+      channelId: "all-hands:v3:2026-07-24",
       content: {
         ...message.content,
-        eventKey: "employment-event:v1:2026-07-23:action-22",
-        officeDay: "2026-07-23",
-        expiresAt: "2026-07-24T00:00:00.000Z",
+        eventKey: "employment-event:v1:2026-07-24:action-22",
+        officeDay: "2026-07-24",
+        expiresAt: "2026-07-25T00:00:00.000Z",
       },
     };
     expect(
@@ -130,7 +130,7 @@ describe("Send Home policy", () => {
           ...message,
           content: { ...message.content, privateReason: "must stay private" },
         },
-        "all-hands:2026-07-22",
+        "all-hands:v3:2026-07-22",
       ),
     ).toBeNull();
   });
@@ -162,7 +162,7 @@ describe("Send Home policy", () => {
   test("accepts privacy-safe Termination events and rejects private fields", () => {
     const base = {
       id: "termination-message-22",
-      channelId: "all-hands:2026-07-22",
+      channelId: "all-hands:v3:2026-07-22",
       sender: { id: OFFICE_EVENT_SENDERS.operations, anon: false },
       timestamp: 1_753_219_800_000,
       kind: "text",
@@ -193,13 +193,13 @@ describe("Send Home policy", () => {
     });
     const versionedBase = {
       ...base,
-      channelId: "all-hands:v2:2026-07-23",
+      channelId: "all-hands:v3:2026-07-24",
     };
     const versionedEvent = {
       ...event,
       eventKey:
-        "employment-event:v1:2026-07-23:terminated:termination-action-23",
-      officeDay: "2026-07-23",
+        "employment-event:v1:2026-07-24:terminated:termination-action-23",
+      officeDay: "2026-07-24",
       terminationId: "termination-action-23",
     };
     expect(

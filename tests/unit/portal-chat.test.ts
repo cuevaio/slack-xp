@@ -14,6 +14,10 @@ import {
   SETUP_VERIFIER_USER_ID,
   validateChatDraft,
 } from "@/lib/portal/chat";
+import {
+  shouldSelectChatComposerMention,
+  shouldSendChatComposerMessage,
+} from "@/lib/portal/chat-composer";
 import { createPortalTokenSource } from "@/lib/portal/client";
 import {
   CACHED_MESSAGE_LIMIT,
@@ -33,6 +37,59 @@ function createMemoryStorage() {
     },
   };
 }
+
+describe("chat composer keyboard behavior", () => {
+  test("sends with Enter", () => {
+    expect(
+      shouldSendChatComposerMessage({
+        key: "Enter",
+        shiftKey: false,
+        isComposing: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("keeps Shift+Enter and composition Enter in the draft", () => {
+    expect(
+      shouldSendChatComposerMessage({
+        key: "Enter",
+        shiftKey: true,
+        isComposing: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldSendChatComposerMessage({
+        key: "Enter",
+        shiftKey: false,
+        isComposing: true,
+      }),
+    ).toBe(false);
+  });
+
+  test("selects a mention with Enter or Tab but not Shift+Enter", () => {
+    expect(
+      shouldSelectChatComposerMention({
+        key: "Enter",
+        shiftKey: false,
+        isComposing: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldSelectChatComposerMention({
+        key: "Tab",
+        shiftKey: false,
+        isComposing: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldSelectChatComposerMention({
+        key: "Enter",
+        shiftKey: true,
+        isComposing: false,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("Office Channel chat contract", () => {
   test("defines the complete curated directory with channel-first UTC Office Day ids", () => {

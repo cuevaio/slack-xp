@@ -70,6 +70,10 @@ import {
   type PortalChatContent,
   type SafePortalChatMessage,
 } from "@/lib/portal/chat";
+import {
+  shouldSelectChatComposerMention,
+  shouldSendChatComposerMessage,
+} from "@/lib/portal/chat-composer";
 import { createPortalTokenSource } from "@/lib/portal/client";
 import { type OfficeInboxRow, reconcileOfficeInbox } from "@/lib/portal/inbox";
 import {
@@ -1456,13 +1460,22 @@ function ChatSurface({
               }
             }}
             onKeyDown={(event) => {
-              if (!mentionSearch) return;
-              if (event.key === "ArrowDown" && mentionCandidates.length > 0) {
+              const keyDown = {
+                key: event.key,
+                shiftKey: event.shiftKey,
+                isComposing: event.nativeEvent.isComposing,
+              };
+              if (
+                mentionSearch &&
+                event.key === "ArrowDown" &&
+                mentionCandidates.length > 0
+              ) {
                 event.preventDefault();
                 setActiveMentionIndex(
                   (current) => (current + 1) % mentionCandidates.length,
                 );
               } else if (
+                mentionSearch &&
                 event.key === "ArrowUp" &&
                 mentionCandidates.length > 0
               ) {
@@ -1472,15 +1485,21 @@ function ChatSurface({
                     (current - 1 + mentionCandidates.length) %
                     mentionCandidates.length,
                 );
-              } else if (event.key === "Escape") {
+              } else if (mentionSearch && event.key === "Escape") {
                 event.preventDefault();
                 setMentionSearch(null);
               } else if (
-                (event.key === "Enter" || event.key === "Tab") &&
+                mentionSearch &&
+                shouldSelectChatComposerMention(keyDown) &&
                 activeMention
               ) {
                 event.preventDefault();
                 selectMention(activeMention);
+              } else if (shouldSendChatComposerMessage(keyDown)) {
+                event.preventDefault();
+                if (!canPublish || isSending || draft.trim().length === 0)
+                  return;
+                event.currentTarget.form?.requestSubmit();
               }
             }}
             onScroll={(event) => {

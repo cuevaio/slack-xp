@@ -1227,6 +1227,10 @@ a {
   background-size: 32px 32px;
 }
 
+.office-shell {
+  background: var(--desktop) url("/background.webp") center / cover no-repeat;
+}
+
 .setup-window {
   width: min(680px, 100%);
 }
@@ -2057,7 +2061,6 @@ a {
     height: 100%;
     min-height: 0;
     overflow: hidden;
-    background: var(--desktop) url("/background.webp") center / cover no-repeat;
   }
 
   .messenger-window {

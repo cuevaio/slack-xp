@@ -1,120 +1,167 @@
-# Portal Platform Incident Report: Channel Extensions Are Routed but Not Executed
+# Portal Incident Report: Documented Channel Extension Contract Is Not Observed
 
-**Reported:** July 23, 2026  
-**Affected product:** Portal channel extensions  
-**Affected environment:** Newly provisioned Portal Development and Production environments  
-**Severity:** High for extension users; core chat remains operational  
-**Status:** Reproducible and isolated to hosted extension dispatch
+**Reported:** July 23, 2026
+
+**Confirmed affected environment:** Development
+
+**Production status:** Configuration deployed, runtime behavior not yet tested
+
+**Affected feature:** Channel extensions using WebSocket transport
+
+**Impact:** Extension-backed reactions do not update; ordinary Portal chat remains healthy
 
 ## Executive Summary
 
-A newly deployed channel extension is correctly recognized by Portal and advertised to connected clients, but messages routed into the extension namespace produce no extension output.
+Portal Messenger has a durable reaction extension attached to `general` and `announcements`. The extension follows the authoring, attachment, sending, live-update, and snapshot patterns in Portal's published [Channel extensions guide](https://docs.useportal.co/guides/extensions).
 
-The affected application implements durable per-message reactions. A client sends `reaction.toggle`, the Portal connection advertises `reaction.` as a WebSocket extension binding, and the SDK routes the message into that namespace. However, neither the sending client nor another connected client receives the expected `reaction.state` broadcast. A late-joining client also receives no extension snapshot.
+In Development, Portal activates the configuration and tells connected clients that the `reaction.` namespace is bound to WebSocket transport. A client can send `reaction.toggle`, but neither the sender nor a second connected client receives the documented `reaction.state` broadcast. A joining client also receives no `reactions` snapshot.
 
-Core Portal functionality remains healthy: authentication, channel connection, persistent messages, presence, typing activity, history, and inbox updates all work. The failure is isolated to the hosted extension worker execution path after namespace routing.
+This is reproducible without React through a direct multi-client SDK script. Persistent messages, presence, typing on the standard `general` channel, history, and inbox updates continue working in the same environment.
 
-An application-independent two-client smoke test reproduces the failure. The extension class itself passes focused state-transition and snapshot tests. This makes a React rendering or application state-consumption bug unlikely.
+The strongest conclusion supported by the public documentation and observed evidence is:
 
-## User Impact
+> Portal advertises the documented extension route, but the documented extension result is not observable after the client sends into it.
 
-- A reaction picker can be opened and clicked, but no emoji or count appears.
-- Other connected clients do not receive the reaction.
-- Toggling a reaction cannot visibly add or remove participation.
-- Newly connected clients do not receive durable reaction state.
-- No client-facing error indicates that the extension failed.
-- Ordinary channel behavior continues, making the failure look like an application bug.
+The same failure occurs when deploying the official documentation's counter example to a brand-new channel and exercising it with two direct SDK clients. That control experiment rules out reaction-specific code and establishes this as a Portal platform contract issue. The precise internal platform cause is not yet proven. A missing or failing Workers-for-Platforms dispatch script is the leading implementation-informed hypothesis, but this report does not present that internal mechanism as established fact.
 
-## Environment
+## Why This Appears to Violate the Documented Contract
 
-A clean Portal project was created specifically to eliminate stale application credentials or inherited project configuration as causes.
+Four published guarantees are relevant.
+
+### 1. Deployment includes extension upload and is atomic
+
+Portal's [Deploy & secrets documentation](https://docs.useportal.co/config-cli/deploy-and-secrets#portal-deploy) says:
+
+> "Deploying is atomic — if anything fails, nothing changes."
+
+It also shows `portal deploy` reporting uploaded extensions. The [Channel extensions guide](https://docs.useportal.co/guides/extensions#2-attach-it-and-deploy) states:
+
+> "The CLI reads each attached extension's manifest, validates namespaces, bundles each extension separately, and uploads it."
+
+For this project, `portal deploy` succeeded and reported two uploaded extensions. The active-config API identifies both extension scripts. Nevertheless, neither extension produces observable output.
+
+This does not prove that script upload failed, but it creates tension with the documented atomic deployment guarantee and warrants checking the uploaded script artifacts directly.
+
+### 2. Live extension broadcasts arrive through `onMessage`
+
+The [Channel extensions guide](https://docs.useportal.co/guides/extensions#live-updates-onmessage) says:
+
+> "Broadcasts arrive as ordinary channel messages. Filter by the namespace."
+
+The [useChannel documentation](https://docs.useportal.co/react/use-channel#params) also defines `onMessage` as being called for every persistent or ephemeral message delivered to the channel.
+
+The reaction extension returns a namespaced `reaction.state` broadcast, but no connected client receives it through `onMessage`.
+
+### 3. Joining clients receive extension snapshots in `channel.ext`
+
+The [Channel extensions guide](https://docs.useportal.co/guides/extensions#why-a-snapshot-exists) says:
+
+> "Portal caches that answer and hands it to every joining client in the connect frame."
+
+It further states that the snapshot arrives as `channel.ext.<handle>` and is populated before the UI's first render. Under [Joining late: `channel.ext`](https://docs.useportal.co/guides/extensions#joining-late-channelext), it says a degraded extension is key-absent rather than `null`.
+
+The observed `ready` frame has a `reaction.` binding but no `ext.reactions` snapshot. Because the binding proves the handle is attached, the missing snapshot is consistent with the documentation's degraded-extension case, not with an unattached extension.
+
+### 4. Sends into a degraded extension should fail visibly
+
+The [Channel extensions guide](https://docs.useportal.co/guides/extensions#sending-namespaced-types) says:
+
+> "Sending into a namespace whose extension is currently degraded rejects with `DegradedError`. The channel itself keeps working."
+
+The [Errors documentation](https://docs.useportal.co/core/errors) repeats that `DegradedError` represents a send into a degraded extension namespace.
+
+The healthy-channel portion matches the observation: ordinary chat continues working. The visible-failure portion does not: the WebSocket extension send resolves in the SDK smoke test instead of rejecting with `DegradedError`, while no broadcast or snapshot is observed.
+
+The [Wire protocol documentation](https://docs.useportal.co/wire-protocol#frames-on-the-channel-socket) describes WebSocket extension sends as `ephemeral` frames and says a refusal is returned in an `error` frame correlated by `ref`. Capturing that outgoing frame and any correlated response is the most important remaining client-side diagnostic.
+
+## Documentation Alignment Review
+
+The application implementation is aligned with the published extension guide in the following areas.
+
+| Documented requirement | Application implementation | Assessment |
+| --- | --- | --- |
+| Manifest namespace ends in `.` | `namespace: "reaction."` | Aligned |
+| Manifest selects `ws` transport | `transport: "ws"` | Aligned |
+| Extension is attached by handle and source path | `reactions: "./extensions/reactions.ts"` | Aligned |
+| Client sends a namespaced type | `type: "reaction.toggle"` | Aligned |
+| WebSocket extension send is ephemeral | `ephemeral: true` | Aligned |
+| Extension validates opaque content | `parseToggle()` validates message ID and reaction | Aligned |
+| `onBatch` handles the full namespaced type | Filters for `reaction.toggle` | Aligned |
+| Broadcast type starts with the namespace | Returns `reaction.state` | Aligned |
+| State is persisted through `ctx.storage` | Stores reaction and batch state | Aligned |
+| Changed state sets `snapshotDirty: true` | Returned after a valid toggle | Aligned |
+| `onSnapshot` returns `{ snapshot: ... }` | Returns `{ snapshot: { reactions } }` | Aligned |
+| Live clients consume broadcasts through `onMessage` | Merges `reaction.state` into component state | Aligned |
+| Late joiners read by attachment handle | Reads `live.ext?.reactions` | Aligned |
+| At-least-once batches are deduplicated | Tracks `epoch` and `batchSeq` | Aligned |
+| Epoch-sensitive state resets on channel restart | Resets sequence guard when `epoch` changes | Aligned |
+
+### Minor documentation/version drift unrelated to this incident
+
+The current [portal.config.ts documentation](https://docs.useportal.co/config-cli/portal-config#message-middleware) names the channel middleware field `onPublish`, while this repository's installed `@portalsdk/config` version accepts `middleware`. This configuration deployed successfully, ordinary message moderation is separate from namespaced WebSocket extension traffic, and the active config contains the reaction extensions. It should be reconciled as package/documentation drift, but it does not explain the missing extension output.
+
+## Confirmed Environment and Active Configuration
+
+A clean Portal project was created to exclude inherited project configuration.
 
 - Project: `portal-messenger-clean`
-- Development environment: newly created
-- Production environment: newly created
-- Portal CLI: `@portalsdk/cli` 0.5.1
-- Portal core SDK: `@portalsdk/core` 0.1.5
-- Portal React SDK: `@portalsdk/react` 0.1.4
-- Extension protocol: `@portalsdk/extension-protocol` 0.1.0
+- Confirmed runtime environment: Development
 - Channels: `general` and `announcements`
 - Extension handle: `reactions`
-- Extension namespace: `reaction.`
-- Extension transport: `ws`
+- Namespace: `reaction.`
+- Transport: `ws`
+- Portal CLI: 0.5.1
+- Portal core SDK: 0.1.5
+- Portal React SDK: 0.1.4
+- Extension protocol: 0.1.0
 
-Separate Development and Production credentials were generated. The same extension configuration was deployed to both environments. Required localhost and hosted application origins were registered.
+The documentation site is currently unversioned and does not identify the exact package releases it describes. This comparison therefore records both the pinned package versions and the current published documentation as of the report date.
 
-No credentials, bearer tokens, or private user identifiers are included in this report.
+The documented [Get active config endpoint](https://docs.useportal.co/api-reference/spec/tag/deploys/get/v1/configs/active) confirms that the Development environment has an active configuration containing:
 
-## Deployed Configuration
-
-The relevant channel configuration is equivalent to:
-
-```ts
-const publicOfficeChannel = {
-  anonymous: false,
-  middleware: [moderateChatMessage],
-  extensions: { reactions: "./extensions/reactions.ts" },
-};
-
-export default defineConfig({
-  channels: {
-    general: publicOfficeChannel,
-    announcements: { ...publicOfficeChannel, mode: "broadcast" },
-  },
-});
-```
-
-The extension manifest is:
-
-```ts
-static manifest = {
-  namespace: "reaction.",
-  transport: "ws",
-};
-```
-
-On a valid toggle, `onBatch` persists the updated state and returns:
-
-```ts
+```json
 {
-  broadcasts: [
-    {
-      type: "reaction.state",
-      content: {
-        messageId,
-        reactions,
-      },
-    },
-  ],
-  snapshotDirty: true,
+  "general": {
+    "mode": "standard",
+    "extensions": {
+      "reactions": {
+        "script": "ext-general-reactions",
+        "namespace": "reaction.",
+        "transport": "ws"
+      }
+    }
+  },
+  "announcements": {
+    "mode": "broadcast",
+    "extensions": {
+      "reactions": {
+        "script": "ext-announcements-reactions",
+        "namespace": "reaction.",
+        "transport": "ws"
+      }
+    }
+  }
 }
 ```
 
-`onSnapshot` returns:
-
-```ts
-{
-  snapshot: {
-    reactions,
-  },
-}
-```
+The Production environment received the same configuration, but this report does not claim Production runtime impact because the direct smoke test has only been run with Development credentials.
 
 ## Reproduction
 
-The repository contains `scripts/reaction-smoke.ts`, which exercises Portal directly without React or Clerk browser state.
+The repository includes `scripts/reaction-smoke.ts`. It uses `@portalsdk/core` directly and does not depend on React rendering or browser Clerk state.
 
 The script:
 
-1. Creates two Portal users with membership and scoped channel tokens.
-2. Opens two independent Portal clients on `general`.
-3. Waits for both channels to reach `ready`.
-4. Sends a namespaced `reaction.toggle` from client A.
-5. Waits for `reaction.state` on clients A and B.
-6. Opens a third client and verifies the late-join snapshot.
-7. Toggles the same reaction and verifies removal on both connected clients.
+1. Creates scoped Portal sessions for two identities.
+2. Connects both clients to the same channel.
+3. Waits for both channel handles to reach `ready`.
+4. Registers `message` listeners on both clients.
+5. Sends `reaction.toggle` from client A.
+6. Requires both clients to receive `reaction.state`.
+7. Connects a third client and checks `ext.reactions`.
+8. Toggles the reaction again and checks the removal broadcast.
 
-Run it with Development credentials provided through the environment:
+Run:
 
 ```sh
 NEXT_PUBLIC_PORTAL_KEY=<development-publishable-key> \
@@ -128,13 +175,98 @@ Actual result:
 error: Reaction broadcast not received.
 ```
 
-The failure occurs after both clients reach `ready` and after the namespaced send resolves.
+The timeout occurs after both clients reach `ready` and the namespaced `send()` call resolves.
 
-The same behavior was observed on both `general` and `announcements`.
+## Decisive Control: Official Documentation Counter Also Fails
+
+To determine whether the application implemented reactions incorrectly, a semantically equivalent copy of the counter from Portal's [Channel extensions guide](https://docs.useportal.co/guides/extensions#1-author-the-extension) was deployed as a separate extension to a never-before-used Development channel.
+
+The control matched the documented implementation:
+
+```ts
+class Counter {
+  static manifest = {
+    namespace: "counter.",
+    transport: "ws",
+  };
+
+  private total = 0;
+
+  constructor(private context: ExtensionContext) {}
+
+  async onInit() {
+    this.total = (await this.context.storage.get<number>("total")) ?? 0;
+  }
+
+  async onBatch({ messages }: BatchRequest) {
+    const bumps = messages.filter(
+      (message) => message.type === "counter.increment",
+    ).length;
+    if (bumps === 0) return;
+
+    this.total += bumps;
+    await this.context.storage.put("total", this.total);
+    return {
+      broadcasts: [
+        { type: "counter.state", content: { total: this.total } },
+      ],
+      snapshotDirty: true,
+    };
+  }
+
+  onSnapshot() {
+    return { snapshot: { total: this.total } };
+  }
+}
+```
+
+Control conditions:
+
+- New exact channel ID that had never been connected before
+- One extension only
+- No application middleware
+- Namespace `counter.`
+- WebSocket transport
+- Two direct `@portalsdk/core` clients
+- `history: "none"`
+- Synthetic Portal members and scoped tokens
+- Listeners registered before sending
+- Documented send shape: `{ ephemeral: true, type: "counter.increment", content: {} }`
+- Ten-second broadcast timeout
+
+Deployment reported:
+
+```text
+1 channel override
+Uploaded: 1 extension
+```
+
+Actual result:
+
+```text
+error: Counter broadcast not received.
+```
+
+The original `general` and `announcements` configuration was immediately reactivated after the test and verified through the active-config API.
+
+This control rules out:
+
+- Reaction payload validation
+- Reaction toggle semantics
+- Reaction storage shape
+- Epoch-aware reaction batch deduplication
+- React state synchronization
+- Reaction DOM rendering or CSS
+- Existing `general` or `announcements` coordinator state
+- Message-history interaction
+- Publish middleware interaction
+- A race unique to the late-join snapshot check
+
+The failure is now demonstrated with Portal's own documented extension pattern on a fresh channel. It is therefore appropriate to classify the incident as a Portal platform issue, while keeping the exact internal subsystem diagnosis open.
 
 ## Wire Evidence
 
-The channel `ready` frame includes:
+The sanitized `ready` frame contains:
 
 ```json
 {
@@ -156,46 +288,25 @@ The channel `ready` frame includes:
 }
 ```
 
-This proves that:
+This aligns with the [wire protocol's definition of `ready`](https://docs.useportal.co/wire-protocol#the-ready-frame): `bindings` is the extension namespace routing table used by `send()` to choose the extension transport.
 
-- The client is connected to the intended environment.
-- The deployed channel configuration matches `general`.
-- Portal recognizes the extension namespace and transport.
-- The SDK has enough information to route `reaction.toggle` into the extension path.
+The same connection receives normal Portal frames for persistent messages, presence, and activity. The inbox connection also receives entry and counter updates. This narrows the failure to the extension path rather than the channel, token, origin, or general realtime connection.
 
-The same connection successfully receives ordinary Portal traffic:
+The supplied frame excerpt does not contain the outgoing reaction frame. Per the [wire protocol](https://docs.useportal.co/wire-protocol#frames-on-the-channel-socket), the expected client frame is:
 
 ```json
 {
-  "t": "batch",
-  "msgs": [
-    {
-      "type": "message",
-      "kind": "text",
-      "content": {
-        "text": "Example message"
-      },
-      "ephemeral": false
-    }
-  ]
+  "t": "ephemeral",
+  "cl": "<client-tag>",
+  "type": "reaction.toggle",
+  "content": {
+    "messageId": "<message-id>",
+    "reaction": "like"
+  }
 }
 ```
 
-Presence, typing activity, persistent messages, and inbox counters also update normally.
-
-After sending `reaction.toggle`, the connection does not receive a message with:
-
-```json
-{
-  "type": "reaction.state"
-}
-```
-
-The `ready` frame also contains no `ext.reactions` state after attempted mutations.
-
-## Expected Behavior
-
-The sending client and every other connected client should receive an extension broadcast equivalent to:
+The expected server result is a Portal message delivered to both clients with:
 
 ```json
 {
@@ -209,217 +320,165 @@ The sending client and every other connected client should receive an extension 
 }
 ```
 
-After the snapshot refresh completes, a newly connected client should receive:
+No `reaction.state` message is observed.
 
-```json
-{
-  "ext": {
-    "reactions": {
-      "reactions": {
-        "<message-id>": {
-          "like": ["<sender-id>"]
-        }
-      }
-    }
-  }
-}
-```
+## What Is Proven
 
-## Actual Behavior
+- The client authenticates and reaches `ready`.
+- The active Development config contains both extension attachments and generated script names.
+- The `ready` frame advertises `reaction.` with `ws` transport.
+- Ordinary channel and inbox features work in the same environment.
+- The application follows the documented extension authoring and consumption pattern.
+- A direct multi-client SDK reproduction fails before any UI rendering step.
+- The expected extension broadcast does not reach either connected client.
+- The expected extension snapshot is absent.
+- Portal's documented counter pattern fails in the same environment on a fresh channel.
+- The fresh-channel counter test removes reaction-specific implementation and stale-channel state from the causal set.
 
-- The namespaced send resolves in the client SDK.
-- Portal does not relay it as an ordinary generic ephemeral message, consistent with the extension route intercepting it.
-- No `reaction.state` broadcast is received.
-- No extension snapshot becomes available.
-- No useful extension error is sent to the client.
-- The channel itself remains connected and operational.
+## What Is Not Yet Proven
 
-## What Has Been Ruled Out
+- Whether the browser emitted the exact expected `ephemeral` frame during the reported click. The SDK smoke test exercises the equivalent send, but a browser Messages capture would close this evidence gap.
+- Whether the extension script is absent from the dispatch namespace.
+- Whether the script exists but throws during construction, `onInit`, `onBatch`, storage, or snapshot generation.
+- Whether the coordinator has marked the extension degraded internally.
+- Whether an `error` frame is generated but not surfaced as the documented `DegradedError` for WebSocket transport.
+- Whether Production exhibits the same runtime behavior.
 
-### Incorrect project or environment keys
+## Ranked Root-Cause Hypotheses
 
-The JWT environment identifier, publishable key, server key, deployed configuration, and connected channel all belong to the newly created Development environment.
+### 1. Hosted extension dispatch cannot execute uploaded extension code
 
-### Missing channel attachment
+**Confidence: high.**
 
-The `ready.bindings` record explicitly advertises `reaction.` with `ws` transport.
+The active config and `ready.bindings` prove that Portal resolved the reaction extension metadata. The independent failure of the documented counter on a fresh channel shows that the problem is systemic to hosted extension execution in this environment rather than authored reaction behavior. The absence of broadcasts is consistent with failure when dispatching to generated customer scripts or their Durable Objects.
 
-### Client parser failure
+Predictions:
 
-A focused regression test verifies that a valid `reaction.state` message is merged into renderable reaction state.
+- The named script is missing, has an invalid binding/migration, or returns a non-success response.
+- Realtime or customer-worker logs show a dispatch error or timeout.
+- The documented counter extension fails in the same environment. This prediction has been confirmed.
 
-### React synchronization failure
+### 2. The extension executes but fails during lifecycle handling
 
-The direct SDK smoke test reproduces the failure without React.
+**Confidence: medium.**
 
-### Extension state-transition logic
+A runtime-only difference could cause construction, `onInit`, `ctx.storage`, `onBatch`, or `onSnapshot` to fail even though the class-level test passes.
 
-The extension unit test verifies add, broadcast response, durable storage, and late-join snapshot output. Batch deduplication also tracks the Portal epoch so a restarted channel does not incorrectly discard new sequence numbers.
+Predictions:
 
-### CSS hiding the reaction
+- The dispatch script exists.
+- Invocation logs show an exception in the generated wrapper or authored extension.
+- A no-storage extension succeeds while the reaction extension fails.
 
-No reaction state reaches the clients. The failure occurs before DOM rendering.
+### 3. The channel coordinator retained stale extension runtime state
 
-### General channel connectivity
+**Confidence: very low.**
 
-Persistent messages, presence, typing, history, and inbox updates continue to work on the same connection.
+The [deployment documentation](https://docs.useportal.co/config-cli/deploy-and-secrets#portal-deploy) says active connections retain prior configuration until restart. The documented counter failed on a never-before-used channel created after its configuration was activated, effectively ruling out stale coordinator configuration as the general explanation.
 
-## Likely Platform Failure Boundary
+This hypothesis should only be revisited if platform logs show that the fresh channel loaded an unexpected configuration version.
 
-The evidence places the failure in this sequence:
+### 4. The WebSocket send is rejected but the error is not surfaced as documented
 
-```text
-Client send
-  -> Portal SDK namespace routing
-  -> Realtime coordinator extension lookup
-  -> hosted customer extension dispatch
-  -> extension onBatch
-  -> extension broadcast enqueue
-  -> connected clients
-```
+**Confidence: medium.**
 
-The first three steps are supported by the successful connection and advertised binding. The last visible successful point is the realtime coordinator recognizing the namespace. No evidence shows that the hosted customer extension worker runs successfully.
+The public docs promise `DegradedError`, while the wire protocol allows an asynchronous `error` frame correlated by `ref`. The current smoke test proves no broadcast but does not retain a post-ready status/error listener or capture raw frames.
 
-The most likely boundary is Workers-for-Platforms upload or dispatch.
+Predictions:
 
-## Primary Platform Hypothesis
+- Raw WebSocket capture shows an `error` frame referencing the reaction send's `cl` value.
+- Adding persistent SDK error instrumentation exposes `DegradedError` or a generic `PortalError`.
 
-The Portal control plane can activate a configuration that references extension scripts even when Workers-for-Platforms upload is not configured.
+## Implementation-Informed Hypothesis, Not a Documented Fact
 
-In `apps/api/src/lib/wfp.ts`, upload is skipped when any required input is absent:
+Portal's internal API implementation contains a path where Workers-for-Platforms upload is skipped when required deployment inputs are absent:
 
 ```ts
-function wfpConfigured(env: WorkerEnv): boolean {
-  return Boolean(
-    env.CLOUDFLARE_ACCOUNT_ID &&
-      env.CLOUDFLARE_API_TOKEN &&
-      env.WFP_DISPATCH_NAMESPACE,
-  );
-}
-
 if (!wfpConfigured(env)) return;
 ```
 
-`WFP_DISPATCH_NAMESPACE` is configured as `portal-customer-workers`, but the Cloudflare account ID and API token are deployment secrets.
+The required inputs are the Cloudflare account ID, API token, and dispatch namespace. Separately, realtime dispatch can suppress an unsuccessful extension invocation and return no extension response.
 
-If either secret is absent, invalid, or belongs to a different account:
+That combination could explain how extension metadata becomes active while the named script is unavailable or nonfunctional. However, it conflicts with the public statement that deployment is atomic. It should therefore be treated as a concrete operator investigation path, not the report's conclusion.
 
-1. Portal accepts and activates the channel configuration.
-2. The realtime coordinator advertises the extension binding.
-3. The extension script may not exist in the dispatch namespace.
-4. The coordinator intercepts messages for `reaction.`.
-5. Worker dispatch fails.
-6. No broadcast or snapshot is produced.
+## Requested Founder and Operator Checks
 
-This exactly matches the observed behavior.
+### 1. Verify deployment artifacts against the documented atomic guarantee
 
-## Other Plausible Platform Causes
-
-- The API uploads to a different Cloudflare account or dispatch namespace than realtime uses.
-- The extension script exists but lacks the expected `EXTENSION` Durable Object binding.
-- The `PortalExtension` Durable Object migration was not applied.
-- The dispatch script exists but fails during construction, `onInit`, or `onBatch`.
-- A channel coordinator pinned a pre-deployment configuration. This is less likely because the behavior also occurred in a newly created project on both channels.
-- Extension dispatch errors are being suppressed without enough client-facing or operator-facing telemetry.
-
-## Requested Operator Checks
-
-Please perform these checks in the Cloudflare account that owns `api.useportal.co` and `realtime.useportal.co`.
-
-### 1. Verify API Worker secrets
-
-```sh
-wrangler secret list --config apps/api/wrangler.toml
-```
-
-Confirm that both names exist:
+For the active Development config, verify that these scripts exist in the expected dispatch namespace:
 
 ```text
-CLOUDFLARE_ACCOUNT_ID
-CLOUDFLARE_API_TOKEN
+ext-general-reactions
+ext-announcements-reactions
 ```
 
-Do not share their values.
+Confirm that the script content corresponds to the active content-addressed configuration version.
 
-### 2. Verify the dispatch namespace
+### 2. Verify customer-worker Durable Object configuration
 
-Confirm that `portal-customer-workers` exists in the same Cloudflare account used by both the API upload code and realtime dispatch binding.
+Each extension script should have the generated wrapper's expected configuration:
 
-### 3. Verify uploaded extension scripts
+- `index.js` module entry point
+- `EXTENSION` Durable Object binding
+- `PortalExtension` class
+- SQLite migration for `PortalExtension`
 
-Confirm that scripts corresponding to the `general/reactions` and `announcements/reactions` attachments exist in `portal-customer-workers` after `portal deploy` reports:
+### 3. Verify upload and dispatch use the same account and namespace
 
-```text
-Uploaded: 2 extensions
-```
+Confirm that the control-plane uploader and realtime `CUSTOMER_WORKERS` binding target the same Cloudflare account and `portal-customer-workers` dispatch namespace.
 
-### 4. Verify Durable Object configuration
+### 4. Inspect one correlated invocation
 
-Each uploaded extension script should include:
+Capture logs for one `reaction.toggle` from coordinator routing through customer-worker response. Record:
 
-- Module entry point `index.js`
-- Durable Object binding named `EXTENSION`
-- Durable Object class `PortalExtension`
-- SQLite class migration for `PortalExtension`
+- Environment ID
+- Channel ID
+- Extension handle and namespace
+- Script name
+- Request kind and batch sequence
+- Dispatch status
+- Worker exception or timeout
+- Returned `broadcasts` and `snapshotDirty`
+- Snapshot refresh result
 
-### 5. Inspect dispatch errors
+Do not include user tokens or message content beyond the synthetic smoke-test payload.
 
-Tail realtime and customer-worker logs while running:
+### 5. Compare SDK behavior with the documented degraded contract
 
-```sh
-bun scripts/reaction-smoke.ts
-```
+If the extension is degraded, verify why the client send does not reject with `DegradedError` as documented. For WebSocket transport, confirm whether the error is expected synchronously from `send()` or asynchronously through the channel error callback.
 
-Look for:
+### 6. Reproduce the completed official-docs counter control with platform logs
 
-- Missing dispatch script
-- Dispatch namespace mismatch
-- Durable Object binding errors
-- Migration precondition errors
-- Constructor or `onInit` exceptions
-- Non-2xx extension responses
-- Dispatch timeouts
+The counter control has already failed from the client perspective. Repeat that exact test while tailing control-plane, realtime coordinator, dispatch, and customer-worker logs. This should provide the shortest path to the first internal failure.
 
-### 6. Verify configuration reload behavior
+## Recommended Platform Improvements
 
-Ensure the test channel coordinator is created after the new configuration is activated, or use a fresh channel ID to exclude coordinator-level config pinning.
+These recommendations follow directly from the documented contract and the diagnostic ambiguity encountered here.
 
-## Observability Gap
+1. Enforce the documented atomic guarantee by failing deployment when any referenced extension script cannot be uploaded and verified.
+2. Verify generated script existence, bindings, and Durable Object migration before activation.
+3. Expose extension health by handle in the dashboard and active-config diagnostics.
+4. Include structured extension dispatch failures in environment logs.
+5. Make the documented `DegradedError` behavior explicit for WebSocket transport, including whether failure is synchronous or correlated asynchronously.
+6. Distinguish "healthy snapshot not yet produced" from "extension degraded" if both can currently appear as a missing `ext` key.
+7. Add an end-to-end test that deploys the official counter, sends from client A, observes client B, and validates a late-join snapshot.
 
-The current behavior is difficult for an extension author to diagnose because:
+## Resolution Acceptance Test
 
-- `portal deploy` reports successful extension upload.
-- The client receives an extension binding.
-- Namespaced sends resolve.
-- The extension produces no output.
-- The channel remains healthy.
-- No extension-specific error reaches `onError`.
-- Missing snapshot state is indistinguishable from an extension that has never produced state.
+The incident is resolved when the following passes in a newly provisioned Development environment:
 
-Recommended platform improvements:
+1. `portal deploy` uploads and activates the reaction extension.
+2. The active-config API names the expected scripts.
+3. Clients A and B connect and receive the `reaction.` binding.
+4. A sends `reaction.toggle`.
+5. A and B receive `reaction.state`.
+6. Client C connects after the mutation.
+7. C receives current state at `ext.reactions` in its ready snapshot.
+8. A toggles again.
+9. Connected clients receive the removal state.
+10. No extension or channel error occurs.
 
-1. Fail deployment when customer-worker upload is unavailable outside local development.
-2. Verify each uploaded dispatch script before activating the configuration.
-3. Surface extension dispatch failures through structured logs with environment, channel, handle, namespace, script, and request kind.
-4. Expose extension degradation through the SDK or a diagnostics endpoint.
-5. Reject or visibly fail namespaced sends when the configured extension worker cannot execute.
-6. Add an end-to-end deploy test covering upload, WebSocket routing, broadcast delivery, and late-join snapshots.
-
-## Acceptance Test for Resolution
-
-The issue is resolved when the following sequence passes against a newly provisioned environment:
-
-1. Deploy a `ws` extension attached to a stable channel.
-2. Connect clients A and B.
-3. Send one namespaced mutation from A.
-4. Receive the extension broadcast on A and B.
-5. Disconnect B.
-6. Send another mutation from A.
-7. Connect client C.
-8. Receive the current extension snapshot in C's `ready.ext` record.
-9. Toggle the original mutation and receive the removal broadcast on all connected clients.
-
-For this repository, the executable acceptance test is:
+Executable test:
 
 ```sh
 NEXT_PUBLIC_PORTAL_KEY=<development-publishable-key> \
@@ -433,20 +492,31 @@ Expected output:
 Reaction broadcast, toggle, and late-join snapshot passed.
 ```
 
+## Primary Documentation References
+
+- [Channel extensions](https://docs.useportal.co/guides/extensions)
+- [`useChannel`](https://docs.useportal.co/react/use-channel)
+- [Channels](https://docs.useportal.co/core/channels)
+- [Errors](https://docs.useportal.co/core/errors)
+- [Wire protocol](https://docs.useportal.co/wire-protocol)
+- [Authoring `portal.config.ts`](https://docs.useportal.co/config-cli/portal-config)
+- [Deploy & secrets](https://docs.useportal.co/config-cli/deploy-and-secrets)
+- [Upload a config version](https://docs.useportal.co/api-reference/spec/tag/deploys/post/v1/deploys)
+- [Activate a config version](https://docs.useportal.co/api-reference/spec/tag/deploys/post/v1/deploys/versionId/activate)
+- [Get the active config](https://docs.useportal.co/api-reference/spec/tag/deploys/get/v1/configs/active)
+
 ## Repository References
 
 - Application PR: `cuevaio/slack-xp#30`
 - Extension: `extensions/reactions.ts`
-- Client consumer: `src/components/portal-chat.tsx`
-- Real-service reproduction: `scripts/reaction-smoke.ts`
+- Client integration: `src/components/portal-chat.tsx`
+- Direct reproduction: `scripts/reaction-smoke.ts`
 - Focused tests: `tests/portal-baseline.test.ts`
-- Portal upload path: `apps/api/src/lib/wfp.ts`
-- Portal dispatch path: `apps/realtime/src/coordinator.ts`
-- Portal API Worker config: `apps/api/wrangler.toml`
-- Portal realtime Worker config: `apps/realtime/wrangler.toml`
+- Portal upload implementation: `apps/api/src/lib/wfp.ts`
+- Portal dispatch implementation: `apps/realtime/src/coordinator.ts`
 
 ## Conclusion
 
-Portal successfully authenticates the clients, resolves the channel configuration, and advertises the extension namespace. It then fails to produce any output from the hosted extension path. The same failure occurs outside the UI with multiple direct SDK clients.
+The application is materially aligned with Portal's published extension guide. Portal's own active configuration and channel `ready` frame confirm that the reaction extension is attached and advertised through the `reaction.` WebSocket namespace. More decisively, Portal's documented counter pattern fails in the same clean environment on a fresh channel with no middleware or reaction-specific behavior. What fails is the documented extension result: no live broadcast, no late-join snapshot, and no visible degraded-extension error.
 
-The highest-value next step is to inspect the production Workers-for-Platforms namespace and API Worker secret configuration while running the included smoke test. The current evidence strongly suggests that the activated Portal configuration references an extension worker that was not uploaded successfully or cannot be dispatched.
+The report should be handled as a confirmed Portal platform contract incident, not as a confirmed Workers-for-Platforms credential incident. The fastest path to root cause is to trace one synthetic `counter.increment` through configuration lookup, coordinator dispatch, generated extension execution, broadcast enqueue, and snapshot refresh.

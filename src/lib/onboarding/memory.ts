@@ -97,6 +97,21 @@ function shouldApplyProfile(
   return !hasSameProfileValues(current, candidate);
 }
 
+function shouldApplyProfileTombstone(
+  current: StoredProfile | undefined,
+  tombstone: DeletedClerkProfile,
+): boolean {
+  if (!current) {
+    return true;
+  }
+
+  if (current.sourceVersion !== tombstone.sourceVersion) {
+    return tombstone.sourceVersion > current.sourceVersion;
+  }
+
+  return current.deletedAt === null;
+}
+
 function toSnapshot(
   profile: NewHireProfile,
   onboarding: StoredOnboarding,
@@ -293,12 +308,7 @@ export function createInMemoryNeonRepository(
     tombstone: DeletedClerkProfile,
   ): ProfileProjectionResult {
     const current = profiles.get(tombstone.clerkUserId);
-    if (
-      current &&
-      (current.sourceVersion > tombstone.sourceVersion ||
-        (current.sourceVersion === tombstone.sourceVersion &&
-          current.deletedAt !== null))
-    ) {
+    if (!shouldApplyProfileTombstone(current, tombstone)) {
       return "unchanged";
     }
 

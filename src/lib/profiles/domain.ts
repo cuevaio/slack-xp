@@ -16,6 +16,11 @@ type ClerkProfilePayload = {
   updated_at: number;
 };
 
+type DeletedClerkProfilePayload = {
+  id: string;
+  deleted: true;
+};
+
 export class InvalidClerkProfilePayloadError extends Error {
   constructor() {
     super("The Clerk profile webhook payload is invalid.");
@@ -33,7 +38,7 @@ export class ProfileBatchError extends Error {
 type ProfileAttributionSource = {
   displayName?: string | null;
   imageUrl?: string | null;
-  deletedAt?: Date | null;
+  deletedAt: Date | null;
 };
 
 export function toProfileAttribution(
@@ -71,14 +76,7 @@ export function deletedProfileFromClerkPayload(
   signedTimestamp: unknown,
 ): DeletedClerkProfile {
   if (
-    !payload ||
-    typeof payload !== "object" ||
-    !("id" in payload) ||
-    typeof payload.id !== "string" ||
-    payload.id.length < 1 ||
-    payload.id.length > 255 ||
-    !("deleted" in payload) ||
-    payload.deleted !== true ||
+    !isDeletedClerkProfilePayload(payload) ||
     typeof signedTimestamp !== "string" ||
     !/^\d{1,12}$/u.test(signedTimestamp)
   ) {
@@ -87,12 +85,13 @@ export function deletedProfileFromClerkPayload(
 
   const timestampSeconds = Number(signedTimestamp);
   const deletedAtMilliseconds = timestampSeconds * 1_000;
+  const deletedAt = new Date(deletedAtMilliseconds);
   // Clerk profile updates use millisecond source versions. Put a deletion at
   // the end of its signed second so an earlier same-second update cannot win.
   const sourceVersion = deletedAtMilliseconds + 999;
   if (
     !Number.isSafeInteger(sourceVersion) ||
-    !Number.isFinite(new Date(deletedAtMilliseconds).getTime())
+    !Number.isFinite(deletedAt.getTime())
   ) {
     throw new InvalidClerkProfilePayloadError();
   }
@@ -100,7 +99,7 @@ export function deletedProfileFromClerkPayload(
   return {
     clerkUserId: payload.id,
     sourceVersion,
-    deletedAt: new Date(deletedAtMilliseconds),
+    deletedAt,
   };
 }
 
@@ -150,6 +149,21 @@ function isClerkProfilePayload(value: unknown): value is ClerkProfilePayload {
     typeof payload.updated_at === "number" &&
     Number.isSafeInteger(payload.updated_at) &&
     payload.updated_at >= 0
+  );
+}
+
+function isDeletedClerkProfilePayload(
+  value: unknown,
+): value is DeletedClerkProfilePayload {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "id" in value &&
+    typeof value.id === "string" &&
+    value.id.length >= 1 &&
+    value.id.length <= 255 &&
+    "deleted" in value &&
+    value.deleted === true
   );
 }
 

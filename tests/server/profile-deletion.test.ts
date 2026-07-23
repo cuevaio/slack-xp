@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { officeEventChannelId } from "@/lib/office-events/contract";
+import {
+  officeEventChannelId,
+  parseOfficeEventMessage,
+} from "@/lib/office-events/contract";
 import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
 import { listOfficeChannels } from "@/lib/portal/channels";
 import { createMockPortalAdapter } from "@/lib/portal/mock";
@@ -19,6 +22,16 @@ const profile = {
   imageUrl: "https://img.example/private.png",
   sourceVersion: now.getTime() - 1_000,
 };
+
+function profileInvalidations(
+  portal: ReturnType<typeof createMockPortalAdapter>,
+  channelId: string,
+): ProfileInvalidationEvent[] {
+  return portal.officeEvents(channelId).flatMap((message) => {
+    const event = parseOfficeEventMessage(message, channelId)?.event;
+    return event?.type === "profile.invalidated" ? [event] : [];
+  });
+}
 
 describe("Clerk account deletion", () => {
   test("disconnects active Portal access while preserving stable attribution", async () => {
@@ -61,18 +74,10 @@ describe("Clerk account deletion", () => {
       },
       now,
     });
-    const invalidationsAfterFirstDelivery = portal
-      .officeEvents(officeEventChannelId(now))
-      .filter(
-        (event) =>
-          typeof event === "object" &&
-          event !== null &&
-          "content" in event &&
-          typeof event.content === "object" &&
-          event.content !== null &&
-          "type" in event.content &&
-          event.content.type === "profile.invalidated",
-      ).length;
+    const invalidationsAfterFirstDelivery = profileInvalidations(
+      portal,
+      officeEventChannelId(now),
+    ).length;
     await deleteClerkProfile({
       repository,
       portal,
@@ -132,20 +137,19 @@ describe("Clerk account deletion", () => {
         reinstatedAt: now,
       }),
     ).rejects.toMatchObject({ code: "new_hire_deleted" });
-    const profileInvalidations = (
-      portal.officeEvents(officeEventChannelId(now)) as Array<{
-        content: ProfileInvalidationEvent;
-      }>
-    ).filter(({ content }) => content.type === "profile.invalidated");
-    expect(profileInvalidations).toHaveLength(invalidationsAfterFirstDelivery);
-    expect(Object.keys(profileInvalidations[0]?.content ?? {}).sort()).toEqual([
+    const invalidations = profileInvalidations(
+      portal,
+      officeEventChannelId(now),
+    );
+    expect(invalidations).toHaveLength(invalidationsAfterFirstDelivery);
+    expect(Object.keys(invalidations[0] ?? {}).sort()).toEqual([
       "eventKey",
       "occurredAt",
       "profileId",
       "type",
       "version",
     ]);
-    expect(JSON.stringify(profileInvalidations)).not.toMatch(
+    expect(JSON.stringify(invalidations)).not.toMatch(
       /Privacy Please|img\.example/iu,
     );
     expect(onboarding.clerkUserId).toBe(profile.clerkUserId);

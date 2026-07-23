@@ -12,28 +12,26 @@ import type {
 
 type ProfileProjectionChange = NewHireProfile | DeletedClerkProfile;
 
-function isDeletedProfile(
+function profileChangeValues(
   profile: ProfileProjectionChange,
-): profile is DeletedClerkProfile {
-  return "deletedAt" in profile;
+): readonly unknown[] {
+  if ("deletedAt" in profile) {
+    return [profile.clerkUserId, profile.sourceVersion, "deleted"];
+  }
+
+  return [
+    profile.clerkUserId,
+    profile.sourceVersion,
+    profile.firstName,
+    profile.lastName,
+    profile.displayName,
+    profile.imageUrl,
+  ];
 }
 
 function profileChangeSourceId(profile: ProfileProjectionChange): string {
   const digest = createHash("sha256")
-    .update(
-      JSON.stringify(
-        isDeletedProfile(profile)
-          ? [profile.clerkUserId, profile.sourceVersion, "deleted"]
-          : [
-              profile.clerkUserId,
-              profile.sourceVersion,
-              profile.firstName,
-              profile.lastName,
-              profile.displayName,
-              profile.imageUrl,
-            ],
-      ),
-    )
+    .update(JSON.stringify(profileChangeValues(profile)))
     .digest("hex")
     .slice(0, 32);
   return `profile_${profile.sourceVersion}_${digest}`;

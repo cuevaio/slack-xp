@@ -32,6 +32,7 @@ import type {
   SafePublicSendHomeSystemEventMessage,
   SafePublicTerminationSystemEventMessage,
 } from "@/lib/employment/contract";
+import { getEmploymentAccessEndedCopy } from "@/lib/employment/presentation";
 import { invalidateHRReportQueue } from "@/lib/hr-reports/client";
 import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import {
@@ -1624,6 +1625,21 @@ function useActiveOfficeChannel(
   return { activeChannelId, setActiveChannelId };
 }
 
+function recheckEmploymentAccess(
+  onEmploymentAccessEnded: (access: EmploymentAccessDeniedDecision) => void,
+  onError: () => void,
+): void {
+  void fetchEmploymentAccess()
+    .then((access) => {
+      if (!access.eligible) {
+        onEmploymentAccessEnded(access);
+      }
+    })
+    .catch(onError);
+}
+
+function ignoreMockEmploymentAccessError(): void {}
+
 function LivePortalWorkspace({
   channels,
   identityId,
@@ -1647,13 +1663,9 @@ function LivePortalWorkspace({
         case "profile.invalidated":
           void invalidateProfileBatches(queryClient, event.profileId);
           if (event.profileId === identityId) {
-            void fetchEmploymentAccess()
-              .then((access) => {
-                if (!access.eligible) {
-                  onEmploymentAccessEnded(access);
-                }
-              })
-              .catch(() => window.location.reload());
+            recheckEmploymentAccess(onEmploymentAccessEnded, () =>
+              window.location.reload(),
+            );
           }
           break;
         case "report.invalidated":
@@ -1664,13 +1676,9 @@ function LivePortalWorkspace({
           break;
         case "employment.invalidated":
           if (event.newHireId === identityId) {
-            void fetchEmploymentAccess()
-              .then((access) => {
-                if (!access.eligible) {
-                  onEmploymentAccessEnded(access);
-                }
-              })
-              .catch(() => window.location.reload());
+            recheckEmploymentAccess(onEmploymentAccessEnded, () =>
+              window.location.reload(),
+            );
           }
           break;
         case "operator.invalidated":
@@ -2030,20 +2038,18 @@ function MockPortalOffice(
               case "profile.invalidated":
                 void invalidateProfileBatches(queryClient, event.profileId);
                 if (event.profileId === identityId) {
-                  void fetchEmploymentAccess()
-                    .then((access) => {
-                      if (!access.eligible) onEmploymentAccessEnded(access);
-                    })
-                    .catch(() => {});
+                  recheckEmploymentAccess(
+                    onEmploymentAccessEnded,
+                    ignoreMockEmploymentAccessError,
+                  );
                 }
                 break;
               case "employment.invalidated":
                 if (event.newHireId === identityId) {
-                  void fetchEmploymentAccess()
-                    .then((access) => {
-                      if (!access.eligible) onEmploymentAccessEnded(access);
-                    })
-                    .catch(() => {});
+                  recheckEmploymentAccess(
+                    onEmploymentAccessEnded,
+                    ignoreMockEmploymentAccessError,
+                  );
                 }
                 break;
             }
@@ -2054,13 +2060,10 @@ function MockPortalOffice(
         if (!cancelled) {
           setReactionEvents([]);
           setReactionStatus("reconnecting");
-          void fetchEmploymentAccess()
-            .then((access) => {
-              if (!access.eligible) {
-                onEmploymentAccessEnded(access);
-              }
-            })
-            .catch(() => {});
+          recheckEmploymentAccess(
+            onEmploymentAccessEnded,
+            ignoreMockEmploymentAccessError,
+          );
         }
       }
     }
@@ -2178,12 +2181,12 @@ function ShiftEndedDialog({ onContinue }: { onContinue(): void }) {
   );
 }
 
-function SentHomeDialog({
+function EmploymentAccessEndedDialog({
   access,
 }: {
   access: EmploymentAccessDeniedDecision;
 }) {
-  const sentHome = access.reason === "sent-home";
+  const copy = getEmploymentAccessEndedCopy(access.reason);
   return (
     <div className="shift-ended-backdrop">
       <section
@@ -2196,16 +2199,8 @@ function SentHomeDialog({
           <span>Portal Messenger</span>
         </header>
         <div className="shift-ended-content">
-          <h2 id="sent-home-title">
-            {sentHome
-              ? "You were sent home for this Office Day"
-              : "Your desk is unavailable"}
-          </h2>
-          <p>
-            {sentHome
-              ? "You can return automatically at the start of the next Office Day."
-              : "Your New Hire Profile is not currently eligible to enter the Shared Public Office."}
-          </p>
+          <h2 id="sent-home-title">{copy.title}</h2>
+          <p>{copy.description}</p>
           {access.until ? (
             <time dateTime={access.until.toISOString()}>
               {access.until.toLocaleString(undefined, {
@@ -2287,7 +2282,7 @@ function PortalChatWorkspace(props: PortalChatProps): ReactNode {
   }
 
   if (employmentAccessEnded) {
-    return <SentHomeDialog access={employmentAccessEnded} />;
+    return <EmploymentAccessEndedDialog access={employmentAccessEnded} />;
   }
 
   if (endedOfficeDay) {

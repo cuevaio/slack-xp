@@ -30,6 +30,60 @@ type ClerkWebhookDependencies = {
   now?: Date;
 };
 
+type ClerkProfileUpsertEvent = "user.created" | "user.updated";
+
+async function applyClerkProfileUpsert(
+  eventType: ClerkProfileUpsertEvent,
+  payload: unknown,
+  dependencies: ClerkWebhookDependencies,
+): Promise<void> {
+  const profile = profileFromClerkPayload(payload);
+  const options = {
+    allowTombstoneRestore: eventType === "user.created",
+  };
+
+  if (!dependencies.publisher) {
+    await dependencies.repository.projectProfile(profile, options);
+    return;
+  }
+
+  await projectAndPropagateProfile({
+    repository: dependencies.repository,
+    publisher: dependencies.publisher,
+    profile,
+    options,
+  });
+}
+
+async function applyClerkProfileDeletion(
+  payload: unknown,
+  signedTimestamp: string | null,
+  dependencies: ClerkWebhookDependencies,
+): Promise<void> {
+  const tombstone = deletedProfileFromClerkPayload(payload, signedTimestamp);
+  const { accessRevoker, publisher, repository } = dependencies;
+
+  if (!publisher || !accessRevoker) {
+    await repository.tombstoneProfile(tombstone);
+    if (publisher) {
+      await flushProfileInvalidations(repository, publisher);
+    }
+    return;
+  }
+
+  await deleteClerkProfile({
+    repository,
+    portal: {
+      publishProfileInvalidation: (event) =>
+        publisher.publishProfileInvalidation(event),
+      applyTerminationBans: (input) =>
+        accessRevoker.applyTerminationBans(input),
+    },
+    tombstone,
+    now: dependencies.now,
+  });
+}
+
 export async function handleClerkProfileWebhook(
   request: NextRequest,
   dependencies: ClerkWebhookDependencies,
@@ -45,50 +99,18 @@ export async function handleClerkProfileWebhook(
   }
 
   try {
-    if (event.type === "user.created" || event.type === "user.updated") {
-      const profile = profileFromClerkPayload(event.data);
-      if (dependencies.publisher) {
-        await projectAndPropagateProfile({
-          repository: dependencies.repository,
-          publisher: dependencies.publisher,
-          profile,
-          options: {
-            allowTombstoneRestore: event.type === "user.created",
-          },
-        });
-      } else {
-        await dependencies.repository.projectProfile(profile, {
-          allowTombstoneRestore: event.type === "user.created",
-        });
-      }
-    } else if (event.type === "user.deleted") {
-      const tombstone = deletedProfileFromClerkPayload(
-        event.data,
-        request.headers.get("svix-timestamp"),
-      );
-      const publisher = dependencies.publisher;
-      const accessRevoker = dependencies.accessRevoker;
-      if (publisher && accessRevoker) {
-        await deleteClerkProfile({
-          repository: dependencies.repository,
-          portal: {
-            publishProfileInvalidation: (event) =>
-              publisher.publishProfileInvalidation(event),
-            applyTerminationBans: (input) =>
-              accessRevoker.applyTerminationBans(input),
-          },
-          tombstone,
-          now: dependencies.now,
-        });
-      } else {
-        await dependencies.repository.tombstoneProfile(tombstone);
-        if (dependencies.publisher) {
-          await flushProfileInvalidations(
-            dependencies.repository,
-            dependencies.publisher,
-          );
-        }
-      }
+    switch (event.type) {
+      case "user.created":
+      case "user.updated":
+        await applyClerkProfileUpsert(event.type, event.data, dependencies);
+        break;
+      case "user.deleted":
+        await applyClerkProfileDeletion(
+          event.data,
+          request.headers.get("svix-timestamp"),
+          dependencies,
+        );
+        break;
     }
   } catch (error) {
     if (error instanceof InvalidClerkProfilePayloadError) {

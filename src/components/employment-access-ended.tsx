@@ -1,11 +1,12 @@
 import type { EmploymentAccessDeniedDecision } from "@/lib/employment/contract";
+import { getEmploymentAccessEndedCopy } from "@/lib/employment/presentation";
 
 export function EmploymentAccessEnded({
   access,
 }: {
   access: EmploymentAccessDeniedDecision;
 }) {
-  const sentHome = access.reason === "sent-home";
+  const copy = getEmploymentAccessEndedCopy(access.reason);
   return (
     <main className="office-shell">
       <section
@@ -16,16 +17,8 @@ export function EmploymentAccessEnded({
           <span>Portal Messenger: Corporate Edition</span>
         </header>
         <div className="shift-ended-content">
-          <h1 id="access-ended-title">
-            {sentHome
-              ? "You were sent home for this Office Day"
-              : "Your desk is unavailable"}
-          </h1>
-          <p>
-            {sentHome
-              ? "You can return automatically at the start of the next Office Day."
-              : "Your New Hire Profile is not currently eligible to enter the Shared Public Office."}
-          </p>
+          <h1 id="access-ended-title">{copy.title}</h1>
+          <p>{copy.description}</p>
           {access.until ? (
             <p>
               You can return after{" "}

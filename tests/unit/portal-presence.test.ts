@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import {
   connectionStatusCopy,
+  currentActiveNewHireIds,
   currentDetailedNewHireIds,
   currentTypingNewHireIds,
   isReservedPortalIdentity,
+  PRESENCE_ACTIVITY_KIND,
 } from "@/lib/portal/presence";
 import { fetchProfileAttributions } from "@/lib/profiles/client";
 
@@ -32,6 +34,38 @@ describe("Portal presence presentation contract", () => {
     ]);
   });
 
+  test("keeps peers active when a stale Portal snapshot contains only the current New Hire", () => {
+    expect(
+      currentDetailedNewHireIds(
+        {
+          kind: "detailed",
+          participants: [{ id: "user_pat", anon: false }],
+          count: 1,
+        },
+        "ready",
+      ),
+    ).toEqual(["user_pat"]);
+    expect(
+      currentActiveNewHireIds(
+        [
+          {
+            userId: "user_terry",
+            kind: PRESENCE_ACTIVITY_KIND,
+            since: Date.now(),
+          },
+          { userId: "user_typing", kind: "typing", since: Date.now() },
+          {
+            userId: "office-events:operations",
+            kind: PRESENCE_ACTIVITY_KIND,
+            since: Date.now(),
+          },
+        ],
+        "user_pat",
+        "ready",
+      ),
+    ).toEqual(["user_pat", "user_terry"]);
+  });
+
   test("hides stale presence and typing during every disconnected state", () => {
     for (const status of [
       "idle",
@@ -41,6 +75,19 @@ describe("Portal presence presentation contract", () => {
       "blocked",
     ] as const) {
       expect(currentDetailedNewHireIds(detailedPresence, status)).toEqual([]);
+      expect(
+        currentActiveNewHireIds(
+          [
+            {
+              userId: "user_terry",
+              kind: PRESENCE_ACTIVITY_KIND,
+              since: Date.now(),
+            },
+          ],
+          "user_pat",
+          status,
+        ),
+      ).toEqual([]);
       expect(
         currentTypingNewHireIds(
           ["user_terry", "office-character:fax-machine"],

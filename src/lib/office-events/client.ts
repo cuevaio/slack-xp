@@ -13,8 +13,17 @@ import {
   type ReactionOfficeEvent,
 } from "@/lib/office-events/contract";
 import { officeDayFromChannelId } from "@/lib/portal/channels";
+import {
+  currentActiveNewHireIds,
+  hasCurrentRealtimeState,
+  PRESENCE_ACTIVITY_KIND,
+} from "@/lib/portal/presence";
+
+// The pinned Portal SDK expires transient activity after five seconds.
+const PRESENCE_HEARTBEAT_INTERVAL_MS = 4_000;
 
 export type OfficeEventSubscription = {
+  activeNewHireIds: readonly string[];
   status: ChannelStatus;
   publishReaction(event: ReactionOfficeEvent): Promise<void>;
 };
@@ -76,6 +85,32 @@ export function useOfficeEventSubscription({
   }, [channelId, inbox.channels]);
 
   useEffect(() => {
+    if (!hasCurrentRealtimeState(channel.status)) return;
+
+    const sendHeartbeat = () => {
+      channel.sendActivity(PRESENCE_ACTIVITY_KIND);
+    };
+    const sendHeartbeatWhenVisible = () => {
+      if (!document.hidden) sendHeartbeat();
+    };
+    sendHeartbeat();
+    const interval = window.setInterval(
+      sendHeartbeat,
+      PRESENCE_HEARTBEAT_INTERVAL_MS,
+    );
+    window.addEventListener("focus", sendHeartbeat);
+    document.addEventListener("visibilitychange", sendHeartbeatWhenVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", sendHeartbeat);
+      document.removeEventListener(
+        "visibilitychange",
+        sendHeartbeatWhenVisible,
+      );
+    };
+  }, [channel.sendActivity, channel.status]);
+
+  useEffect(() => {
     if (channel.status !== "ready") return;
     if (!channel.hasPrevious || channel.isLoadingPrevious) return;
     void channel.loadPrevious();
@@ -105,5 +140,11 @@ export function useOfficeEventSubscription({
     [channel.me?.id, channel.send, channelId],
   );
 
-  return { status: channel.status, publishReaction };
+  const activeNewHireIds = currentActiveNewHireIds(
+    channel.activity,
+    channel.me?.id,
+    channel.status,
+  );
+
+  return { activeNewHireIds, status: channel.status, publishReaction };
 }

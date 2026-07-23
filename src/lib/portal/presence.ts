@@ -1,7 +1,12 @@
-import type { ChannelStatus, DetailedPresence } from "@portalsdk/core";
+import type {
+  ActivityEntry,
+  ChannelStatus,
+  DetailedPresence,
+} from "@portalsdk/core";
 
 export const OFFICE_CHARACTER_ID_PREFIX = "office-character:";
 export const OFFICE_EVENT_ID_PREFIX = "office-events:";
+export const PRESENCE_ACTIVITY_KIND = "portal-messenger:presence";
 
 export function isReservedPortalIdentity(userId: string): boolean {
   return (
@@ -28,6 +33,28 @@ export function currentDetailedNewHireIds(
         .filter(({ id, anon }) => !anon && !isReservedPortalIdentity(id))
         .map(({ id }) => id),
     ),
+  ];
+}
+
+export function currentActiveNewHireIds(
+  activity: readonly ActivityEntry[],
+  currentNewHireId: string | undefined,
+  status: ChannelStatus,
+): string[] {
+  if (!hasCurrentRealtimeState(status)) {
+    return [];
+  }
+
+  return [
+    ...new Set([
+      ...(currentNewHireId && !isReservedPortalIdentity(currentNewHireId)
+        ? [currentNewHireId]
+        : []),
+      ...activity
+        .filter(({ kind }) => kind === PRESENCE_ACTIVITY_KIND)
+        .map(({ userId }) => userId)
+        .filter((userId) => !isReservedPortalIdentity(userId)),
+    ]),
   ];
 }
 

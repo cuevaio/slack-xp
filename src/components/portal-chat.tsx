@@ -91,10 +91,7 @@ import {
   observeOfficeDayBoundary,
   officeDay,
 } from "@/lib/portal/office-day";
-import {
-  connectionStatusCopy,
-  currentDetailedNewHireIds,
-} from "@/lib/portal/presence";
+import { connectionStatusCopy } from "@/lib/portal/presence";
 import {
   isNewHireMessage,
   isPublicSendHomeSystemEventMessage,
@@ -157,6 +154,7 @@ type OfficeDayWorkspace = Pick<
 >;
 
 type ChatSurfaceProps = ReactionProps & {
+  activeNewHireIds: readonly string[];
   visible: boolean;
   readWhenVisible?: boolean;
   channel: OfficeChannel;
@@ -208,10 +206,10 @@ type ProfileResolution = {
 
 type LiveActivityProps = {
   active: boolean;
+  activeNewHireIds: readonly string[];
   channel: OfficeChannel;
   participantIds: readonly string[];
   presence?: PortalPresence;
-  status: ChannelStatus;
 };
 
 type ResponsiveOfficeNavigation = {
@@ -427,17 +425,12 @@ function ParticipantList({
 
 function LiveActivity({
   active,
+  activeNewHireIds,
   channel,
   participantIds,
   presence,
-  status,
 }: LiveActivityProps) {
-  const detailedPresence =
-    channel.mode === "standard" && presence?.kind === "detailed"
-      ? presence
-      : undefined;
-  const presentIds = currentDetailedNewHireIds(detailedPresence, status);
-  const profileIds = [...new Set([...presentIds, ...participantIds])];
+  const profileIds = [...new Set([...activeNewHireIds, ...participantIds])];
   const resolution = useResolvedNewHireProfiles(
     profileIds,
     active && channel.mode === "standard",
@@ -465,7 +458,7 @@ function LiveActivity({
     <aside className="live-activity-panel detailed-presence">
       <strong className="participants-heading">Participants</strong>
       <ParticipantList
-        activeIds={new Set(presentIds)}
+        activeIds={new Set(activeNewHireIds)}
         channel={channel}
         participantIds={profileIds}
         profilesById={profilesById}
@@ -1002,6 +995,7 @@ function isElementInViewport(element: HTMLElement): boolean {
 }
 
 function ChatSurface({
+  activeNewHireIds,
   visible,
   readWhenVisible = true,
   channel,
@@ -1051,19 +1045,15 @@ function ChatSurface({
     () => new Set((removalQuery.data ?? []).map(({ messageId }) => messageId)),
     [removalQuery.data],
   );
-  const presentIds =
-    channel.mode === "standard" && presence?.kind === "detailed"
-      ? currentDetailedNewHireIds(presence, status)
-      : [];
   const participantIds = useMemo(
     () => [
       ...new Set([
         identityId,
-        ...presentIds,
+        ...activeNewHireIds,
         ...messages.filter(isNewHireMessage).map(({ senderId }) => senderId),
       ]),
     ],
-    [identityId, messages, presentIds],
+    [activeNewHireIds, identityId, messages],
   );
   const profileIds = useMemo(() => participantIds, [participantIds]);
   const profileQuery = useProfileBatch(profileIds);
@@ -1115,7 +1105,7 @@ function ChatSurface({
   } else {
     messageHistory = (
       <MessageHistory
-        activeIds={new Set(presentIds)}
+        activeIds={new Set(activeNewHireIds)}
         channel={channel}
         identityId={identityId}
         messages={messages}
@@ -1380,10 +1370,10 @@ function ChatSurface({
       <div className="conversation-content">
         <LiveActivity
           active={visible}
+          activeNewHireIds={activeNewHireIds}
           channel={channel}
           participantIds={participantIds}
           presence={presence}
-          status={status}
         />
         <div
           className="chat-scroll-region"
@@ -1843,9 +1833,9 @@ function ObserverOfficeChannel({
       <div className="conversation-content">
         <LiveActivity
           active={false}
+          activeNewHireIds={[]}
           channel={channel}
           participantIds={[]}
-          status={channelStatus}
         />
         <div className="chat-scroll-region" ref={scrollRegionRef}>
           {status === "unavailable" ? (
@@ -1970,6 +1960,7 @@ function ObserverPortalWorkspace({
 
 function LiveOfficeChannel({
   visible,
+  activeNewHireIds,
   channel: officeChannel,
   identityId,
   onInboxRead,
@@ -1981,6 +1972,7 @@ function LiveOfficeChannel({
   onMentionVisible,
 }: ReactionProps & {
   visible: boolean;
+  activeNewHireIds: readonly string[];
   channel: OfficeChannel;
   identityId: string;
   onInboxRead(channelId: string): void;
@@ -2048,6 +2040,7 @@ function LiveOfficeChannel({
   return (
     <Activity mode={visible ? "visible" : "hidden"}>
       <ChatSurface
+        activeNewHireIds={activeNewHireIds}
         channel={officeChannel}
         hasPrevious={channel.hasPrevious}
         identityId={identityId}
@@ -2216,7 +2209,11 @@ function LivePortalWorkspace({
     },
     [identityId, onEmploymentAccessEnded, queryClient],
   );
-  const { status: eventStatus, publishReaction } = useOfficeEventSubscription({
+  const {
+    activeNewHireIds,
+    status: eventStatus,
+    publishReaction,
+  } = useOfficeEventSubscription({
     channelId: eventChannelId,
     onReaction: (event) => {
       setReactionEvents((current) => appendReactionEvent(current, event));
@@ -2306,6 +2303,7 @@ function LivePortalWorkspace({
     >
       {channels.map((channel) => (
         <LiveOfficeChannel
+          activeNewHireIds={activeNewHireIds}
           channel={channel}
           identityId={identityId}
           key={channel.id}

@@ -108,6 +108,22 @@ describe("Send Home policy", () => {
       operatorId: message.content.operatorId,
       targetNewHireId: message.content.targetNewHireId,
     });
+    const versionedMessage = {
+      ...message,
+      channelId: "all-hands:v2:2026-07-23",
+      content: {
+        ...message.content,
+        eventKey: "employment-event:v1:2026-07-23:action-22",
+        officeDay: "2026-07-23",
+        expiresAt: "2026-07-24T00:00:00.000Z",
+      },
+    };
+    expect(
+      parsePublicSendHomeSystemEventMessage(
+        versionedMessage,
+        versionedMessage.channelId,
+      ),
+    ).not.toBeNull();
     expect(
       parsePublicSendHomeSystemEventMessage(
         {
@@ -175,6 +191,23 @@ describe("Send Home policy", () => {
       action: "terminated",
       terminationId: event.terminationId,
     });
+    const versionedBase = {
+      ...base,
+      channelId: "all-hands:v2:2026-07-23",
+    };
+    const versionedEvent = {
+      ...event,
+      eventKey:
+        "employment-event:v1:2026-07-23:terminated:termination-action-23",
+      officeDay: "2026-07-23",
+      terminationId: "termination-action-23",
+    };
+    expect(
+      parsePublicTerminationSystemEventMessage(
+        { ...versionedBase, content: versionedEvent },
+        versionedBase.channelId,
+      ),
+    ).not.toBeNull();
     expect(
       parsePublicTerminationSystemEventMessage(
         {

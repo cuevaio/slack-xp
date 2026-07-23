@@ -12,6 +12,7 @@ import {
   parseOfficeEvent,
   type ReactionOfficeEvent,
 } from "@/lib/office-events/contract";
+import { officeDayFromChannelId } from "@/lib/portal/channels";
 
 export type OfficeEventSubscription = {
   status: ChannelStatus;
@@ -90,7 +91,7 @@ export function useOfficeEventSubscription({
       const parsed = parseOfficeEvent(event);
       if (
         parsed?.type !== "reaction.changed" ||
-        parsed.officeDay !== channelId.split(":")[1] ||
+        parsed.officeDay !== officeDayFromChannelId(channelId) ||
         channel.me?.id !== parsed.actorId
       ) {
         throw new TypeError("Invalid reaction Office Event publication.");

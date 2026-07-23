@@ -1,5 +1,8 @@
 import { isOfficeDay, officeDay } from "@/lib/portal/office-day";
 
+const VERSIONED_CHANNEL_ROLLOUT_DAY = "2026-07-23";
+const VERSIONED_CHANNEL_NAMESPACE = "v2";
+
 export const OFFICE_CHANNEL_DEFINITIONS = [
   {
     slug: "general",
@@ -49,11 +52,72 @@ export type OfficeChannel = {
 
 export { officeDay } from "@/lib/portal/office-day";
 
+export function officeDayFromChannelId(value: string): string | null {
+  const currentOfficeDay = value.split(":").at(-1);
+  return currentOfficeDay && isOfficeDay(currentOfficeDay)
+    ? currentOfficeDay
+    : null;
+}
+
+export function officeDayChannelGeneration(currentOfficeDay: string): 1 | 2 {
+  if (!isOfficeDay(currentOfficeDay)) {
+    throw new TypeError("A valid UTC Office Day is required.");
+  }
+  return currentOfficeDay >= VERSIONED_CHANNEL_ROLLOUT_DAY ? 2 : 1;
+}
+
+export function officeDayChannelIdsForAccessControl(
+  channelNames: readonly string[],
+  currentOfficeDay: string,
+): string[] {
+  const canonical = channelNames.map((channelName) =>
+    officeDayChannelId(channelName, currentOfficeDay),
+  );
+  if (currentOfficeDay !== VERSIONED_CHANNEL_ROLLOUT_DAY) return canonical;
+  return [
+    ...canonical,
+    ...channelNames.map((channelName) => `${channelName}:${currentOfficeDay}`),
+  ];
+}
+
+export function isOfficeChannelIdForDay(
+  value: unknown,
+  currentOfficeDay: string,
+): value is string {
+  return (
+    typeof value === "string" &&
+    isOfficeDay(currentOfficeDay) &&
+    officeDayChannelIdsForAccessControl(
+      OFFICE_CHANNEL_DEFINITIONS.map(({ slug }) => slug),
+      currentOfficeDay,
+    ).includes(value)
+  );
+}
+
+export function officeDayChannelId(
+  channelName: string,
+  currentOfficeDay: string,
+): string {
+  if (
+    !/^[a-z][a-z0-9-]*$/u.test(channelName) ||
+    !isOfficeDay(currentOfficeDay)
+  ) {
+    throw new TypeError(
+      "A valid channel name and UTC Office Day are required.",
+    );
+  }
+  const namespace =
+    officeDayChannelGeneration(currentOfficeDay) === 2
+      ? `:${VERSIONED_CHANNEL_NAMESPACE}`
+      : "";
+  return `${channelName}${namespace}:${currentOfficeDay}`;
+}
+
 export function officeChannelId(
   slug: OfficeChannelSlug,
   now: Date = new Date(),
 ): string {
-  return `${slug}:${officeDay(now)}`;
+  return officeDayChannelId(slug, officeDay(now));
 }
 
 export function listOfficeChannels(now: Date = new Date()): OfficeChannel[] {
@@ -68,7 +132,7 @@ export function listOfficeChannelsForDay(
   }
   return OFFICE_CHANNEL_DEFINITIONS.map((channel) => ({
     ...channel,
-    id: `${channel.slug}:${currentOfficeDay}`,
+    id: officeDayChannelId(channel.slug, currentOfficeDay),
   }));
 }
 

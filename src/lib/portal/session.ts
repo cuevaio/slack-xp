@@ -2,7 +2,12 @@ import type { EmploymentAccessDecision } from "@/lib/employment/contract";
 import { HR_REPORT_NOTIFICATION_CHANNEL_ID } from "@/lib/hr-reports/contract";
 import { officeEventChannelId } from "@/lib/office-events/contract";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
-import { listOfficeChannels } from "@/lib/portal/channels";
+import {
+  listOfficeChannels,
+  OFFICE_CHANNEL_DEFINITIONS,
+  officeDayChannelIdsForAccessControl,
+} from "@/lib/portal/channels";
+import { officeDay } from "@/lib/portal/office-day";
 import type { PortalAuthority, PortalToken } from "@/lib/portal/types";
 
 export class PortalEligibilityError extends Error {
@@ -50,8 +55,10 @@ export async function issueOfficePortalSession({
   const channelIds = listOfficeChannels(now).map(({ id }) => id);
   const eventChannelId = officeEventChannelId(now);
   const membershipChannelIds = [
-    ...channelIds,
-    eventChannelId,
+    ...officeDayChannelIdsForAccessControl(
+      [...OFFICE_CHANNEL_DEFINITIONS.map(({ slug }) => slug), "office-events"],
+      officeDay(now),
+    ),
     ...(identity.isOperator ? [HR_REPORT_NOTIFICATION_CHANNEL_ID] : []),
   ];
   const portalIdentity = {

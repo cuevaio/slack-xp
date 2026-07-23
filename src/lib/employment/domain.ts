@@ -16,6 +16,7 @@ import {
   type TerminationRequest,
 } from "@/lib/employment/contract";
 import { OFFICE_EVENT_SENDERS } from "@/lib/office-events/contract";
+import { officeDayChannelId } from "@/lib/portal/channels";
 import { isOfficeDay, officeDay } from "@/lib/portal/office-day";
 
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,254}$/u;
@@ -205,7 +206,7 @@ function parsePublicSendHomeSystemEvent(
     typeof value.eventKey !== "string" ||
     typeof value.officeDay !== "string" ||
     !isOfficeDay(value.officeDay) ||
-    expectedChannelId !== `all-hands:${value.officeDay}` ||
+    expectedChannelId !== officeDayChannelId("all-hands", value.officeDay) ||
     !isEmploymentIdentifier(value.operatorId) ||
     !isEmploymentIdentifier(value.targetNewHireId) ||
     !expiresAt ||
@@ -296,7 +297,7 @@ function parsePublicTerminationSystemEvent(
     typeof value.eventKey !== "string" ||
     typeof value.officeDay !== "string" ||
     !isOfficeDay(value.officeDay) ||
-    expectedChannelId !== `all-hands:${value.officeDay}` ||
+    expectedChannelId !== officeDayChannelId("all-hands", value.officeDay) ||
     !isEmploymentIdentifier(value.operatorId) ||
     !isEmploymentIdentifier(value.targetNewHireId) ||
     !isEmploymentIdentifier(value.terminationId) ||

@@ -1,3 +1,7 @@
+import {
+  officeDayChannelId,
+  officeDayFromChannelId,
+} from "@/lib/portal/channels";
 import { isOfficeDay, officeDay } from "@/lib/portal/office-day";
 
 export const OFFICE_EVENT_VERSION = 1 as const;
@@ -157,7 +161,7 @@ function isReactionOfficeEvent(value: unknown): value is ReactionOfficeEvent {
     isOfficeDay(value.officeDay) &&
     isIdentifier(value.officeChannelId) &&
     !value.officeChannelId.startsWith("office-events:") &&
-    value.officeChannelId.endsWith(`:${value.officeDay}`) &&
+    officeDayFromChannelId(value.officeChannelId) === value.officeDay &&
     isIdentifier(value.messageId) &&
     isIdentifier(value.actorId) &&
     OFFICE_REACTIONS.some((reaction) => reaction === value.reaction) &&
@@ -207,24 +211,16 @@ export function officeEventChannelId(now: Date = new Date()): string {
 }
 
 export function officeEventChannelIdForDay(currentOfficeDay: string): string {
-  if (!isOfficeDay(currentOfficeDay)) {
-    throw new TypeError("A valid UTC Office Day is required.");
-  }
-  return `office-events:${currentOfficeDay}`;
+  return officeDayChannelId("office-events", currentOfficeDay);
 }
 
 function officeDayFromEventChannelId(value: unknown): string | null {
   if (typeof value !== "string") return null;
-  const [channelName, currentOfficeDay, extra] = value.split(":");
-  if (
-    extra === undefined &&
-    channelName === "office-events" &&
-    currentOfficeDay !== undefined &&
-    isOfficeDay(currentOfficeDay)
-  ) {
-    return currentOfficeDay;
-  }
-  return null;
+  const currentOfficeDay = officeDayFromChannelId(value);
+  return currentOfficeDay !== null &&
+    value === officeEventChannelIdForDay(currentOfficeDay)
+    ? currentOfficeDay
+    : null;
 }
 
 export function isOfficeEventChannelId(value: unknown): value is string {
@@ -340,7 +336,7 @@ export function parseOfficeEventMessage(
   if (
     event.type === "reaction.changed" &&
     (event.officeDay !== expectedOfficeDay ||
-      !event.officeChannelId.endsWith(`:${event.officeDay}`))
+      officeDayFromChannelId(event.officeChannelId) !== event.officeDay)
   ) {
     return null;
   }

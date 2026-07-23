@@ -11,6 +11,7 @@ import { createServiceAdapters } from "@/lib/adapters";
 import { authenticateOfficeRequest } from "@/lib/auth/server";
 import { readAppConfiguration } from "@/lib/config";
 import type { EmploymentAccessDecision } from "@/lib/employment/contract";
+import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import { profileFromIdentity } from "@/lib/onboarding/profile-authority";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 import { repairProfileProjection } from "@/lib/profiles/service";
@@ -31,7 +32,27 @@ export const metadata: Metadata = {
     "Meet your coworkers in a delightfully outdated shared online office.",
 };
 
-export default async function HomePage() {
+type HomePageSearchParams = Promise<
+  Record<string, string | string[] | undefined>
+>;
+
+function serializeSearchParams(values: Awaited<HomePageSearchParams>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (Array.isArray(value)) {
+      for (const item of value) search.append(key, item);
+    } else if (value !== undefined) {
+      search.set(key, value);
+    }
+  }
+  return search.toString();
+}
+
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: HomePageSearchParams;
+}) {
   await connection();
   const configuration = readAppConfiguration();
   if (configuration.status === "incomplete") {
@@ -105,6 +126,10 @@ export default async function HomePage() {
     return <OnboardingWizard initialOnboarding={onboarding} />;
   }
 
+  const reviewTarget = identity.isOperator
+    ? parseHRReportReviewTarget(serializeSearchParams(await searchParams))
+    : null;
+
   return (
     <OfficeFoundation
       adapters={adapters}
@@ -112,6 +137,7 @@ export default async function HomePage() {
       onboarding={onboarding}
       now={now}
       portalPublishableKey={configuration.values.NEXT_PUBLIC_PORTAL_KEY}
+      reviewTarget={reviewTarget}
     />
   );
 }

@@ -17,12 +17,25 @@ import {
 import {
   createOfficeEventKey,
   OFFICE_EVENT_VERSION,
-  officeEventChannelIdForDay,
 } from "@/lib/office-events/contract";
-import { listOfficeChannelsForDay } from "@/lib/portal/channels";
+import {
+  OFFICE_CHANNEL_DEFINITIONS,
+  officeDayChannelIdsForAccessControl,
+} from "@/lib/portal/channels";
 import { officeDay } from "@/lib/portal/office-day";
 
 const EMPLOYMENT_EFFECT_BATCH_SIZE = 50;
+const EMPLOYMENT_PORTAL_CHANNEL_NAMES = [
+  ...OFFICE_CHANNEL_DEFINITIONS.map(({ slug }) => slug),
+  "office-events",
+] as const;
+
+function employmentPortalChannelIds(currentOfficeDay: string): string[] {
+  return officeDayChannelIdsForAccessControl(
+    EMPLOYMENT_PORTAL_CHANNEL_NAMES,
+    currentOfficeDay,
+  );
+}
 
 function terminationSystemEventDetails(action: "terminated" | "reinstated"): {
   type: "employment.terminated" | "employment.reinstated";
@@ -80,10 +93,7 @@ export async function flushEmploymentEffects({
     if (!effect.bansAppliedAt) {
       try {
         await portal.applySendHomeBans({
-          channelIds: [
-            ...listOfficeChannelsForDay(effect.officeDay).map(({ id }) => id),
-            officeEventChannelIdForDay(effect.officeDay),
-          ],
+          channelIds: employmentPortalChannelIds(effect.officeDay),
           newHireId: effect.targetNewHireId,
           expiresAt: effect.expiresAt,
         });
@@ -175,10 +185,7 @@ export async function flushTerminationEffects({
   );
   let firstFailure: unknown;
   for (const effect of pending) {
-    const channelIds = [
-      ...listOfficeChannelsForDay(effect.officeDay).map(({ id }) => id),
-      officeEventChannelIdForDay(effect.officeDay),
-    ];
+    const channelIds = employmentPortalChannelIds(effect.officeDay);
     if (!effect.invalidationPublishedAt) {
       try {
         await portal.publishEmploymentInvalidation({

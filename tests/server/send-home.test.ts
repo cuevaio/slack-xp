@@ -137,7 +137,7 @@ describe("Send Home service", () => {
     ).toEqual({ eligible: true, reason: null, until: null });
     await expect(
       portal.ensureMembership({
-        channelId: "general:2026-07-23",
+        channelId: "general:v2:2026-07-23",
         userId: targetProfile.clerkUserId,
         claims: { username: targetProfile.displayName, avatar: null },
       }),

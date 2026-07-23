@@ -51,7 +51,6 @@ import {
   OFFICE_REACTIONS,
   type OfficeInvalidationEvent,
   type OfficeReaction,
-  officeEventChannelIdForDay,
   type ProjectedOfficeReaction,
   type ReactionOfficeEvent,
 } from "@/lib/office-events/contract";
@@ -61,8 +60,8 @@ import {
   useOperatorState,
 } from "@/lib/operators/client";
 import {
-  listOfficeChannelsForDay,
   type OfficeChannel,
+  officeDayFromChannelId,
 } from "@/lib/portal/channels";
 import {
   CHAT_TEXT_LIMIT,
@@ -1897,7 +1896,9 @@ function ObserverSignInControl() {
 function ObserverPortalWorkspace({
   channels,
 }: Pick<ObserverPortalChatProps, "channels">) {
-  const currentOfficeDay = channels[0]?.id.split(":")[1] ?? officeDay();
+  const currentOfficeDay =
+    (channels[0] ? officeDayFromChannelId(channels[0].id) : null) ??
+    officeDay();
   const { activeChannelId, setActiveChannelId } = useActiveOfficeChannel(
     channels,
     currentOfficeDay,
@@ -2091,7 +2092,7 @@ function useReactionPublisher({
           ...input,
           mutationId: crypto.randomUUID(),
           occurredAt: new Date(timestamp).toISOString(),
-          officeDay: eventChannelId.split(":")[1] ?? "",
+          officeDay: officeDayFromChannelId(eventChannelId) ?? "",
           actorId: identityId,
         });
         retryEvents.current.set(retryKey, event);
@@ -2408,25 +2409,14 @@ function EmploymentAccessEndedDialog({
   );
 }
 
-function createOfficeDayWorkspace(
-  currentOfficeDay: string,
-): OfficeDayWorkspace {
-  return {
-    channels: listOfficeChannelsForDay(currentOfficeDay),
-    eventChannelId: officeEventChannelIdForDay(currentOfficeDay),
-    officeDay: currentOfficeDay,
-  };
-}
-
 function PortalChatWorkspace(props: LivePortalChatProps): ReactNode {
   const applicationSafety = useApplicationSafetyControl();
-  const [workspace, setWorkspace] = useState<OfficeDayWorkspace>(() => ({
+  const [workspace] = useState<OfficeDayWorkspace>(() => ({
     channels: props.channels,
     eventChannelId: props.eventChannelId,
     officeDay: props.officeDay,
   }));
   const [endedOfficeDay, setEndedOfficeDay] = useState<string | null>(null);
-  const [focusNewOffice, setFocusNewOffice] = useState(false);
   const [employmentAccessEnded, setEmploymentAccessEnded] =
     useState<EmploymentAccessDeniedDecision | null>(null);
 
@@ -2442,37 +2432,8 @@ function PortalChatWorkspace(props: LivePortalChatProps): ReactNode {
     });
   }, [endedOfficeDay, endOfficeDay, workspace.officeDay]);
 
-  useEffect(() => {
-    if (!focusNewOffice || endedOfficeDay) return;
-    const focusComposer = () => {
-      const firstChannelId = workspace.channels[0]?.id;
-      const composer = firstChannelId
-        ? document.getElementById(`message-${firstChannelId}`)
-        : null;
-      if (composer instanceof HTMLTextAreaElement && !composer.disabled) {
-        composer.focus();
-        setFocusNewOffice(false);
-        return true;
-      }
-      return false;
-    };
-    if (focusComposer()) return;
-    const observer = new MutationObserver(() => {
-      if (focusComposer()) observer.disconnect();
-    });
-    observer.observe(document.body, {
-      attributes: true,
-      attributeFilter: ["disabled"],
-      childList: true,
-      subtree: true,
-    });
-    return () => observer.disconnect();
-  }, [endedOfficeDay, focusNewOffice, workspace.channels]);
-
   function continueToCurrentOfficeDay(): void {
-    setWorkspace(createOfficeDayWorkspace(officeDay()));
-    setEndedOfficeDay(null);
-    setFocusNewOffice(true);
+    window.location.reload();
   }
 
   if (applicationSafety === "unavailable") {

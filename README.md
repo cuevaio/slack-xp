@@ -304,14 +304,15 @@ visible Office Channels:
 
 | ID | Name | Purpose | Portal mode |
 | --- | --- | --- | --- |
-| `general:{YYYY-MM-DD}` | General | Company-wide conversation | standard |
-| `watercooler:{YYYY-MM-DD}` | Watercooler | Casual conversation and breakroom chatter | standard |
-| `tech-support:{YYYY-MM-DD}` | Technical Support | Comedic technical support for suspicious office technology | standard |
-| `urgent:{YYYY-MM-DD}` | Urgent | Urgent workplace chatter | standard |
-| `all-hands:{YYYY-MM-DD}` | All Hands | System Events and company-wide announcements | broadcast |
+| `general:v2:{YYYY-MM-DD}` | General | Company-wide conversation | standard |
+| `watercooler:v2:{YYYY-MM-DD}` | Watercooler | Casual conversation and breakroom chatter | standard |
+| `tech-support:v2:{YYYY-MM-DD}` | Technical Support | Comedic technical support for suspicious office technology | standard |
+| `urgent:v2:{YYYY-MM-DD}` | Urgent | Urgent workplace chatter | standard |
+| `all-hands:v2:{YYYY-MM-DD}` | All Hands | System Events and company-wide announcements | broadcast |
 
-IDs contain only the curated channel slug and UTC Office Day. They deliberately
-omit branch, deployment, tenant, user, and internal alias namespaces.
+Office Days before the 2026-07-23 authorization-policy rollout use the legacy
+`{slug}:{YYYY-MM-DD}` format. IDs deliberately omit branch, deployment, tenant,
+user, and internal alias namespaces.
 
 Portal dependencies are exact because its APIs are pre-1.0:
 
@@ -593,11 +594,11 @@ publishing, allowed and unregistered origins, and history after a fresh
 connection.
 
 Portal verification creates an isolated synthetic New Hire membership and sends
-one small, verifier-targeted `setup-verification` message to the current General
-Office Channel. That message is intentionally persistent so reconnect history can
-be proven, but it is not delivered to or rendered for New Hires. The command never
-prints its body, ID, credentials, connection strings, profile data, or upstream
-response bodies.
+one small ephemeral message to the current General Office Channel. It
+proves reconnect history against one reusable synthetic `general:*` channel and
+marker, so repeated checks do not create visible messages, unread state, or
+unbounded verification channels. The command never prints message bodies, IDs,
+credentials, connection strings, profile data, or upstream response bodies.
 
 Exit codes are stable: `0` means every required check passed, `1` means a check
 failed (or production proof is incomplete), and `2` means non-production proof

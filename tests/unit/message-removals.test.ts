@@ -60,5 +60,25 @@ describe("Removed Message input", () => {
     expect(
       parseMessageRemovalChannelQuery("private:2026-07-22", "2026-07-22"),
     ).toBeNull();
+    expect(
+      parseMessageRemovalChannelQuery("urgent:2026-07-23", "2026-07-23"),
+    ).toBe("urgent:2026-07-23");
+    expect(
+      parseMessageRemovalRequest(
+        {
+          officeChannelId: "urgent:2026-07-23",
+          messageId: "message-legacy-review",
+          privateReason: "Reviewed from the preserved rollout channel.",
+        },
+        "2026-07-23",
+      ),
+    ).toEqual({
+      officeChannelId: "urgent:2026-07-23",
+      messageId: "message-legacy-review",
+      privateReason: "Reviewed from the preserved rollout channel.",
+    });
+    expect(
+      parseMessageRemovalChannelQuery("urgent:2026-07-24", "2026-07-24"),
+    ).toBeNull();
   });
 });

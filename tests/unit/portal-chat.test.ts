@@ -3,6 +3,7 @@ import {
   listOfficeChannels,
   listOfficeChannelsForDay,
   officeChannelId,
+  officeDayChannelIdsForAccessControl,
 } from "@/lib/portal/channels";
 import {
   createChatContentWithMentions,
@@ -89,11 +90,22 @@ describe("Office Channel chat contract", () => {
       "general:2026-07-22",
     );
     expect(generalChannelId(new Date("2026-07-23T00:00:00.000Z"))).toBe(
-      "general:2026-07-23",
+      "general:v2:2026-07-23",
     );
     expect(
       officeChannelId("all-hands", new Date("2026-07-23T00:00:00.000Z")),
-    ).toBe("all-hands:2026-07-23");
+    ).toBe("all-hands:v2:2026-07-23");
+    expect(
+      officeDayChannelIdsForAccessControl(
+        ["general", "office-events"],
+        "2026-07-23",
+      ),
+    ).toEqual([
+      "general:v2:2026-07-23",
+      "office-events:v2:2026-07-23",
+      "general:2026-07-23",
+      "office-events:2026-07-23",
+    ]);
   });
 
   test("accepts only non-empty text payloads of at most 1,000 characters", () => {
@@ -326,7 +338,7 @@ describe("Office Channel chat contract", () => {
           channelIds: listOfficeChannelsForDay("2026-07-23").map(
             ({ id }) => id,
           ),
-          eventChannelId: "office-events:2026-07-23",
+          eventChannelId: "office-events:v2:2026-07-23",
         }),
       onOfficeDayExpired: () => {
         expired = true;

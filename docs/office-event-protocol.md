@@ -1,9 +1,11 @@
 # Office Event protocol
 
 This document defines Office Event version 1. Office Events are persistent
-Portal messages of Portal message type `office.event` on the hidden
-`office-events:{YYYY-MM-DD}` channel. They never render as conversation
-messages or contribute to visible unread attention.
+Portal messages of Portal message type `office.event` on one hidden daily
+channel. Office Days before the 2026-07-23 rollout use
+`office-events:{YYYY-MM-DD}`; that day and later use
+`office-events:v2:{YYYY-MM-DD}`. They never render as conversation messages or
+contribute to visible unread attention.
 
 ## Envelope
 

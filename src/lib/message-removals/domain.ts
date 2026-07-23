@@ -2,8 +2,7 @@ import {
   MESSAGE_REMOVAL_PRIVATE_REASON_MAX_LENGTH,
   type MessageRemovalRequest,
 } from "@/lib/message-removals/contract";
-import { listOfficeChannelsForDay } from "@/lib/portal/channels";
-import { isOfficeDay } from "@/lib/portal/office-day";
+import { isOfficeChannelIdForDay } from "@/lib/portal/channels";
 
 const IDENTIFIER_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,254}$/u;
 
@@ -19,13 +18,7 @@ export function isMessageRemovalOfficeChannel(
   officeChannelId: unknown,
   officeDay: string,
 ): officeChannelId is string {
-  return (
-    isOfficeDay(officeDay) &&
-    typeof officeChannelId === "string" &&
-    listOfficeChannelsForDay(officeDay).some(
-      (channel) => channel.id === officeChannelId,
-    )
-  );
+  return isOfficeChannelIdForDay(officeChannelId, officeDay);
 }
 
 export function parseMessageRemovalRequest(

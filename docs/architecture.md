@@ -80,8 +80,9 @@ Deletion tombstones the projection and historical messages resolve to
 
 ## Office Event flow
 
-One hidden `office-events:{YYYY-MM-DD}` Portal channel carries the versioned
-contract described in [Office Event protocol](office-event-protocol.md).
+One hidden daily Portal channel carries the versioned contract described in
+[Office Event protocol](office-event-protocol.md). It uses the `v2` channel
+namespace from the 2026-07-23 authorization-policy rollout onward.
 Reaction changes are Portal-authoritative. Profile, report, removal, employment,
 and Operator events are invalidation hints for Neon-owned queries. Reserved
 senders and runtime validation prevent an ordinary New Hire from asserting

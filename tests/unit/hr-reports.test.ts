@@ -84,6 +84,37 @@ describe("message HR Report contract", () => {
         "?officeDay=2026-07-22&channel=unknown&message=message-17",
       ),
     ).toBeNull();
+
+    const versionedHref = createHRReportDeepLink("https://office.example.com", {
+      officeDay: "2026-07-23",
+      officeChannelId: "urgent:v2:2026-07-23",
+      messageId: "message-versioned-18",
+    });
+    expect(versionedHref).toContain("channelGeneration=v2");
+    expect(parseHRReportReviewTarget(new URL(versionedHref).search)).toEqual({
+      subjectType: "message",
+      officeDay: "2026-07-23",
+      officeChannelId: "urgent:v2:2026-07-23",
+      messageId: "message-versioned-18",
+    });
+
+    const legacyRolloverHref = createHRReportDeepLink(
+      "https://office.example.com",
+      {
+        officeDay: "2026-07-23",
+        officeChannelId: "urgent:2026-07-23",
+        messageId: "message-legacy-19",
+      },
+    );
+    expect(legacyRolloverHref).not.toContain("channelGeneration");
+    expect(
+      parseHRReportReviewTarget(new URL(legacyRolloverHref).search),
+    ).toEqual({
+      subjectType: "message",
+      officeDay: "2026-07-23",
+      officeChannelId: "urgent:2026-07-23",
+      messageId: "message-legacy-19",
+    });
   });
 
   test("accepts only approved New Hire Profile categories and stable identities", () => {

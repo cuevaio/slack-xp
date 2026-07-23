@@ -8,6 +8,7 @@ import {
   OFFICE_EVENT_MESSAGE_TYPE,
   parseOfficeEventMessage,
 } from "@/lib/office-events/contract";
+import { officeChannelId, officeDayFromChannelId } from "@/lib/portal/channels";
 import type {
   SmokeCleanupResidual,
   SmokeConfiguration,
@@ -448,7 +449,9 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
 
     const currentOfficeDay = new Date().toISOString().slice(0, 10);
     const anonymousPortal = new Portal({ apiKey: config.portalPublishableKey });
-    const anonymous = anonymousPortal.channel(`general:${currentOfficeDay}`);
+    const anonymous = anonymousPortal.channel(
+      officeChannelId("general", new Date(`${currentOfficeDay}T00:00:00.000Z`)),
+    );
     anonymous.acquire();
     await waitFor(
       () =>
@@ -496,7 +499,9 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
     );
     assertSmoke(general);
     this.generalChannelId = general;
-    this.officeDay = general.slice("general:".length);
+    const currentOfficeDay = officeDayFromChannelId(general);
+    assertSmoke(currentOfficeDay);
+    this.officeDay = currentOfficeDay;
     this.eventChannelId = firstSession.eventChannelId;
     for (const actor of this.actors.values()) {
       assertSmoke(
@@ -1125,7 +1130,8 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
       id.startsWith("general:"),
     );
     assertSmoke(sentHomeChannelId);
-    const sentHomeOfficeDay = sentHomeChannelId.slice("general:".length);
+    const sentHomeOfficeDay = officeDayFromChannelId(sentHomeChannelId);
+    assertSmoke(sentHomeOfficeDay);
     const sentHomeChannel = this.trackChannel(
       await connectChannel<ChatContent>(sentHomePortal, sentHomeChannelId),
     );

@@ -88,6 +88,9 @@ selected by `PORTAL_SECRET`. It configures all visible channels, the hidden
 Office Event channel, and the Operator notification channel with
 `anonymous: false`; All Hands uses broadcast mode. It adds no content
 middleware. Broadcast presentation is not a publish-authorization boundary.
+Office Channels from the 2026-07-23 rollout onward use the `v2` channel
+namespace so coordinators pinned to the earlier authorization policy cannot
+keep authenticated New Hires on stale configuration.
 
 In the Clerk development dashboard, create
 `https://<development-origin>/api/webhooks/clerk`, subscribe to `user.created`,

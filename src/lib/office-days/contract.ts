@@ -1,4 +1,8 @@
-import { type OfficeChannelSlug, officeChannelId } from "@/lib/portal/channels";
+import {
+  type OfficeChannelSlug,
+  officeChannelId,
+  officeDayChannelGeneration,
+} from "@/lib/portal/channels";
 import { isOfficeDay } from "@/lib/portal/office-day";
 
 export const SCRIPTED_SYSTEM_EVENT_VERSION = 1 as const;
@@ -142,11 +146,15 @@ export function planOfficeDay(currentOfficeDay: string): PlannedSystemEvent[] {
   }
   const dueAt = new Date(`${currentOfficeDay}T00:00:00.000Z`);
   return SCRIPT_DEFINITIONS.map((script) => {
-    const eventKey = createScriptedSystemEventKey(currentOfficeDay, script.id);
+    const scriptId =
+      officeDayChannelGeneration(currentOfficeDay) === 2
+        ? `v2-${script.id}`
+        : script.id;
+    const eventKey = createScriptedSystemEventKey(currentOfficeDay, scriptId);
     return {
       eventKey,
       officeDay: currentOfficeDay,
-      scriptId: script.id,
+      scriptId,
       channelId: officeChannelId(script.channelSlug, dueAt),
       characterId: script.characterId,
       dueAt: new Date(dueAt),
@@ -155,7 +163,7 @@ export function planOfficeDay(currentOfficeDay: string): PlannedSystemEvent[] {
         type: "system.scripted",
         eventKey,
         officeDay: currentOfficeDay,
-        scriptId: script.id,
+        scriptId,
         text: script.text,
       },
     };

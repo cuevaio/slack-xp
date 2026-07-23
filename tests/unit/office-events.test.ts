@@ -96,7 +96,7 @@ describe("versioned Office Event contract", () => {
       "office-events:2026-07-22",
     );
     expect(officeEventChannelId(new Date("2026-07-23T00:00:00.000Z"))).toBe(
-      "office-events:2026-07-23",
+      "office-events:v2:2026-07-23",
     );
   });
 

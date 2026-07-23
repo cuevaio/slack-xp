@@ -1,6 +1,9 @@
 import type { EmploymentPortalAuthority } from "@/lib/employment/contract";
-import { officeEventChannelId } from "@/lib/office-events/contract";
-import { listOfficeChannels } from "@/lib/portal/channels";
+import {
+  OFFICE_CHANNEL_DEFINITIONS,
+  officeDayChannelIdsForAccessControl,
+} from "@/lib/portal/channels";
+import { officeDay } from "@/lib/portal/office-day";
 import { flushProfileInvalidations } from "@/lib/profiles/propagation";
 import type {
   DeletedClerkProfile,
@@ -31,10 +34,13 @@ export async function deleteClerkProfile({
   const [canonical] = await repository.getProfiles([tombstone.clerkUserId]);
   if (canonical?.status === "former") {
     await portal.applyTerminationBans({
-      channelIds: [
-        ...listOfficeChannels(now).map(({ id }) => id),
-        officeEventChannelId(now),
-      ],
+      channelIds: officeDayChannelIdsForAccessControl(
+        [
+          ...OFFICE_CHANNEL_DEFINITIONS.map(({ slug }) => slug),
+          "office-events",
+        ],
+        officeDay(now),
+      ),
       newHireId: tombstone.clerkUserId,
     });
   }

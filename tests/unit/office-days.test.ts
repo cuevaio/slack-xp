@@ -34,6 +34,25 @@ describe("scripted Office Days", () => {
     ).toBe(true);
   });
 
+  test("revisions script identities with the v2 channel namespace", () => {
+    const planned = planOfficeDay("2026-07-23");
+
+    expect(planned.map(({ channelId }) => channelId)).toEqual([
+      "general:v2:2026-07-23",
+      "watercooler:v2:2026-07-23",
+      "tech-support:v2:2026-07-23",
+      "urgent:v2:2026-07-23",
+      "all-hands:v2:2026-07-23",
+    ]);
+    expect(
+      planned.every(
+        ({ eventKey, scriptId }) =>
+          eventKey.startsWith("system-event:v1:2026-07-23:v2-") &&
+          scriptId.startsWith("v2-"),
+      ),
+    ).toBe(true);
+  });
+
   test("accepts only fixed scripts from their Office Character sender", () => {
     const [planned] = planOfficeDay("2026-07-22");
     if (!planned) throw new Error("Expected a planned System Event");

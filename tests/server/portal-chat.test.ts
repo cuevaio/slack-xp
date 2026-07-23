@@ -403,6 +403,31 @@ describe("controlled Portal adapter", () => {
     expect(portal.membershipCount(session.eventChannelId)).toBe(1);
   });
 
+  test("grants rollout-day legacy channels without exposing them in the directory", async () => {
+    const portal = createMockPortalAdapter({
+      now: () => new Date("2026-07-23T12:00:00.000Z"),
+    });
+
+    const session = await issueOfficePortalSession({
+      identity: {
+        id: completedNewHire.clerkUserId,
+        fullName: completedNewHire.displayName,
+        imageUrl: null,
+      },
+      onboarding: completedNewHire,
+      employmentAccess: eligibleEmploymentAccess,
+      portal,
+      now: new Date("2026-07-23T12:00:00.000Z"),
+    });
+
+    expect(session.channelIds).toContain("general:v2:2026-07-23");
+    expect(session.channelIds).not.toContain("general:2026-07-23");
+    expect(portal.membershipCount("general:v2:2026-07-23")).toBe(1);
+    expect(portal.membershipCount("general:2026-07-23")).toBe(1);
+    expect(portal.membershipCount("office-events:v2:2026-07-23")).toBe(1);
+    expect(portal.membershipCount("office-events:2026-07-23")).toBe(1);
+  });
+
   test("keeps membership and confirmed history idempotent across retry and reconnect", async () => {
     const portal = createMockPortalAdapter({
       now: () => new Date("2026-07-22T12:00:00.000Z"),

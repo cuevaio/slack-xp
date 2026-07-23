@@ -14,6 +14,8 @@ import type {
 const PORTAL_API_URL = "https://api.useportal.co";
 const CONNECTION_TIMEOUT_MS = 15_000;
 const UNREGISTERED_ORIGIN = "https://portal-verification.invalid";
+const PERSISTENCE_VERIFICATION_CHANNEL_ID = "general:setup-verification:v2";
+const PERSISTENCE_VERIFICATION_MARKER = "setup-verification:persistence-v2";
 const MISSING_MIGRATION_STORAGE_CODES = new Set(["42P01", "3F000"]);
 
 type AppliedMigration = {
@@ -162,9 +164,15 @@ async function verifyPortal(
     userId: SETUP_VERIFIER_USER_ID,
     claims: { username: "Setup Verifier", avatar: null },
   };
-  await authority.ensureMembership(membershipInput);
+  await Promise.all([
+    authority.ensureMembership(membershipInput),
+    authority.ensureMembership({
+      ...membershipInput,
+      channelId: PERSISTENCE_VERIFICATION_CHANNEL_ID,
+    }),
+  ]);
   const token = await authority.mintToken({
-    channelIds: [channelId],
+    channelIds: [channelId, PERSISTENCE_VERIFICATION_CHANNEL_ID],
     userId: membershipInput.userId,
     claims: membershipInput.claims,
   });
@@ -215,13 +223,48 @@ async function verifyPortal(
   const marker = `setup-verification:${randomUUID()}`;
   const acknowledgement = await channel.send({
     content: { text: marker },
-    to: SETUP_VERIFIER_USER_ID,
+    ephemeral: true,
   });
   channel.release();
 
+  const persistenceConnection = await connectToChannel<{ text: string }>(
+    new Portal({ apiKey, token: token.token }),
+    PERSISTENCE_VERIFICATION_CHANNEL_ID,
+  );
+  if (persistenceConnection.status !== "ready") {
+    persistenceConnection.channel.release();
+    return {
+      anonymousRefused,
+      authenticated: snapshot.me?.anon === false,
+      published: Boolean(acknowledgement.id),
+      membership,
+      mode: snapshot.info?.mode ?? null,
+      allowedOriginAccepted,
+      unregisteredOriginRefused: !unregisteredOriginAccepted,
+      persistedAfterReconnect: false,
+    };
+  }
+  if (persistenceConnection.channel.hasPrevious) {
+    await persistenceConnection.channel.loadPrevious();
+  }
+  const existingPersistenceMessage =
+    persistenceConnection.channel.messages.find(
+      (message) =>
+        message.sender.id === SETUP_VERIFIER_USER_ID &&
+        message.content.text === PERSISTENCE_VERIFICATION_MARKER,
+    );
+  const persistenceMessageId =
+    existingPersistenceMessage?.id ??
+    (
+      await persistenceConnection.channel.send({
+        content: { text: PERSISTENCE_VERIFICATION_MARKER },
+      })
+    ).id;
+  persistenceConnection.channel.release();
+
   const reconnected = await connectToChannel<{ text: string }>(
     new Portal({ apiKey, token: token.token }),
-    channelId,
+    PERSISTENCE_VERIFICATION_CHANNEL_ID,
   );
   if (reconnected.status === "ready") {
     await reconnected.channel.loadPrevious();
@@ -229,7 +272,7 @@ async function verifyPortal(
   const persistedAfterReconnect =
     reconnected.status === "ready" &&
     reconnected.channel.messages.some(
-      (message) => message.id === acknowledgement.id,
+      (message) => message.id === persistenceMessageId,
     );
   reconnected.channel.release();
 

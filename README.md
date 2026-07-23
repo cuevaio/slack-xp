@@ -538,6 +538,12 @@ when the application environment is production.
 
 ## Checks
 
+The canonical deployment also has a maintainer-only, dispatch-only real-service
+workflow. Its protected environment, required variables and secrets, gated
+disposable Clerk lifecycle, redaction guarantees, and cleanup behavior are
+documented in [docs/real-service-smoke.md](docs/real-service-smoke.md). It is not
+part of ordinary pull-request or push CI.
+
 Validate a fork before launch with:
 
 ```bash

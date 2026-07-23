@@ -24,6 +24,21 @@ describe("application configuration", () => {
     });
   });
 
+  test("validates the fail-closed maintenance control without exposing values", () => {
+    expect(
+      readAppConfiguration({ PORTAL_MESSENGER_MAINTENANCE: "on" }),
+    ).toMatchObject({
+      status: "ready",
+      values: { PORTAL_MESSENGER_MAINTENANCE: "on" },
+    });
+    expect(
+      readAppConfiguration({ PORTAL_MESSENGER_MAINTENANCE: "maybe" }),
+    ).toMatchObject({
+      status: "incomplete",
+      issues: [{ name: "PORTAL_MESSENGER_MAINTENANCE", reason: "invalid" }],
+    });
+  });
+
   test("reports variable names and reasons without returning invalid values", () => {
     const secret = "definitely-not-a-secret-key";
     const configuration = readAppConfiguration({

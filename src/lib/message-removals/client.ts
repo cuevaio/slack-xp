@@ -6,9 +6,15 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import type { SerializedMessageRemovalProjection } from "@/lib/message-removals/contract";
+import { SAFETY_PROJECTION_TIMEOUT_MS } from "@/lib/safety/contract";
 
 const MESSAGE_REMOVAL_QUERY_NAMESPACE = "message-removals";
 export const MESSAGE_REMOVAL_REPAIR_INTERVAL_MS = 30_000;
+
+type MessageRemovalFetcher = (
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
 
 export function messageRemovalQueryKey(officeChannelId: string) {
   return [MESSAGE_REMOVAL_QUERY_NAMESPACE, officeChannelId] as const;
@@ -34,12 +40,22 @@ function isSerializedMessageRemovalProjection(
 
 export async function fetchMessageRemovals(
   officeChannelId: string,
-  fetcher: typeof fetch = fetch,
+  fetcher: MessageRemovalFetcher = fetch,
+  signal?: AbortSignal,
 ): Promise<SerializedMessageRemovalProjection[]> {
   const search = new URLSearchParams({ officeChannelId });
   const response = await fetcher(
     `/api/office/message-removals?${search.toString()}`,
-    { credentials: "include", cache: "no-store" },
+    {
+      credentials: "include",
+      cache: "no-store",
+      signal: signal
+        ? AbortSignal.any([
+            signal,
+            AbortSignal.timeout(SAFETY_PROJECTION_TIMEOUT_MS),
+          ])
+        : AbortSignal.timeout(SAFETY_PROJECTION_TIMEOUT_MS),
+    },
   );
   const payload: unknown = await response.json().catch(() => null);
   if (
@@ -52,19 +68,37 @@ export async function fetchMessageRemovals(
   ) {
     throw new Error("Removed Message projections are unavailable.");
   }
-  return payload.removals.filter(
-    (removal) => removal.officeChannelId === officeChannelId,
+  const uniqueMessageIds = new Set(
+    payload.removals.map((removal) => removal.messageId),
   );
+  const uniqueRemovalIds = new Set(
+    payload.removals.map((removal) => removal.removalId),
+  );
+  const expectedOfficeDay = officeChannelId.split(":").at(-1);
+  if (
+    uniqueMessageIds.size !== payload.removals.length ||
+    uniqueRemovalIds.size !== payload.removals.length ||
+    payload.removals.some(
+      (removal) =>
+        removal.officeChannelId !== officeChannelId ||
+        removal.officeDay !== expectedOfficeDay,
+    )
+  ) {
+    throw new Error("Removed Message projections are unavailable.");
+  }
+  return payload.removals;
 }
 
 export function messageRemovalQueryOptions(officeChannelId: string) {
   return queryOptions({
     queryKey: messageRemovalQueryKey(officeChannelId),
-    queryFn: () => fetchMessageRemovals(officeChannelId),
+    queryFn: ({ signal }) =>
+      fetchMessageRemovals(officeChannelId, fetch, signal),
     staleTime: MESSAGE_REMOVAL_REPAIR_INTERVAL_MS,
     refetchInterval: MESSAGE_REMOVAL_REPAIR_INTERVAL_MS,
     refetchOnReconnect: "always",
     refetchOnWindowFocus: "always",
+    retry: false,
   });
 }
 
@@ -73,7 +107,7 @@ export function useMessageRemovals(officeChannelId: string) {
 }
 
 export function invalidateMessageRemovals(queryClient: QueryClient) {
-  return queryClient.invalidateQueries({
+  return queryClient.resetQueries({
     queryKey: [MESSAGE_REMOVAL_QUERY_NAMESPACE],
   });
 }

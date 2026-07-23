@@ -6,6 +6,7 @@ export const APP_ENVIRONMENTS = [
 ] as const;
 
 export const SERVICE_MODES = ["mock", "live"] as const;
+export const MAINTENANCE_CONTROL_VALUES = ["off", "on"] as const;
 
 export const LIVE_ENVIRONMENT_VARIABLES = [
   "APP_ORIGIN",
@@ -130,6 +131,19 @@ export function readAppConfiguration(
   }
 
   const values: Record<string, string> = {};
+  const maintenanceControl = env.PORTAL_MESSENGER_MAINTENANCE;
+  if (
+    maintenanceControl !== undefined &&
+    !includes(MAINTENANCE_CONTROL_VALUES, maintenanceControl)
+  ) {
+    issues.push({
+      name: "PORTAL_MESSENGER_MAINTENANCE",
+      reason: "invalid",
+    });
+  } else if (maintenanceControl) {
+    values.PORTAL_MESSENGER_MAINTENANCE = maintenanceControl;
+  }
+
   if (serviceMode === "live") {
     for (const name of LIVE_ENVIRONMENT_VARIABLES) {
       const value = env[name];

@@ -41,6 +41,7 @@ import type {
   ProfileInvalidationEvent,
   ProfileInvalidationPublisher,
 } from "@/lib/profiles/types";
+import { SAFETY_PROJECTION_TIMEOUT_MS } from "@/lib/safety/contract";
 
 const DEFAULT_PORTAL_API_URL = "https://api.useportal.co";
 
@@ -102,6 +103,7 @@ export function createPortalControlPlane({
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
         cache: "no-store",
+        signal: AbortSignal.timeout(SAFETY_PROJECTION_TIMEOUT_MS),
       });
     } catch {
       throw new PortalServiceError(503, "portal_unavailable");
@@ -340,6 +342,7 @@ function createPortalMessagePublisher({
             content,
           }),
           cache: "no-store",
+          signal: AbortSignal.timeout(SAFETY_PROJECTION_TIMEOUT_MS),
         },
       );
     } catch {

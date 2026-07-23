@@ -1,31 +1,10 @@
 "use client";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { type ReactNode, useEffect, useState } from "react";
-import { profileBatchQueryKey } from "@/lib/profiles/client";
-import type { ProfileAttribution } from "@/lib/profiles/types";
+import { type ReactNode, useState } from "react";
 
-export function ProfileQueryProvider({
-  initialProfile,
-  children,
-}: {
-  initialProfile: ProfileAttribution;
-  children: ReactNode;
-}) {
-  const [queryClient] = useState(() => {
-    const client = new QueryClient();
-    client.setQueryData(profileBatchQueryKey([initialProfile.clerkUserId]), [
-      initialProfile,
-    ]);
-    return client;
-  });
-
-  useEffect(() => {
-    queryClient.setQueryData(
-      profileBatchQueryKey([initialProfile.clerkUserId]),
-      [initialProfile],
-    );
-  }, [initialProfile, queryClient]);
+export function ProfileQueryProvider({ children }: { children: ReactNode }) {
+  const [queryClient] = useState(() => new QueryClient());
 
   return (
     <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>

@@ -8,6 +8,7 @@ import { TerminationControl } from "@/components/termination-control";
 import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import { useProfileBatch } from "@/lib/profiles/client";
 import type { ProfileAttribution } from "@/lib/profiles/types";
+import { useSafetyProjectionStatus } from "@/lib/safety/client";
 
 function ProfileContextContent({
   isError,
@@ -84,6 +85,12 @@ export function NewHireProfileContext({
   const [profileId, setProfileId] = useState<string | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const query = useProfileBatch(profileId ? [profileId] : []);
+  const safetyStatus = useSafetyProjectionStatus({
+    status: query.status,
+    fetchStatus: query.fetchStatus,
+    isRefetchError: query.isRefetchError,
+    dataUpdatedAt: query.dataUpdatedAt,
+  });
   const profile = query.data?.find(
     (candidate) => candidate.clerkUserId === profileId,
   );
@@ -155,8 +162,8 @@ export function NewHireProfileContext({
             New Hire Profile
           </h2>
           <ProfileContextContent
-            isError={query.isError}
-            isPending={query.isPending}
+            isError={safetyStatus === "unavailable"}
+            isPending={safetyStatus === "loading"}
             profile={profile}
             profileId={profileId}
             canSendHome={canSendHome}

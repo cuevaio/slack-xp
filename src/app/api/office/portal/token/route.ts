@@ -13,10 +13,17 @@ import {
   PortalEligibilityError,
 } from "@/lib/portal/session";
 import { flushProfileInvalidations } from "@/lib/profiles/propagation";
+import { SAFETY_PROJECTION_TIMEOUT_MS } from "@/lib/safety/contract";
+import {
+  logSafetyEvent,
+  requestCorrelationId,
+  withSafetyDependencyTimeout,
+} from "@/lib/safety/server";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request) {
+  const correlationId = requestCorrelationId(request.headers);
   const configuration = readAppConfiguration();
   if (configuration.status === "incomplete") {
     return Response.json({ error: "installation_incomplete" }, { status: 503 });
@@ -31,24 +38,29 @@ export async function POST(request: Request) {
   try {
     await flushProfileInvalidations(adapters.neon, adapters.portal);
     const now = officeNowForRequest(request.headers, configuration);
-    const employmentAccess = await adapters.neon.getEmploymentAccess(
-      identity.id,
-      now,
+    const employmentAccess = await withSafetyDependencyTimeout(
+      adapters.neon.getEmploymentAccess(identity.id, now),
+      SAFETY_PROJECTION_TIMEOUT_MS,
     );
     if (!employmentAccess.eligible) {
       throw new PortalEligibilityError();
     }
-    await repairOfficeDayOnEntry({ adapters, now });
+    await repairOfficeDayOnEntry({ adapters, now, correlationId });
     try {
       await flushMessageRemovalInvalidations({
         repository: adapters.neon,
         publisher: adapters.portal,
       });
-    } catch {
+    } catch (error) {
       console.error(
         JSON.stringify({
           operation: "message_removal_invalidation_retry",
-          authority: "portal",
+          correlationId,
+          authority:
+            error instanceof PortalServiceError ||
+            error instanceof MockPortalUnavailableError
+              ? "portal"
+              : "neon",
           status: "pending",
         }),
       );
@@ -64,18 +76,27 @@ export async function POST(request: Request) {
         appOrigin:
           configuration.values.APP_ORIGIN ?? new URL(request.url).origin,
       });
-    } catch {
+    } catch (error) {
       console.error(
         JSON.stringify({
           operation: "hr_report_notification_retry",
-          authority: "portal",
+          correlationId,
+          authority:
+            error instanceof PortalServiceError ||
+            error instanceof MockPortalUnavailableError
+              ? "portal"
+              : "neon",
           status: "pending",
         }),
       );
     }
+    const onboarding = await withSafetyDependencyTimeout(
+      adapters.neon.getNewHire(identity.id),
+      SAFETY_PROJECTION_TIMEOUT_MS,
+    );
     const session = await issueOfficePortalSession({
       identity,
-      onboarding: await adapters.neon.getNewHire(identity.id),
+      onboarding,
       now,
       portal: adapters.portal,
       employmentAccess,
@@ -91,16 +112,37 @@ export async function POST(request: Request) {
       console.error(
         JSON.stringify({
           operation: "portal_session",
+          correlationId,
           authority: "portal",
-          code: error.code,
           status: error.status,
         }),
       );
       return Response.json({ error: "portal_unavailable" }, { status: 503 });
     }
     if (error instanceof MockPortalUnavailableError) {
+      logSafetyEvent({
+        operation: "portal_session",
+        correlationId,
+        authority: "portal",
+        status: "unavailable",
+      });
       return Response.json({ error: "portal_unavailable" }, { status: 503 });
     }
-    throw error;
+    logSafetyEvent({
+      operation: "portal_session_safety_state",
+      correlationId,
+      authority: "neon",
+      status: "unavailable",
+    });
+    return Response.json(
+      { error: "safety_projection_unavailable", correlationId },
+      {
+        status: 503,
+        headers: {
+          "Cache-Control": "no-store, private",
+          "X-Correlation-Id": correlationId,
+        },
+      },
+    );
   }
 }

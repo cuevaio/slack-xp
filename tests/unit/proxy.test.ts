@@ -13,6 +13,13 @@ function signedOutAuth() {
   return { auth, wasProtectCalled: () => protectCalled };
 }
 
+function signedInAuth() {
+  return Object.assign(
+    async () => ({ userId: "user_new_hire", sessionId: "session_1" }),
+    { protect: async () => {} },
+  ) as unknown as ClerkMiddlewareAuth;
+}
+
 describe("office authentication proxy", () => {
   test("returns 401 instead of redirecting signed-out API fetches", async () => {
     const { auth, wasProtectCalled } = signedOutAuth();
@@ -37,5 +44,22 @@ describe("office authentication proxy", () => {
 
     expect(response).toBeUndefined();
     expect(wasProtectCalled()).toBe(true);
+  });
+
+  test("blocks authenticated server operations when maintenance is active", async () => {
+    const response = await enforceClerkOfficeAuthentication(
+      signedInAuth(),
+      new NextRequest("http://localhost/api/office/portal/token", {
+        headers: { "x-request-id": "maintenance-test" },
+      }),
+      true,
+    );
+
+    expect(response?.status).toBe(503);
+    expect(await response?.json()).toEqual({
+      error: "maintenance_active",
+      authority: "application",
+      correlationId: "maintenance-test",
+    });
   });
 });

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { handleMessageRemovalQuery } from "@/app/api/office/message-removals/route";
 import { handleOperatorMessageRemovalRequest } from "@/app/api/office/operator/message-removals/route";
 import type { MessageRemovalInvalidationEvent } from "@/lib/message-removals/contract";
 import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
@@ -21,6 +22,33 @@ function removalRequest(privateReason = "Confirmed policy violation") {
 }
 
 describe("Operator Removed Message boundary", () => {
+  test("times out closed without logging conversation or private review content", async () => {
+    const repository = createInMemoryNeonRepository(() => now);
+    const logs: unknown[] = [];
+    repository.listMessageRemovals = async () => new Promise(() => {});
+    const response = await handleMessageRemovalQuery(
+      new Request(
+        "https://office.example.com/api/office/message-removals?officeChannelId=general%3A2026-07-22",
+        { headers: { "x-request-id": "removal-safety-test" } },
+      ),
+      repository,
+      now,
+      { timeoutMs: 1, logger: (entry) => logs.push(entry) },
+    );
+
+    expect(response.status).toBe(503);
+    expect(logs).toEqual([
+      {
+        operation: "message_removal_projection",
+        correlationId: "removal-safety-test",
+        authority: "neon",
+        status: "unavailable",
+        officeChannelId: "general:2026-07-22",
+      },
+    ]);
+    expect(JSON.stringify(logs)).not.toMatch(/conversation|private review/i);
+  });
+
   test("rejects non-Operators and rechecks a revoked allowlist before mutation", async () => {
     const repository = createInMemoryNeonRepository(() => now);
     const publisher = { async publishMessageRemovalInvalidation() {} };

@@ -1,6 +1,8 @@
 import type { ServiceAdapters } from "@/lib/adapters/types";
 import { seedAndPublishOfficeDay } from "@/lib/office-days/service";
+import { MockPortalUnavailableError } from "@/lib/portal/mock";
 import { officeDay } from "@/lib/portal/office-day";
+import { PortalServiceError } from "@/lib/portal/server";
 
 export function isAuthorizedVercelCronRequest(
   request: Pick<Request, "headers">,
@@ -30,9 +32,11 @@ export async function runOfficeDayCron({
 export async function repairOfficeDayOnEntry({
   adapters,
   now,
+  correlationId = crypto.randomUUID(),
 }: {
   adapters: ServiceAdapters;
   now: Date;
+  correlationId?: string;
 }) {
   try {
     return await runOfficeDayCron({ adapters, now });
@@ -40,8 +44,13 @@ export async function repairOfficeDayOnEntry({
     console.error(
       JSON.stringify({
         operation: "office_day_lazy_repair",
-        authority: "neon_portal",
-        error: error instanceof Error ? error.name : "unknown",
+        correlationId,
+        authority:
+          error instanceof PortalServiceError ||
+          error instanceof MockPortalUnavailableError
+            ? "portal"
+            : "neon",
+        status: "unavailable",
       }),
     );
     return null;

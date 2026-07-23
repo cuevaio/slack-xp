@@ -99,6 +99,10 @@ import {
 } from "@/lib/profiles/client";
 import { ProfileQueryProvider } from "@/lib/profiles/provider";
 import type { ProfileAttribution } from "@/lib/profiles/types";
+import {
+  useApplicationSafetyControl,
+  useSafetyProjectionStatus,
+} from "@/lib/safety/client";
 
 type PortalPresence = DetailedPresence | AggregatePresence;
 
@@ -106,7 +110,6 @@ type PortalOfficeBaseProps = {
   channels: readonly OfficeChannel[];
   identityId: string;
   displayName: string;
-  imageUrl: string | null;
   employeeRecord: ReactNode;
   eventChannelId: string;
   officeDay: string;
@@ -353,9 +356,19 @@ function useResolvedNewHireProfiles(
   enabled: boolean,
 ): ProfileResolution {
   const query = useProfileBatch(enabled ? profileIds : []);
-  if (query.isError) return { status: "error", profiles: [] };
-  if (query.isPending) return { status: "loading", profiles: [] };
-  return { status: "ready", profiles: query.data };
+  const safetyStatus = useSafetyProjectionStatus({
+    status: query.status,
+    fetchStatus: query.fetchStatus,
+    isRefetchError: query.isRefetchError,
+    dataUpdatedAt: query.dataUpdatedAt,
+  });
+  if (safetyStatus === "unavailable") {
+    return { status: "error", profiles: [] };
+  }
+  if (safetyStatus === "loading") {
+    return { status: "loading", profiles: [] };
+  }
+  return { status: "ready", profiles: query.data ?? [] };
 }
 
 function ParticipantList({
@@ -885,24 +898,6 @@ function MessageHistory({
       aria-label={`${channel.name} message history`}
     >
       {messages.map((message) => {
-        if (isPublicTerminationSystemEventMessage(message)) {
-          return (
-            <TerminationSystemEventListItem
-              key={message.id}
-              message={message}
-            />
-          );
-        }
-        if (isPublicSendHomeSystemEventMessage(message)) {
-          return (
-            <SendHomeSystemEventListItem key={message.id} message={message} />
-          );
-        }
-        if (isScriptedSystemEventMessage(message)) {
-          return (
-            <ScriptedSystemEventListItem key={message.id} message={message} />
-          );
-        }
         if (removedMessageIds.has(message.id)) {
           return (
             <li
@@ -922,6 +917,24 @@ function MessageHistory({
                 place in the conversation is preserved.
               </p>
             </li>
+          );
+        }
+        if (isPublicTerminationSystemEventMessage(message)) {
+          return (
+            <TerminationSystemEventListItem
+              key={message.id}
+              message={message}
+            />
+          );
+        }
+        if (isPublicSendHomeSystemEventMessage(message)) {
+          return (
+            <SendHomeSystemEventListItem key={message.id} message={message} />
+          );
+        }
+        if (isScriptedSystemEventMessage(message)) {
+          return (
+            <ScriptedSystemEventListItem key={message.id} message={message} />
           );
         }
         const profile = profilesById.get(message.senderId);
@@ -1046,6 +1059,12 @@ function ChatSurface({
   const messages = parsedMessages.messages;
   const latestMessageId = messages.at(-1)?.id ?? null;
   const removalQuery = useMessageRemovals(channel.id);
+  const removalSafetyStatus = useSafetyProjectionStatus({
+    status: removalQuery.status,
+    fetchStatus: removalQuery.fetchStatus,
+    isRefetchError: removalQuery.isRefetchError,
+    dataUpdatedAt: removalQuery.dataUpdatedAt,
+  });
   const removedMessageIds = useMemo(
     () => new Set((removalQuery.data ?? []).map(({ messageId }) => messageId)),
     [removalQuery.data],
@@ -1068,11 +1087,14 @@ function ChatSurface({
     [messages, removedMessageIds],
   );
   const profileQuery = useProfileBatch(profileIds);
+  const profileSafetyStatus = useSafetyProjectionStatus({
+    status: profileQuery.status,
+    fetchStatus: profileQuery.fetchStatus,
+    isRefetchError: profileQuery.isRefetchError,
+    dataUpdatedAt: profileQuery.dataUpdatedAt,
+  });
   const messageHistoryReady =
-    !removalQuery.isPending &&
-    !removalQuery.isError &&
-    !profileQuery.isPending &&
-    !profileQuery.isError;
+    removalSafetyStatus === "ready" && profileSafetyStatus === "ready";
   const profilesById = useMemo(
     () =>
       new Map(
@@ -1084,24 +1106,23 @@ function ChatSurface({
     [profileQuery.data],
   );
   let messageHistory: ReactNode;
-  if (removalQuery.isError) {
+  if (
+    removalSafetyStatus === "unavailable" ||
+    profileSafetyStatus === "unavailable"
+  ) {
     messageHistory = (
-      <div className="portal-outage" role="alert">
-        <strong>Messages are temporarily unavailable.</strong>
-        <span className="outage-detail">Please try again later.</span>
+      <div className="safety-outage" role="alert">
+        <strong>Message safety checks are unavailable.</strong>
+        <span className="outage-detail">
+          No conversation content is shown until New Hire Profiles and Removed
+          Messages can be verified.
+        </span>
       </div>
     );
-  } else if (removalQuery.isPending) {
-    messageHistory = <p className="profile-status">Loading messages…</p>;
-  } else if (profileQuery.isError) {
+  } else if (!messageHistoryReady) {
     messageHistory = (
-      <div className="portal-outage" role="alert">
-        <strong>Messages are temporarily unavailable.</strong>
-        <span className="outage-detail">Please try again later.</span>
-      </div>
+      <p className="profile-status">Verifying message safety…</p>
     );
-  } else if (profileQuery.isPending) {
-    messageHistory = <p className="profile-status">Loading messages…</p>;
   } else {
     messageHistory = (
       <MessageHistory
@@ -1267,7 +1288,7 @@ function ChatSurface({
     requestAnimationFrame(restoreScrollPosition);
   }
 
-  const canPublish = isChatContentReady(status);
+  const canPublish = isChatContentReady(status) && messageHistoryReady;
   const headingId = `office-channel-heading-${channel.slug}`;
 
   return (
@@ -1326,7 +1347,10 @@ function ChatSurface({
           ) : null}
           {status === "blocked" || status === "reconnecting" ? (
             <div className="portal-outage" aria-live="polite">
-              <strong>Connection lost.</strong>
+              <strong>Connection lost. Portal is offline.</strong>
+              <span className="outage-detail">
+                Live conversation service is temporarily unavailable.
+              </span>
               <Button onClick={onRetryConnection} type="button">
                 Retry
               </Button>
@@ -1399,12 +1423,21 @@ function OfficeWorkspace({
   children,
 }: OfficeWorkspaceProps) {
   const currentProfile = useProfileBatch([identityId]);
+  const currentProfileSafety = useSafetyProjectionStatus({
+    status: currentProfile.status,
+    fetchStatus: currentProfile.fetchStatus,
+    isRefetchError: currentProfile.isRefetchError,
+    dataUpdatedAt: currentProfile.dataUpdatedAt,
+  });
   const operatorState = useOperatorState(isOperator);
   const hasOperatorAccess =
     !operatorState.isError && operatorState.data?.isOperator === true;
   const currentDisplayName =
-    currentProfile.data?.find((profile) => profile.clerkUserId === identityId)
-      ?.displayName ?? displayName;
+    currentProfileSafety === "ready"
+      ? (currentProfile.data?.find(
+          (profile) => profile.clerkUserId === identityId,
+        )?.displayName ?? displayName)
+      : FALLBACK_PROFILE_NAME;
   const directoryButtons = useRef(new Map<string, HTMLButtonElement>());
   const mobileDirectoryTrigger = useRef<HTMLButtonElement>(null);
   const inboxRowsByChannelId = new Map(
@@ -1458,16 +1491,9 @@ function OfficeWorkspace({
                   <span className="channel-button-copy">
                     <strong># {channel.slug}</strong>
                     <small className="channel-preview">
-                      {row?.preview ? (
-                        <>
-                          <span className="channel-preview-sender">
-                            {row.preview.sender}:
-                          </span>{" "}
-                          {row.preview.text}
-                        </>
-                      ) : (
-                        "No messages yet"
-                      )}
+                      {row?.preview
+                        ? "New conversation activity"
+                        : "No messages yet"}
                     </small>
                   </span>
                   {unreadCount > 0 ? (
@@ -2187,6 +2213,7 @@ function createOfficeDayWorkspace(
 }
 
 function PortalChatWorkspace(props: PortalChatProps): ReactNode {
+  const applicationSafety = useApplicationSafetyControl();
   const [workspace, setWorkspace] = useState<OfficeDayWorkspace>(() => ({
     channels: props.channels,
     eventChannelId: props.eventChannelId,
@@ -2242,6 +2269,17 @@ function PortalChatWorkspace(props: PortalChatProps): ReactNode {
     setFocusNewOffice(true);
   }
 
+  if (applicationSafety === "unavailable") {
+    return (
+      <div className="safety-outage application-safety-outage" role="alert">
+        <strong>Portal Messenger safety control is unavailable.</strong>
+        <span className="outage-detail">
+          Active chat and publishing are paused. Please try again later.
+        </span>
+      </div>
+    );
+  }
+
   if (employmentAccessEnded) {
     return <SentHomeDialog access={employmentAccessEnded} />;
   }
@@ -2272,15 +2310,8 @@ function PortalChatWorkspace(props: PortalChatProps): ReactNode {
 }
 
 export function PortalChat(props: PortalChatProps): ReactNode {
-  const initialProfile: ProfileAttribution = {
-    clerkUserId: props.identityId,
-    displayName: props.displayName,
-    imageUrl: props.imageUrl,
-    status: "current",
-  };
-
   return (
-    <ProfileQueryProvider initialProfile={initialProfile}>
+    <ProfileQueryProvider>
       <PortalChatWorkspace {...props} />
     </ProfileQueryProvider>
   );

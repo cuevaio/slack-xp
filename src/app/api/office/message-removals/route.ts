@@ -4,8 +4,16 @@ import { readAppConfiguration } from "@/lib/config";
 import type { MessageRemovalRepository } from "@/lib/message-removals/contract";
 import { parseMessageRemovalChannelQuery } from "@/lib/message-removals/domain";
 import { listMessageRemovals } from "@/lib/message-removals/service";
+import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 import { officeDay } from "@/lib/portal/office-day";
 import { officeNowForRequest } from "@/lib/portal/request-time";
+import { SAFETY_PROJECTION_TIMEOUT_MS } from "@/lib/safety/contract";
+import {
+  logSafetyEvent,
+  requestCorrelationId,
+  type SafetyLogger,
+  withSafetyDependencyTimeout,
+} from "@/lib/safety/server";
 
 export const runtime = "nodejs";
 
@@ -17,7 +25,18 @@ export async function handleMessageRemovalQuery(
   request: Request,
   repository: MessageRemovalRepository,
   now: Date,
+  options: {
+    correlationId?: string;
+    logger?: SafetyLogger;
+    timeoutMs?: number;
+  } = {},
 ): Promise<Response> {
+  const correlationId =
+    options.correlationId ?? requestCorrelationId(request.headers);
+  const responseHeaders = {
+    ...PRIVATE_NO_STORE_HEADERS,
+    "X-Correlation-Id": correlationId,
+  };
   const officeChannelId = parseMessageRemovalChannelQuery(
     new URL(request.url).searchParams.get("officeChannelId"),
     officeDay(now),
@@ -25,14 +44,28 @@ export async function handleMessageRemovalQuery(
   if (!officeChannelId) {
     return Response.json(
       { error: "invalid_office_channel" },
-      { status: 422, headers: PRIVATE_NO_STORE_HEADERS },
+      { status: 422, headers: responseHeaders },
     );
   }
-  const removals = await listMessageRemovals({
-    repository,
-    officeChannelId,
-  });
-  return Response.json({ removals }, { headers: PRIVATE_NO_STORE_HEADERS });
+  try {
+    const removals = await withSafetyDependencyTimeout(
+      listMessageRemovals({ repository, officeChannelId }),
+      options.timeoutMs ?? SAFETY_PROJECTION_TIMEOUT_MS,
+    );
+    return Response.json({ removals }, { headers: responseHeaders });
+  } catch {
+    (options.logger ?? logSafetyEvent)({
+      operation: "message_removal_projection",
+      correlationId,
+      authority: "neon",
+      status: "unavailable",
+      officeChannelId,
+    });
+    return Response.json(
+      { error: "safety_projection_unavailable", correlationId },
+      { status: 503, headers: responseHeaders },
+    );
+  }
 }
 
 export async function GET(request: Request) {
@@ -48,7 +81,31 @@ export async function GET(request: Request) {
     );
   }
   const adapters = createServiceAdapters(configuration);
-  const onboarding = await adapters.neon.getNewHire(identity.id);
+  const correlationId = requestCorrelationId(request.headers);
+  let onboarding: OnboardingSnapshot | null;
+  try {
+    onboarding = await withSafetyDependencyTimeout(
+      adapters.neon.getNewHire(identity.id),
+      SAFETY_PROJECTION_TIMEOUT_MS,
+    );
+  } catch {
+    logSafetyEvent({
+      operation: "message_removal_eligibility",
+      correlationId,
+      authority: "neon",
+      status: "unavailable",
+    });
+    return Response.json(
+      { error: "safety_projection_unavailable", correlationId },
+      {
+        status: 503,
+        headers: {
+          ...PRIVATE_NO_STORE_HEADERS,
+          "X-Correlation-Id": correlationId,
+        },
+      },
+    );
+  }
   if (!onboarding?.completedAt || onboarding.step !== "complete") {
     return Response.json(
       { error: "new_hire_ineligible" },
@@ -59,5 +116,6 @@ export async function GET(request: Request) {
     request,
     adapters.neon,
     officeNowForRequest(request.headers, configuration),
+    { correlationId },
   );
 }

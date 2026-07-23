@@ -1,5 +1,6 @@
 import { officeEventChannelIdForDay } from "@/lib/office-events/contract";
 import { listOfficeChannelsForDay } from "@/lib/portal/channels";
+import { SAFETY_PROJECTION_TIMEOUT_MS } from "@/lib/safety/contract";
 
 type FetchPortalToken = (
   input: string | URL | Request,
@@ -39,6 +40,7 @@ export function createPortalTokenSource({
       method: "POST",
       credentials: "include",
       cache: "no-store",
+      signal: AbortSignal.timeout(SAFETY_PROJECTION_TIMEOUT_MS),
     });
     const payload: unknown = await response.json().catch(() => null);
     if (!response.ok || typeof payload !== "object" || payload === null) {

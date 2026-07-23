@@ -131,6 +131,42 @@ describe("Clerk profile webhook boundary", () => {
 });
 
 describe("New Hire Profile convergence", () => {
+  test("times out closed with correlation-safe Neon logging", async () => {
+    const repository = createInMemoryNeonRepository();
+    const logs: unknown[] = [];
+    repository.getProfiles = async () => new Promise(() => {});
+    const response = await handleProfileBatchRequest(
+      new Request("http://localhost/api/office/profiles", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-request-id": "profile-safety-test",
+        },
+        body: JSON.stringify({
+          clerkUserIds: ["user_profile_projection"],
+          messageBody: "must never enter logs",
+        }),
+      }),
+      repository,
+      { timeoutMs: 1, logger: (entry) => logs.push(entry) },
+    );
+
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "safety_projection_unavailable",
+      correlationId: "profile-safety-test",
+    });
+    expect(logs).toEqual([
+      {
+        operation: "profile_batch",
+        correlationId: "profile-safety-test",
+        authority: "neon",
+        status: "unavailable",
+      },
+    ]);
+    expect(JSON.stringify(logs)).not.toContain("must never enter logs");
+  });
+
   test("repairs missing or drifted session state without letting stale repair win", async () => {
     const repository = createInMemoryNeonRepository();
     const currentIdentity = {

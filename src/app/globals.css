@@ -2200,7 +2200,8 @@ a {
   line-height: 1.5;
 }
 
-.portal-outage {
+.portal-outage,
+.safety-outage {
   display: grid;
   gap: 0.45rem;
   margin-bottom: 1rem;
@@ -2213,10 +2214,16 @@ a {
   font-size: 0.8rem;
 }
 
-.portal-outage button {
+.portal-outage button,
+.safety-outage button {
   width: fit-content;
   padding: 0.35rem 0.65rem;
   cursor: pointer;
+}
+
+.application-safety-outage {
+  margin: auto;
+  max-width: 34rem;
 }
 
 .invalid-message-notice {

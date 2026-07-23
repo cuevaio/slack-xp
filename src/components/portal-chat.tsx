@@ -6,7 +6,9 @@ import {
   type ChannelStatus,
   type DetailedPresence,
   type InboxStatus,
+  type Message,
   Portal,
+  type PortalError,
 } from "@portalsdk/core";
 import { PortalProvider, useChannel, useInbox } from "@portalsdk/react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -63,10 +65,10 @@ import {
 } from "@/lib/portal/channels";
 import {
   CHAT_TEXT_LIMIT,
+  createChatContentWithMentions,
   linkifyChatText,
   type PortalChatContent,
   type SafePortalChatMessage,
-  validateChatDraft,
 } from "@/lib/portal/chat";
 import { createPortalTokenSource } from "@/lib/portal/client";
 import { type OfficeInboxRow, reconcileOfficeInbox } from "@/lib/portal/inbox";
@@ -141,12 +143,18 @@ type ChatSurfaceProps = ReactionProps & {
   status: ChannelStatus;
   presence?: PortalPresence;
   onTyping(): void;
-  onSend(text: string): Promise<void>;
+  onSend(
+    content: PortalChatContent,
+    mentions: readonly { userId: string }[],
+  ): Promise<void>;
   onRetryConnection(): void;
   loadPrevious?: () => Promise<unknown>;
   hasPrevious?: boolean;
   isLoadingPrevious?: boolean;
   onContentVisible?(): void;
+  mentionMessageId?: string;
+  onMentionVisible?(): void;
+  channelError?: string | null;
 };
 
 type OfficeWorkspaceProps = Pick<
@@ -165,6 +173,8 @@ type OfficeWorkspaceProps = Pick<
   mobileNavigationOpen: boolean;
   onOpenMobileNavigation(): void;
   onSelectChannel(channelId: string): void;
+  mentionedChannelIds: ReadonlySet<string>;
+  mentionAnnouncement: string;
   children: ReactNode;
 };
 
@@ -187,6 +197,11 @@ type ResponsiveOfficeNavigation = {
   conversationVisible: boolean;
   openMobileNavigation(): void;
   showConversation(): void;
+};
+
+type DraftMention = {
+  userId: string;
+  label: string;
 };
 
 const REACTION_NAMES: Record<OfficeReaction, string> = {
@@ -398,19 +413,56 @@ function LiveActivity({
   );
 }
 
-function SafeMessageText({ text }: { text: string }) {
+function SafeMessageText({
+  content,
+  identityId,
+  profilesById,
+}: {
+  content: PortalChatContent;
+  identityId?: string;
+  profilesById?: ReadonlyMap<string, ProfileAttribution>;
+}) {
+  const ranges = content.mentionRanges ?? [];
   let characterOffset = 0;
-  return linkifyChatText(text).map((part) => {
-    const key = `${part.kind}-${characterOffset}-${part.value}`;
-    characterOffset += part.value.length;
-    return part.kind === "link" ? (
-      <a href={part.value} key={key} rel="noopener noreferrer" target="_blank">
-        {part.value}
-      </a>
-    ) : (
-      <span key={key}>{part.value}</span>
+  const renderText = (text: string) =>
+    linkifyChatText(text).map((part) => {
+      const key = `${part.kind}-${characterOffset}-${part.value}`;
+      characterOffset += part.value.length;
+      return part.kind === "link" ? (
+        <a
+          href={part.value}
+          key={key}
+          rel="noopener noreferrer"
+          target="_blank"
+        >
+          {part.value}
+        </a>
+      ) : (
+        <span key={key}>{part.value}</span>
+      );
+    });
+  if (ranges.length === 0) return renderText(content.text);
+
+  const rendered: ReactNode[] = [];
+  let cursor = 0;
+  for (const range of ranges) {
+    rendered.push(...renderText(content.text.slice(cursor, range.start)));
+    const label = content.text.slice(range.start, range.start + range.length);
+    rendered.push(
+      <a
+        className="message-mention"
+        data-current-new-hire={range.userId === identityId}
+        href={`/office?profile=${encodeURIComponent(range.userId)}`}
+        key={`mention-${range.start}-${range.userId}`}
+      >
+        {profilesById?.has(range.userId) ? label : "@New Hire"}
+      </a>,
     );
-  });
+    characterOffset += range.length;
+    cursor = range.start + range.length;
+  }
+  rendered.push(...renderText(content.text.slice(cursor)));
+  return rendered;
 }
 
 function ReactionControls({
@@ -609,7 +661,7 @@ function ScriptedSystemEventListItem({
       </div>
       <small>{message.character.role}</small>
       <p>
-        <SafeMessageText text={message.content.text} />
+        <SafeMessageText content={message.content} />
       </p>
     </li>
   );
@@ -777,7 +829,7 @@ function MessageHistory({
         const profile = profilesById.get(message.senderId);
         return (
           <li
-            className={`chat-message chat-message-${message.status}`}
+            className={`chat-message chat-message-${message.status}${message.mentionedUserIds.includes(identityId) ? " chat-message-mentioned" : ""}`}
             data-message-id={message.id}
             key={message.id}
             tabIndex={-1}
@@ -801,7 +853,11 @@ function MessageHistory({
               </time>
             </div>
             <p>
-              <SafeMessageText text={message.content.text} />
+              <SafeMessageText
+                content={message.content}
+                identityId={identityId}
+                profilesById={profilesById}
+              />
             </p>
             {message.status === "pending" ? <small>Sending…</small> : null}
             {message.status === "failed" ? (
@@ -881,11 +937,21 @@ function ChatSurface({
   hasPrevious = false,
   isLoadingPrevious = false,
   onContentVisible,
+  mentionMessageId,
+  onMentionVisible,
+  channelError,
 }: ChatSurfaceProps) {
   const [draft, setDraft] = useState("");
+  const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
+  const [mentionSearch, setMentionSearch] = useState<{
+    start: number;
+    end: number;
+    query: string;
+  } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const scrollRegionRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const followingLatestMessage = useRef(true);
   const surfaceRef = useRef<HTMLElement>(null);
   const latestOnContentVisible = useRef(onContentVisible);
@@ -901,23 +967,21 @@ function ChatSurface({
     () => new Set((removalQuery.data ?? []).map(({ messageId }) => messageId)),
     [removalQuery.data],
   );
+  const presentIds =
+    channel.mode === "standard" && presence?.kind === "detailed"
+      ? currentDetailedNewHireIds(presence, status)
+      : [];
   const participantIds = useMemo(
     () => [
       ...new Set([
         identityId,
+        ...presentIds,
         ...messages.filter(isNewHireMessage).map(({ senderId }) => senderId),
       ]),
     ],
-    [identityId, messages],
+    [identityId, messages, presentIds],
   );
-  const profileIds = useMemo(
-    () =>
-      messages
-        .filter(isNewHireMessage)
-        .filter(({ id }) => !removedMessageIds.has(id))
-        .map(({ senderId }) => senderId),
-    [messages, removedMessageIds],
-  );
+  const profileIds = useMemo(() => participantIds, [participantIds]);
   const profileQuery = useProfileBatch(profileIds);
   const profileSafetyStatus = useSafetyProjectionStatus(profileQuery);
   const messageHistoryReady =
@@ -932,6 +996,19 @@ function ChatSurface({
       ),
     [profileQuery.data],
   );
+  const mentionCandidates = mentionSearch
+    ? [...profilesById.values()]
+        .filter(({ clerkUserId }) => clerkUserId !== identityId)
+        .filter(({ displayName }) =>
+          displayName
+            .toLocaleLowerCase()
+            .includes(mentionSearch.query.toLocaleLowerCase()),
+        )
+        .toSorted((left, right) =>
+          left.displayName.localeCompare(right.displayName),
+        )
+        .slice(0, 6)
+    : [];
   let messageHistory: ReactNode;
   if (
     removalSafetyStatus === "unavailable" ||
@@ -1006,6 +1083,18 @@ function ChatSurface({
   ]);
 
   useEffect(() => {
+    if (!visible || !messageHistoryReady || !mentionMessageId) return;
+    const element = surfaceRef.current?.querySelector<HTMLElement>(
+      `[data-message-id="${CSS.escape(mentionMessageId)}"]`,
+    );
+    if (!element) return;
+    followingLatestMessage.current = false;
+    element.scrollIntoView({ block: "center" });
+    element.focus({ preventScroll: true });
+    onMentionVisible?.();
+  }, [mentionMessageId, messageHistoryReady, onMentionVisible, visible]);
+
+  useEffect(() => {
     if (
       !visible ||
       !messageHistoryReady ||
@@ -1075,22 +1164,56 @@ function ChatSurface({
     setSendError(null);
     let content: PortalChatContent;
     try {
-      content = validateChatDraft(draft);
+      content = createChatContentWithMentions(draft, draftMentions);
     } catch (error) {
       setSendError(error instanceof Error ? error.message : "Invalid message.");
       return;
     }
 
     setDraft("");
+    setDraftMentions([]);
+    setMentionSearch(null);
     setIsSending(true);
     try {
-      await onSend(content.text);
+      await onSend(
+        content,
+        [
+          ...new Set(content.mentionRanges?.map(({ userId }) => userId) ?? []),
+        ].map((userId) => ({ userId })),
+      );
     } catch {
       setDraft(content.text);
       setSendError("Message not delivered. Your text is ready to retry.");
     } finally {
       setIsSending(false);
     }
+  }
+
+  function updateMentionSearch(text: string, cursor: number): void {
+    const match = text.slice(0, cursor).match(/(?:^|\s)@([^@\n]*)$/u);
+    if (!match || match[1].length > 40) {
+      setMentionSearch(null);
+      return;
+    }
+    const at = cursor - match[1].length - 1;
+    setMentionSearch({ start: at, end: cursor, query: match[1].trimStart() });
+  }
+
+  function selectMention(profile: ProfileAttribution): void {
+    if (!mentionSearch) return;
+    const label = `@${profile.displayName}`;
+    const nextDraft = `${draft.slice(0, mentionSearch.start)}${label} ${draft.slice(mentionSearch.end)}`;
+    const cursor = mentionSearch.start + label.length + 1;
+    setDraft(nextDraft);
+    setDraftMentions((current) => [
+      ...current.filter(({ userId }) => userId !== profile.clerkUserId),
+      { userId: profile.clerkUserId, label },
+    ]);
+    setMentionSearch(null);
+    requestAnimationFrame(() => {
+      composerRef.current?.focus();
+      composerRef.current?.setSelectionRange(cursor, cursor);
+    });
   }
 
   async function loadEarlier() {
@@ -1183,6 +1306,11 @@ function ChatSurface({
               </Button>
             </div>
           ) : null}
+          {channelError ? (
+            <p className="chat-error" role="alert">
+              {channelError}
+            </p>
+          ) : null}
           {messageHistory}
         </div>
       </div>
@@ -1198,6 +1326,10 @@ function ChatSurface({
           onChange={(event) => {
             const nextDraft = event.target.value;
             setDraft(nextDraft);
+            updateMentionSearch(
+              nextDraft,
+              event.target.selectionStart ?? nextDraft.length,
+            );
             if (
               visible &&
               canPublish &&
@@ -1207,10 +1339,54 @@ function ChatSurface({
               onTyping();
             }
           }}
+          onKeyDown={(event) => {
+            if (!mentionSearch) return;
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setMentionSearch(null);
+            } else if (
+              (event.key === "Enter" || event.key === "Tab") &&
+              mentionCandidates[0]
+            ) {
+              event.preventDefault();
+              selectMention(mentionCandidates[0]);
+            }
+          }}
           placeholder={canPublish ? "Type a message…" : "Reconnecting…"}
+          ref={composerRef}
           rows={3}
           value={draft}
         />
+        {mentionSearch ? (
+          <div className="mention-autocomplete">
+            <strong className="mention-autocomplete-heading">
+              Mention a New Hire
+            </strong>
+            {mentionCandidates.length > 0 ? (
+              <ul>
+                {mentionCandidates.map((profile) => (
+                  <li key={profile.clerkUserId}>
+                    <button
+                      onClick={() => selectMention(profile)}
+                      type="button"
+                    >
+                      <ProfileAvatar
+                        placeholderClassName="mention-avatar-placeholder"
+                        profile={profile}
+                        size={24}
+                      />
+                      {profile.displayName}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <span className="mention-autocomplete-empty">
+                No matching New Hires
+              </span>
+            )}
+          </div>
+        ) : null}
         <div className="composer-actions">
           <span className="character-count">
             {draft.length.toLocaleString()} / 1,000
@@ -1247,6 +1423,8 @@ function OfficeWorkspace({
   mobileNavigationOpen,
   onOpenMobileNavigation,
   onSelectChannel,
+  mentionedChannelIds,
+  mentionAnnouncement,
   children,
 }: OfficeWorkspaceProps) {
   const currentProfile = useProfileBatch([identityId]);
@@ -1280,6 +1458,9 @@ function OfficeWorkspace({
         className="office-body"
         data-mobile-view={mobileNavigationOpen ? "directory" : "conversation"}
       >
+        <p className="sr-only" aria-live="polite">
+          {mentionAnnouncement}
+        </p>
         <aside className="channel-panel" aria-label="Office Channels">
           <p className="eyebrow">Shared Public Office</p>
           <h1>Welcome, {currentDisplayName}</h1>
@@ -1324,6 +1505,12 @@ function OfficeWorkspace({
                       <span aria-hidden="true">{unreadCount}</span>
                     </b>
                   ) : null}
+                  {mentionedChannelIds.has(channel.id) ? (
+                    <span className="mention-badge">
+                      <span className="sr-only">Mentioned you</span>
+                      <span aria-hidden="true">@</span>
+                    </span>
+                  ) : null}
                 </button>
               );
             })}
@@ -1364,17 +1551,33 @@ function LiveOfficeChannel({
   onReact,
   reactionEvents,
   reactionsEnabled,
+  mentionMessageId,
+  onMention,
+  onMentionVisible,
 }: ReactionProps & {
   visible: boolean;
   channel: OfficeChannel;
   identityId: string;
   onInboxRead(channelId: string): void;
+  mentionMessageId?: string;
+  onMention(channel: OfficeChannel, message: Message<{ text: string }>): void;
+  onMentionVisible(channelId: string): void;
 }) {
+  const [channelError, setChannelError] = useState<string | null>(null);
   const channel = useChannel<{ text: string }>({
     channelId: officeChannel.id,
     history: 50,
     readOn: "manual",
+    onMention: (message) => onMention(officeChannel, message),
+    onError: (_error: PortalError) => {
+      setChannelError(
+        "This Office Channel hit a connection problem. Retry if updates do not resume.",
+      );
+    },
   });
+  useEffect(() => {
+    if (channel.status === "ready") setChannelError(null);
+  }, [channel.status]);
   const markVisibleContentRead = useCallback(() => {
     channel.markAsRead();
     onInboxRead(officeChannel.id);
@@ -1388,17 +1591,23 @@ function LiveOfficeChannel({
       isLoadingPrevious={channel.isLoadingPrevious}
       loadPrevious={channel.loadPrevious}
       messages={channel.messages}
+      mentionMessageId={mentionMessageId}
+      onMentionVisible={() => onMentionVisible(officeChannel.id)}
       onTyping={channel.sendTyping}
       onReact={onReact}
       onRetryConnection={() => window.location.reload()}
       onContentVisible={markVisibleContentRead}
-      onSend={async (text) => {
-        await channel.send({ content: validateChatDraft(text) });
+      onSend={async (content, mentions) => {
+        await channel.send({
+          content,
+          ...(mentions.length > 0 ? { mentions: [...mentions] } : {}),
+        });
       }}
       reactionEvents={reactionEvents}
       reactionsEnabled={reactionsEnabled}
       status={channel.status}
       presence={channel.presence}
+      channelError={channelError}
       visible={visible}
     />
   );
@@ -1502,6 +1711,10 @@ function LivePortalWorkspace({
   const [reactionEvents, setReactionEvents] = useState<ReactionOfficeEvent[]>(
     [],
   );
+  const [mentionsByChannelId, setMentionsByChannelId] = useState(
+    new Map<string, string>(),
+  );
+  const [mentionAnnouncement, setMentionAnnouncement] = useState("");
   const handleInvalidation = useCallback(
     (event: OfficeInvalidationEvent) => {
       switch (event.type) {
@@ -1583,6 +1796,26 @@ function LivePortalWorkspace({
     eventStatus === "ready" ||
     eventStatus === "degraded" ||
     eventStatus === "degraded-http";
+  const handleMention = useCallback(
+    (channel: OfficeChannel, message: Message<{ text: string }>) => {
+      setMentionsByChannelId((current) => {
+        if (current.has(channel.id)) return current;
+        const next = new Map(current);
+        next.set(channel.id, message.id);
+        return next;
+      });
+      setMentionAnnouncement(`You were mentioned in ${channel.name}.`);
+    },
+    [],
+  );
+  const clearMention = useCallback((channelId: string) => {
+    setMentionsByChannelId((current) => {
+      if (!current.has(channelId)) return current;
+      const next = new Map(current);
+      next.delete(channelId);
+      return next;
+    });
+  }, []);
 
   return (
     <OfficeWorkspace
@@ -1597,6 +1830,8 @@ function LivePortalWorkspace({
       isMobile={navigation.isMobile}
       isOperator={isOperator}
       mobileNavigationOpen={navigation.mobileNavigationOpen}
+      mentionedChannelIds={new Set(mentionsByChannelId.keys())}
+      mentionAnnouncement={mentionAnnouncement}
       onOpenMobileNavigation={navigation.openMobileNavigation}
       onSelectChannel={selectChannel}
     >
@@ -1605,6 +1840,9 @@ function LivePortalWorkspace({
           channel={channel}
           identityId={identityId}
           key={channel.id}
+          mentionMessageId={mentionsByChannelId.get(channel.id)}
+          onMention={handleMention}
+          onMentionVisible={clearMention}
           onInboxRead={markInboxRead}
           onReact={updateReaction}
           reactionEvents={reactionEvents}

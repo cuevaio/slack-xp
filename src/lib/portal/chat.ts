@@ -5,6 +5,13 @@ export const SETUP_VERIFIER_USER_ID = "portal-messenger-setup-verifier";
 
 export type PortalChatContent = {
   text: string;
+  mentionRanges?: PortalMentionRange[];
+};
+
+export type PortalMentionRange = {
+  userId: string;
+  start: number;
+  length: number;
 };
 
 export type ChatTextPart =
@@ -17,6 +24,7 @@ export type SafePortalChatMessage = {
   senderId: string;
   timestamp: number;
   content: PortalChatContent;
+  mentionedUserIds: readonly string[];
   status: "pending" | "sent" | "failed";
 };
 
@@ -40,7 +48,9 @@ export function parseChatContent(value: unknown): PortalChatContent | null {
   if (
     !isObject(value) ||
     Array.isArray(value) ||
-    Object.keys(value).length !== 1 ||
+    Object.keys(value).some(
+      (key) => key !== "text" && key !== "mentionRanges",
+    ) ||
     typeof value.text !== "string" ||
     value.text.trim().length === 0 ||
     value.text.length > CHAT_TEXT_LIMIT
@@ -48,7 +58,41 @@ export function parseChatContent(value: unknown): PortalChatContent | null {
     return null;
   }
 
-  return { text: value.text };
+  if (value.mentionRanges === undefined) {
+    return { text: value.text };
+  }
+  if (!Array.isArray(value.mentionRanges)) return null;
+
+  const mentionRanges: PortalMentionRange[] = [];
+  let previousEnd = 0;
+  for (const candidate of value.mentionRanges) {
+    if (
+      !isObject(candidate) ||
+      Object.keys(candidate).some(
+        (key) => key !== "userId" && key !== "start" && key !== "length",
+      ) ||
+      typeof candidate.userId !== "string" ||
+      candidate.userId.length === 0 ||
+      !Number.isInteger(candidate.start) ||
+      !Number.isInteger(candidate.length) ||
+      (candidate.start as number) < previousEnd ||
+      (candidate.length as number) < 2 ||
+      (candidate.start as number) + (candidate.length as number) >
+        value.text.length ||
+      value.text[candidate.start as number] !== "@"
+    ) {
+      return null;
+    }
+    const range = {
+      userId: candidate.userId,
+      start: candidate.start as number,
+      length: candidate.length as number,
+    };
+    mentionRanges.push(range);
+    previousEnd = range.start + range.length;
+  }
+
+  return { text: value.text, mentionRanges };
 }
 
 export function validateChatDraft(draft: string): PortalChatContent {
@@ -59,6 +103,26 @@ export function validateChatDraft(draft: string): PortalChatContent {
     throw new Error("Messages are limited to 1,000 characters.");
   }
   return { text: draft };
+}
+
+export function createChatContentWithMentions(
+  text: string,
+  mentions: readonly { userId: string; label: string }[],
+): PortalChatContent {
+  const content = validateChatDraft(text);
+  const mentionRanges: PortalMentionRange[] = [];
+  let cursor = 0;
+  for (const mention of mentions) {
+    const start = text.indexOf(mention.label, cursor);
+    if (start === -1) continue;
+    mentionRanges.push({
+      userId: mention.userId,
+      start,
+      length: mention.label.length,
+    });
+    cursor = start + mention.label.length;
+  }
+  return mentionRanges.length > 0 ? { ...content, mentionRanges } : content;
 }
 
 export function parsePortalChatMessage(
@@ -90,6 +154,14 @@ export function parsePortalChatMessage(
   }
 
   const content = parseChatContent(value.content);
+  const mentionedUserIds = Array.isArray(value.mentions)
+    ? value.mentions
+        .filter(
+          (mention): mention is { userId: string } =>
+            isObject(mention) && typeof mention.userId === "string",
+        )
+        .map(({ userId }) => userId)
+    : [];
   return content
     ? {
         id: value.id,
@@ -97,6 +169,7 @@ export function parsePortalChatMessage(
         senderId: value.sender.id,
         timestamp: value.timestamp,
         content,
+        mentionedUserIds,
         status: value.status,
       }
     : null;

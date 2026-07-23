@@ -5,6 +5,7 @@ import {
   officeChannelId,
 } from "@/lib/portal/channels";
 import {
+  createChatContentWithMentions,
   generalChannelId,
   linkifyChatText,
   parseChatContent,
@@ -93,6 +94,30 @@ describe("Office Channel chat contract", () => {
     expect(() => validateChatDraft("A".repeat(1_001))).toThrow(
       "1,000 characters",
     );
+  });
+
+  test("creates and validates structured mention ranges", () => {
+    const content = createChatContentWithMentions(
+      "Hello @Pat Pending and @Sam",
+      [
+        { userId: "user_pat", label: "@Pat Pending" },
+        { userId: "user_sam", label: "@Sam" },
+      ],
+    );
+    expect(content).toEqual({
+      text: "Hello @Pat Pending and @Sam",
+      mentionRanges: [
+        { userId: "user_pat", start: 6, length: 12 },
+        { userId: "user_sam", start: 23, length: 4 },
+      ],
+    });
+    expect(parseChatContent(content)).toEqual(content);
+    expect(
+      parseChatContent({
+        text: "Hello Pat",
+        mentionRanges: [{ userId: "user_pat", start: 6, length: 3 }],
+      }),
+    ).toBeNull();
   });
 
   test("ignores malformed, retracted, ephemeral, and unknown Portal envelopes", () => {

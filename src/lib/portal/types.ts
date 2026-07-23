@@ -44,6 +44,7 @@ export type PortalChatMessage = {
   kind: "text";
   type: "message";
   content: PortalChatContent;
+  mentions?: { userId: string }[];
   unread: boolean;
   status: "sent";
 };

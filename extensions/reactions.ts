@@ -10,7 +10,11 @@ const MAX_MESSAGES = 500;
 
 type Reaction = (typeof REACTIONS)[number];
 type Reactions = Record<string, Partial<Record<Reaction, string[]>>>;
-type StoredState = { lastBatchSeq: number; reactions: Reactions };
+type StoredState = {
+  epoch: number;
+  lastBatchSeq: number;
+  reactions: Reactions;
+};
 
 function parseToggle(content: unknown) {
   if (typeof content !== "object" || content === null) return null;
@@ -34,24 +38,33 @@ class ReactionExtension {
     transport: "ws",
   };
 
-  private state: StoredState = { lastBatchSeq: -1, reactions: {} };
+  private reactions: Reactions = {};
+  private epoch = -1;
+  private lastBatchSeq = -1;
 
   constructor(private context: ExtensionContext) {}
 
   async onInit() {
-    this.state =
-      (await this.context.storage.get<StoredState>("state")) ?? this.state;
+    const stored = await this.context.storage.get<StoredState>("state");
+    if (!stored) return;
+    this.epoch = stored.epoch;
+    this.lastBatchSeq = stored.lastBatchSeq;
+    this.reactions = stored.reactions;
   }
 
-  async onBatch({ batchSeq, messages }: BatchRequest) {
-    if (batchSeq <= this.state.lastBatchSeq) return;
+  async onBatch({ epoch, batchSeq, messages }: BatchRequest) {
+    if (epoch === this.epoch && batchSeq <= this.lastBatchSeq) return;
+    if (epoch !== this.epoch) {
+      this.epoch = epoch;
+      this.lastBatchSeq = -1;
+    }
     const changed = new Set<string>();
     for (const message of messages) {
       if (message.type !== "reaction.toggle") continue;
       const toggle = parseToggle(message.content);
       if (!toggle) continue;
-      const messageReactions = this.state.reactions[toggle.messageId] ?? {};
-      this.state.reactions[toggle.messageId] = messageReactions;
+      const messageReactions = this.reactions[toggle.messageId] ?? {};
+      this.reactions[toggle.messageId] = messageReactions;
       const users = messageReactions[toggle.reaction] ?? [];
       messageReactions[toggle.reaction] = users;
       const existing = users.indexOf(message.senderId);
@@ -59,24 +72,28 @@ class ReactionExtension {
       else users.push(message.senderId);
       changed.add(toggle.messageId);
     }
-    this.state.lastBatchSeq = batchSeq;
-    while (Object.keys(this.state.reactions).length > MAX_MESSAGES) {
-      const oldest = Object.keys(this.state.reactions)[0];
-      delete this.state.reactions[oldest];
+    while (Object.keys(this.reactions).length > MAX_MESSAGES) {
+      const oldest = Object.keys(this.reactions)[0];
+      delete this.reactions[oldest];
     }
-    await this.context.storage.put("state", this.state);
+    this.lastBatchSeq = batchSeq;
+    await this.context.storage.put("state", {
+      epoch: this.epoch,
+      lastBatchSeq: this.lastBatchSeq,
+      reactions: this.reactions,
+    } satisfies StoredState);
     if (changed.size === 0) return;
     return {
       broadcasts: [...changed].map((messageId) => ({
         type: "reaction.state",
-        content: { messageId, reactions: this.state.reactions[messageId] },
+        content: { messageId, reactions: this.reactions[messageId] },
       })),
       snapshotDirty: true,
     };
   }
 
   onSnapshot() {
-    return { snapshot: { reactions: this.state.reactions } };
+    return { snapshot: { reactions: this.reactions } };
   }
 }
 

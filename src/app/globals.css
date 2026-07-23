@@ -3164,9 +3164,9 @@ a {
   position: relative;
   z-index: 1;
   resize: vertical;
-  background: transparent;
+  background: var(--color-white);
   caret-color: var(--ink);
-  color: transparent;
+  color: var(--ink);
 }
 
 .composer-highlight-layer {

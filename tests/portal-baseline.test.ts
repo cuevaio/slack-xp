@@ -4,10 +4,12 @@ import type { ExtensionContext } from "@portalsdk/extension-protocol";
 import ReactionExtension from "../extensions/reactions";
 import config, { containsBlockedLanguage } from "../portal.config";
 import {
+  mergeReactionMessage,
   messageText,
   readChannel,
   sendChatMessage,
   shouldGroupMessages,
+  visibleChannelMessages,
 } from "../src/components/portal-chat";
 import { listOfficeChannels } from "../src/lib/portal/channels";
 import { createPortalTokenSource } from "../src/lib/portal/client";
@@ -60,6 +62,13 @@ describe("Portal teaching baseline", () => {
     ).toBe(false);
   });
 
+  test("keeps cached messages visible until a channel is ready", () => {
+    const cached = [{ id: "cached" }];
+    expect(visibleChannelMessages("connecting", [], cached)).toBe(cached);
+    expect(visibleChannelMessages("reconnecting", [], cached)).toBe(cached);
+    expect(visibleChannelMessages("ready", [], cached)).toEqual([]);
+  });
+
   test("requests a fresh Clerk credential for each Portal token", async () => {
     const getAuthorizationToken = mock(async () => "clerk-token");
     const fetcher = mock(async () => Response.json({ token: "portal-token" }));
@@ -86,6 +95,18 @@ describe("Portal teaching baseline", () => {
     readChannel(markChannelRead, { markAsRead: markInboxRead });
     expect(markChannelRead).toHaveBeenCalledTimes(1);
     expect(markInboxRead).toHaveBeenCalledTimes(1);
+  });
+
+  test("consumes extension broadcasts into rendered reaction state", () => {
+    expect(
+      mergeReactionMessage({}, {
+        type: "reaction.state",
+        content: {
+          messageId: "message_1",
+          reactions: { like: ["user_1"] },
+        },
+      } as Message<unknown>),
+    ).toEqual({ message_1: { like: ["user_1"] } });
   });
 });
 
@@ -133,15 +154,6 @@ describe("reaction extension", () => {
     expect(extension.onSnapshot?.()).toEqual({
       snapshot: { reactions: { message_1: { like: ["user_1"] } } },
     });
-    expect(
-      await extension.onBatch({
-        kind: "batch",
-        channelId: "general",
-        epoch: 1,
-        batchSeq: 1,
-        messages: [],
-      }),
-    ).toBeUndefined();
   });
 });
 

@@ -1343,6 +1343,53 @@ a {
   text-align: left;
 }
 
+.employee-record-control {
+  position: relative;
+  margin-top: auto;
+}
+
+.employee-record-control .employee-record-trigger {
+  margin-top: 0;
+}
+
+.employee-record-control .employee-record-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--space-1));
+  left: 0;
+  z-index: 10;
+  padding: var(--space-1);
+  border: var(--border-width-medium) outset var(--color-neutral-200);
+  background: var(--silver);
+  box-shadow: 4px 4px 0 color-mix(in srgb, var(--ink) 35%, transparent);
+}
+
+.employee-record-control .employee-record-menu button {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+.employee-record-control .employee-record-menu button:hover,
+.employee-record-control .employee-record-menu button:focus-visible {
+  background: var(--navy);
+  color: var(--color-white);
+}
+
+.employee-record-control .employee-record-menu hr {
+  margin: var(--space-1) 0;
+  border: 0;
+  border-top: var(--border-width-thin) solid var(--color-neutral-500);
+  border-bottom: var(--border-width-thin) solid var(--color-white);
+}
+
 .employee-record-trigger:hover {
   background: var(--color-white);
 }

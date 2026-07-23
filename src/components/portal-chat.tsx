@@ -1,6 +1,6 @@
 "use client";
 
-import { useAuth } from "@clerk/nextjs";
+import { useAuth, useClerk } from "@clerk/nextjs";
 import { type Message, Portal } from "@portalsdk/core";
 import { PortalProvider, useChannel, useInbox } from "@portalsdk/react";
 import { useState } from "react";
@@ -60,6 +60,59 @@ function Avatar({
         data-active={active}
       />
     </span>
+  );
+}
+
+function AccountMenu({ profile }: { profile: Profile }) {
+  const [open, setOpen] = useState(false);
+  const { openUserProfile, signOut } = useClerk();
+  return (
+    <div className="employee-record-control">
+      {open ? (
+        <div className="employee-record-menu" role="menu">
+          <button
+            onClick={() => {
+              setOpen(false);
+              openUserProfile();
+            }}
+            role="menuitem"
+            type="button"
+          >
+            <span aria-hidden="true">[edit]</span> Edit profile
+          </button>
+          <hr />
+          <button
+            onClick={() => void signOut({ redirectUrl: "/" })}
+            role="menuitem"
+            type="button"
+          >
+            <span aria-hidden="true">[exit]</span> Log out
+          </button>
+        </div>
+      ) : null}
+      <button
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className="employee-record-trigger"
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
+        {profile.imageUrl ? (
+          // biome-ignore lint/performance/noImgElement: arbitrary Clerk image hosts are expected.
+          <img
+            alt=""
+            className="employee-record-avatar"
+            src={profile.imageUrl}
+          />
+        ) : (
+          <span className="employee-record-avatar-fallback">
+            {profile.name.slice(0, 1)}
+          </span>
+        )}
+        <span className="employee-record-name">{profile.name}</span>
+        <span aria-hidden="true">^</span>
+      </button>
+    </div>
   );
 }
 
@@ -298,6 +351,7 @@ function Messenger({ profile }: { profile: Profile }) {
             );
           })}
         </nav>
+        <AccountMenu profile={profile} />
       </aside>
       <div className="conversation-panel">
         <LiveChannel channel={active} profile={profile} />

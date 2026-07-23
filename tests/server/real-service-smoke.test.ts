@@ -102,6 +102,7 @@ describe("manual real-service smoke contract", () => {
       "profile-invalidation",
       "hr-reports-inbox",
       "removed-message",
+      "send-home",
       "termination-lifecycle",
       "disposable-lifecycle",
       "cleanup",
@@ -196,6 +197,9 @@ describe("manual real-service smoke contract", () => {
     expect(workflow).not.toMatch(/^\s+(pull_request|push|schedule):/m);
     expect(workflow).toContain("environment: real-service-smoke");
     expect(workflow).toContain("SMOKE_CONFIRMATION: REAL-SERVICE-SMOKE");
+    expect(workflow).toContain(
+      "description: Create a disposable identity to verify Clerk deletion",
+    );
     expect(workflow).toContain("bun run smoke:real -- --preflight");
     expect(workflow).toContain("bun run smoke:real -- --artifact");
     expect(ci).not.toContain("smoke:real");

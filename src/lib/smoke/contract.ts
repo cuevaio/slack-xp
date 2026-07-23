@@ -11,11 +11,9 @@ export const SMOKE_SCENARIOS = [
   ["profile-invalidation", "New Hire Profile invalidation"],
   ["hr-reports-inbox", "HR Reports, Operator inbox, and deep links"],
   ["removed-message", "Removed Message live and historical projection"],
+  ["send-home", "Send Home denial and UTC expiry"],
   ["termination-lifecycle", "Termination, denial, and reinstatement"],
-  [
-    "disposable-lifecycle",
-    "Gated Send Home, UTC expiry, and Clerk deletion lifecycle",
-  ],
+  ["disposable-lifecycle", "Gated Clerk deletion lifecycle"],
 ] as const;
 
 export type SmokeScenarioId = (typeof SMOKE_SCENARIOS)[number][0];

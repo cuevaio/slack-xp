@@ -184,6 +184,9 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
       case "removed-message":
         await this.verifyRemovedMessage();
         break;
+      case "send-home":
+        await this.verifySendHome();
+        break;
       case "termination-lifecycle":
         await this.verifyTerminationLifecycle();
         break;
@@ -885,6 +888,25 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
             isObject(report) && report.reportId === this.profileReportId,
         ),
     );
+
+    const dismissal = await this.appRequest(
+      operator,
+      "/api/office/operator/hr-reports",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          reportId: this.profileReportId,
+          privateNote: null,
+        }),
+      },
+    );
+    assertSmoke(
+      dismissal.status === 200 &&
+        isObject(dismissal.body) &&
+        dismissal.body.reportId === this.profileReportId &&
+        dismissal.body.status === "dismissed",
+    );
+    this.profileReportId = null;
   }
 
   private async verifyRemovedMessage(): Promise<void> {
@@ -1094,7 +1116,7 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
     return actor;
   }
 
-  private async verifyDisposableLifecycle(): Promise<void> {
+  private async verifySendHome(): Promise<void> {
     const operator = this.actor("operator");
     const sentHome = await this.createDisposable("send-home");
     const sentHomePortal = this.actorPortal(sentHome);
@@ -1143,7 +1165,9 @@ export class LiveRealServiceSmokeAdapter implements SmokeScenarioAdapter {
         })
       ).status === 403,
     );
+  }
 
+  private async verifyDisposableLifecycle(): Promise<void> {
     const deleted = await this.createDisposable("clerk-deletion");
     const deletedPortal = this.actorPortal(deleted);
     const deletedSession = this.actorPortalSession(deleted);

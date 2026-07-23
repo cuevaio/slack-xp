@@ -10,7 +10,7 @@ on:
         options:
           - REAL-SERVICE-SMOKE
       run_disposable_clerk_lifecycle:
-        description: Create disposable identities to verify Send Home and Clerk deletion
+        description: Create a disposable identity to verify Clerk deletion
         required: true
         default: false
         type: boolean

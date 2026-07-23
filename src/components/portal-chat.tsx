@@ -799,34 +799,16 @@ function ScriptedSystemEventListItem({
 
 function SendHomeSystemEventListItem({
   message,
+  profilesById,
 }: {
   message: SafePublicSendHomeSystemEventMessage;
+  profilesById: ReadonlyMap<string, ProfileAttribution>;
 }) {
-  return (
-    <li
-      className="chat-message system-event-message"
-      data-event-key={message.eventKey}
-      data-message-id={message.id}
-    >
-      <div className="message-meta system-event-meta">
-        <span aria-hidden="true" className="system-event-icon">
-          !
-        </span>
-        <strong>Portal Systems Operations</strong>
-        <time dateTime={new Date(message.timestamp).toISOString()}>
-          {formatOfficeTimestamp(message.timestamp)}
-        </time>
-      </div>
-      <p>A New Hire was sent home for the rest of this Office Day.</p>
-    </li>
+  const operatorName = profileDisplayName(profilesById.get(message.operatorId));
+  const targetName = profileDisplayName(
+    profilesById.get(message.targetNewHireId),
   );
-}
 
-function TerminationSystemEventListItem({
-  message,
-}: {
-  message: SafePublicTerminationSystemEventMessage;
-}) {
   return (
     <li
       className="chat-message system-event-message"
@@ -843,8 +825,43 @@ function TerminationSystemEventListItem({
         </time>
       </div>
       <p>
-        A New Hire was{" "}
-        {message.action === "terminated" ? "terminated" : "reinstated"}.
+        {operatorName} sent {targetName} home for the rest of this Office Day.
+      </p>
+    </li>
+  );
+}
+
+function TerminationSystemEventListItem({
+  message,
+  profilesById,
+}: {
+  message: SafePublicTerminationSystemEventMessage;
+  profilesById: ReadonlyMap<string, ProfileAttribution>;
+}) {
+  const operatorName = profileDisplayName(profilesById.get(message.operatorId));
+  const targetName = profileDisplayName(
+    profilesById.get(message.targetNewHireId),
+  );
+
+  return (
+    <li
+      className="chat-message system-event-message"
+      data-event-key={message.eventKey}
+      data-message-id={message.id}
+    >
+      <div className="message-meta system-event-meta">
+        <span aria-hidden="true" className="system-event-icon">
+          !
+        </span>
+        <strong>Portal Systems Operations</strong>
+        <time dateTime={new Date(message.timestamp).toISOString()}>
+          {formatOfficeTimestamp(message.timestamp)}
+        </time>
+      </div>
+      <p>
+        {operatorName}{" "}
+        {message.action === "terminated" ? "terminated" : "reinstated"}{" "}
+        {targetName}.
       </p>
     </li>
   );
@@ -921,12 +938,17 @@ function MessageHistory({
             <TerminationSystemEventListItem
               key={message.id}
               message={message}
+              profilesById={profilesById}
             />
           );
         }
         if (isPublicSendHomeSystemEventMessage(message)) {
           return (
-            <SendHomeSystemEventListItem key={message.id} message={message} />
+            <SendHomeSystemEventListItem
+              key={message.id}
+              message={message}
+              profilesById={profilesById}
+            />
           );
         }
         if (isScriptedSystemEventMessage(message)) {

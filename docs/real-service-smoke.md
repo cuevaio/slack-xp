@@ -43,16 +43,17 @@ the deployment's Portal secret or database connection string. The run proves:
 - Portal connection, persistent delivery, reconnect history, detailed presence,
   typing, channel and inbox unread state, and reaction replay;
 - profile projection invalidation, reserved-sender rejection, message and New
-  Hire Profile HR Reports, private Operator inbox notifications, and deep links;
+  Hire Profile HR Reports, private Operator inbox notifications, deep links,
+  and Operator dismissal;
 - application-level Removed Message projection in live and reconnected history
   while confirming Portal still owns the persisted message;
 - idempotent Office Day seeding, a repeated outbox flush, and scripted Office
   Character history;
+- Send Home denial and the exact next-midnight UTC expiry;
 - Termination, active disconnect, token and membership denial, and reinstatement.
 
 Select `run_disposable_clerk_lifecycle` only in a Clerk development instance.
-That gated portion creates two uniquely identified disposable Clerk users. One
-proves Send Home denial and the exact next-midnight UTC expiry; the other proves
+That gated portion creates a uniquely identified disposable Clerk user to prove
 Clerk deletion tombstoning to Former Employee, active disconnect, and reconnect
 denial. The runner refuses this portion against a production Clerk instance.
 

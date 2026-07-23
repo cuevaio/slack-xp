@@ -215,7 +215,7 @@ function createClerkChecks(
       "clerk-webhook",
       "Clerk webhook observables",
       "pass",
-      "Confirm the Dashboard endpoint subscribes to user.created and user.updated.",
+      "Confirm the Dashboard endpoint subscribes to user.created, user.updated, and user.deleted.",
     ),
   ];
 }

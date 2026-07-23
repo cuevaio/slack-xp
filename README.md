@@ -4,6 +4,58 @@ Portal Messenger is a forkable Next.js example for building a communal realtime
 office with hosted Portal APIs. The application is intentionally safe to run
 before Clerk, Portal, or Neon credentials are available.
 
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/clone?repository-url=https%3A%2F%2Fgithub.com%2Fcuevaio%2Fslack-xp&project-name=portal-messenger&repository-name=portal-messenger&env=APP_ENV,SERVICE_MODE,APP_ORIGIN,NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,CLERK_SECRET_KEY,CLERK_WEBHOOK_SECRET,NEXT_PUBLIC_PORTAL_KEY,PORTAL_SECRET,DATABASE_URL,CRON_SECRET&envDefaults=%7B%22APP_ENV%22%3A%22production%22%2C%22SERVICE_MODE%22%3A%22live%22%7D&envDescription=Use%20separate%20production%20Clerk%2C%20Portal%2C%20and%20Neon%20resources.&envLink=https%3A%2F%2Fgithub.com%2Fcuevaio%2Fslack-xp%2Fblob%2Fmain%2Fdocs%2Fdeployment.md)
+
+> **Public deployment warning:** this is a deploy-ready Portal customer example,
+> not a production-complete workplace platform. Anyone you allow to sign in can
+> publish into the Shared Public Office. Read
+> [Privacy and limitations](docs/privacy-and-limitations.md) before making a
+> deployment public.
+
+## The experience
+
+- An **Observer** sees a designed, non-live preview. No Portal client, live
+  message, presence state, or service credential is loaded.
+- A signed-in **New Hire** completes the New Employee Setup Wizard, then joins
+  five curated Office Channels for the current UTC Office Day with persistent
+  messages, history, presence, typing, unreads, reactions, and System Events.
+- An **Operator** is a trusted New Hire whose Clerk user ID appears in a
+  server-only allowlist. Operators review private HR Reports, render messages as
+  Removed Message tombstones, Send Home or Terminate New Hires, and reverse
+  Terminations inside the messenger.
+
+The example is an ordinary customer of hosted Portal APIs and published
+`@portalsdk/*` packages. It does not import, vendor, run, or modify private
+Portal code, and no private repository link or local realtime infrastructure is
+a prerequisite.
+
+## Release guide
+
+| Need | Document |
+| --- | --- |
+| Fork, configure, and deploy | [Ordered deployment guide](docs/deployment.md) |
+| Variables and Vercel scopes | [Environment reference](docs/environment.md) |
+| Service authority and data flow | [Architecture](docs/architecture.md) |
+| Versioned custom realtime events | [Office Event protocol](docs/office-event-protocol.md) |
+| Operate and troubleshoot | [Operations guide](docs/operations.md) |
+| Privacy, retention, and product boundaries | [Privacy and limitations](docs/privacy-and-limitations.md) |
+| Contribute | [Contributing guide](CONTRIBUTING.md) |
+| Protected end-to-end verification | [Manual real-service smoke](docs/real-service-smoke.md) |
+
+Prerequisites are a GitHub account, Bun `1.3.13`, and accounts for Clerk,
+Portal, Neon, and Vercel. A credential-free mock workflow is enough to evaluate
+the Observer, New Hire, and Operator journeys and run every deterministic test.
+Live setup requires separate development and production resources; follow the
+ordered guide rather than reusing credentials across scopes.
+
+At a glance: fork the repository and select one Vercel Function region; create
+and verify a development Clerk, Portal, Neon, and Vercel stack; create a separate
+production stack; apply committed Neon migrations and Portal customer policy;
+configure Clerk lifecycle webhooks and exact origins; deploy; then require a
+passing production setup check before announcing the office. The deploy button
+creates the production Vercel project, but it does not replace those provider
+and verification steps.
+
 ## Quick Start
 
 The project uses Bun exclusively.
@@ -63,9 +115,10 @@ as Installation Incomplete and is also treated as active by the request gate.
 After maintenance is disabled, conversation content returns only after fresh,
 successful Neon profile and Removed Message projection reads.
 
-Use one development Clerk, Portal, and Neon stack for local and preview scopes.
-Set the same variable names to a separate production stack in Vercel's
-Production environment; production setup verification requires Clerk live keys.
+Use one development Clerk, Portal, and Neon stack for local work and a dedicated
+development Vercel project. Use a separate production Vercel project and set the
+same variable names to a separate production service stack in its Production
+environment; production setup verification requires Clerk live keys.
 `APP_ORIGIN` is the exact `http://` or `https://` browser origin registered with
 Clerk and Portal, with no path or trailing slash.
 
@@ -572,8 +625,8 @@ missing. Corrective output contains variable names and categories only. Clerk's
 API proves that the key pair works and belongs to the expected development or
 production stack; confirm in the Clerk Dashboard that the endpoint
 `<APP_ORIGIN>/api/webhooks/clerk` subscribes to `user.created` and
-`user.updated`, because subscription details are not exposed by the credential
-check.
+`user.updated`, and `user.deleted`, because subscription details are not exposed
+by the credential check.
 
 After `bun run setup:check` reports migration drift, apply only the committed
 Drizzle migrations and check again:
@@ -597,6 +650,8 @@ bun run build
 bun run test:unit
 bun run test:server
 bun run test:browser
+bun run docs:check
+bun run deploy:dry-run
 ```
 
 Install Chromium once before running browser tests locally:
@@ -733,3 +788,8 @@ Safety-boundary logs are one-line JSON with `operation`, `correlationId`,
 Channel ID. They never serialize request bodies, message bodies, HR Report
 details, private reasons, profile attributes, tokens, secrets, or thrown error
 messages.
+
+## License
+
+Portal Messenger is available under the [MIT License](LICENSE). Analytics are
+not installed or enabled by default.

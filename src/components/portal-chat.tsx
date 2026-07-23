@@ -4,6 +4,7 @@ import { useAuth, useClerk } from "@clerk/nextjs";
 import {
   type AggregatePresence,
   type DetailedPresence,
+  type MemberRow,
   type Message,
   Portal,
 } from "@portalsdk/core";
@@ -219,7 +220,8 @@ export function updateOfficeProfiles(
 ) {
   if (presence?.kind !== "detailed") return current;
 
-  const profiles = new Map<string, Profile>([[profile.id, profile]]);
+  const profiles = new Map(current);
+  profiles.set(profile.id, profile);
   for (const participant of presence.participants) {
     profiles.set(participant.id, {
       id: participant.id,
@@ -232,6 +234,25 @@ export function updateOfficeProfiles(
         typeof participant.metadata?.avatar === "string"
           ? participant.metadata.avatar
           : null,
+    });
+  }
+  return profiles;
+}
+
+export function updateMemberProfiles(
+  current: ReadonlyMap<string, Profile>,
+  members: readonly MemberRow[],
+) {
+  const profiles = new Map(current);
+  for (const member of members) {
+    profiles.set(member.userId, {
+      id: member.userId,
+      name:
+        typeof member.claims.username === "string"
+          ? member.claims.username
+          : "New Hire",
+      imageUrl:
+        typeof member.claims.avatar === "string" ? member.claims.avatar : null,
     });
   }
   return profiles;
@@ -357,17 +378,23 @@ function LiveChannel({
   active,
   channel,
   officeProfiles,
+  onlineProfileIds,
+  onMembersChange,
   onPresenceChange,
   onMention,
   onReady,
+  portal,
   profile,
 }: {
   active: boolean;
   channel: OfficeChannel;
   officeProfiles: ReadonlyMap<string, Profile>;
+  onlineProfileIds: ReadonlySet<string>;
+  onMembersChange: (members: readonly MemberRow[]) => void;
   onPresenceChange: (presence: ChannelPresence) => void;
   onMention: (channelId: OfficeChannelSlug) => void;
   onReady: (channelId: OfficeChannelSlug) => void;
+  portal: Portal;
   profile: Profile;
 }) {
   const [draft, setDraft] = useState("");
@@ -393,6 +420,7 @@ function LiveChannel({
     onError: () => setError("Connection lost. Portal will keep retrying."),
   });
   const reportReady = useEffectEvent(onReady);
+  const reportMembers = useEffectEvent(onMembersChange);
   const reportPresence = useEffectEvent(onPresenceChange);
   // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
   useEffect(() => {
@@ -403,6 +431,18 @@ function LiveChannel({
   useEffect(() => {
     if (channel.mode === "standard") reportPresence(live.presence);
   }, [channel.mode, live.presence]);
+  // Presence only contains connected users; the member directory resolves historical senders.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
+  useEffect(() => {
+    if (channel.mode !== "standard" || live.status !== "ready") return;
+    void portal
+      .channel(channel.id)
+      .members()
+      .then(reportMembers)
+      .catch(() =>
+        setError("Employee directory unavailable. Try reconnecting."),
+      );
+  }, [channel.id, channel.mode, live.status, portal]);
   const reactions = projectReactions(live.messages);
   const visibleMessages = live.messages.filter(isVisibleChatMessage);
   const mentionCandidates = mentionSearch
@@ -595,7 +635,7 @@ function LiveChannel({
         </div>
         <span className="connection-status">
           {live.status === "ready"
-            ? `${officeProfiles.size} online`
+            ? `${onlineProfileIds.size} online`
             : live.status}
         </span>
       </header>
@@ -606,14 +646,16 @@ function LiveChannel({
           aria-label="New Hires online"
         >
           <strong>Online now</strong>
-          {officeProfiles.size > 0 ? (
+          {onlineProfileIds.size > 0 ? (
             <ul>
-              {[...officeProfiles.values()].map((participant) => (
-                <li key={participant.id}>
-                  <Avatar active profile={participant} />
-                  <span>{participant.name}</span>
-                </li>
-              ))}
+              {[...officeProfiles.values()]
+                .filter(({ id }) => onlineProfileIds.has(id))
+                .map((participant) => (
+                  <li key={participant.id}>
+                    <Avatar active profile={participant} />
+                    <span>{participant.name}</span>
+                  </li>
+                ))}
             </ul>
           ) : (
             <small>No one else is online.</small>
@@ -658,7 +700,7 @@ function LiveChannel({
                     <div className="message-meta">
                       <span className="profile-context-trigger">
                         <Avatar
-                          active={officeProfiles.has(sender.id)}
+                          active={onlineProfileIds.has(sender.id)}
                           profile={sender}
                         />
                         <strong>{sender.name}</strong>
@@ -882,11 +924,14 @@ function LiveChannel({
   );
 }
 
-function Messenger({ profile }: { profile: Profile }) {
+function Messenger({ portal, profile }: { portal: Portal; profile: Profile }) {
   const [activeId, setActiveId] = useState<OfficeChannelSlug>("general");
   const [officeProfiles, setOfficeProfiles] = useState<
     ReadonlyMap<string, Profile>
   >(() => new Map([[profile.id, profile]]));
+  const [onlineProfileIds, setOnlineProfileIds] = useState<ReadonlySet<string>>(
+    () => new Set([profile.id]),
+  );
   const [warmedChannelIds, setWarmedChannelIds] = useState<
     ReadonlySet<OfficeChannelSlug>
   >(() => new Set(["general"]));
@@ -941,6 +986,15 @@ function Messenger({ profile }: { profile: Profile }) {
     setOfficeProfiles((current) =>
       updateOfficeProfiles(current, profile, presence),
     );
+    if (presence?.kind === "detailed") {
+      setOnlineProfileIds(
+        new Set([profile.id, ...presence.participants.map(({ id }) => id)]),
+      );
+    }
+  }
+
+  function membersChanged(members: readonly MemberRow[]) {
+    setOfficeProfiles((current) => updateMemberProfiles(current, members));
   }
 
   function mentioned(channelId: OfficeChannelSlug) {
@@ -1005,9 +1059,12 @@ function Messenger({ profile }: { profile: Profile }) {
               channel={channel}
               key={channel.id}
               officeProfiles={officeProfiles}
+              onlineProfileIds={onlineProfileIds}
+              onMembersChange={membersChanged}
               onMention={mentioned}
               onPresenceChange={presenceChanged}
               onReady={channelReady}
+              portal={portal}
               profile={profile}
             />
           ) : null,
@@ -1031,7 +1088,7 @@ export function PortalChat({
   );
   return (
     <PortalProvider client={portal} token={token}>
-      <Messenger profile={profile} />
+      <Messenger portal={portal} profile={profile} />
     </PortalProvider>
   );
 }

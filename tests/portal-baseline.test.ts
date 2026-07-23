@@ -12,6 +12,7 @@ import {
   shouldGroupMessages,
   shouldMarkVisibleMessagesRead,
   typingStatus,
+  updateMemberProfiles,
   updateOfficeProfiles,
 } from "../src/components/portal-chat";
 import { listOfficeChannels } from "../src/lib/portal/channels";
@@ -242,6 +243,52 @@ describe("Portal teaching baseline", () => {
         imageUrl: "https://images.example/grace.png",
       },
     ]);
+  });
+
+  test("keeps offline New Hire profiles when presence changes", () => {
+    const currentUser = {
+      id: "user_1",
+      name: "Ada",
+      imageUrl: "https://images.example/ada.png",
+    };
+    const profiles = new Map([
+      [currentUser.id, currentUser],
+      [
+        "user_2",
+        {
+          id: "user_2",
+          name: "Grace",
+          imageUrl: "https://images.example/grace.png",
+        },
+      ],
+    ]);
+
+    expect([
+      ...updateOfficeProfiles(profiles, currentUser, {
+        kind: "detailed",
+        count: 1,
+        participants: [],
+      }).values(),
+    ]).toEqual([...profiles.values()]);
+  });
+
+  test("resolves offline New Hire profiles from the member directory", () => {
+    expect(
+      updateMemberProfiles(new Map(), [
+        {
+          userId: "user_2",
+          online: false,
+          claims: {
+            username: "Grace",
+            avatar: "https://images.example/grace.png",
+          },
+        },
+      ]).get("user_2"),
+    ).toEqual({
+      id: "user_2",
+      name: "Grace",
+      imageUrl: "https://images.example/grace.png",
+    });
   });
 
   test("projects persistent reaction toggles for live and late clients", () => {

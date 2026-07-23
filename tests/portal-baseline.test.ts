@@ -1,19 +1,45 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { Message } from "@portalsdk/core";
-import type { ExtensionContext } from "@portalsdk/extension-protocol";
-import ReactionExtension from "../extensions/reactions";
 import config, { containsBlockedLanguage } from "../portal.config";
 import {
-  mergeReactionMessage,
+  canReactToMessage,
+  createMentionedContent,
+  isVisibleChatMessage,
   messageText,
   readChannel,
+  scrollToLatestSentMessage,
   sendChatMessage,
   shouldGroupMessages,
+  shouldMarkVisibleMessagesRead,
+  typingStatus,
+  updateOfficeProfiles,
 } from "../src/components/portal-chat";
 import { listOfficeChannels } from "../src/lib/portal/channels";
 import { createPortalTokenSource } from "../src/lib/portal/client";
+import {
+  createReactionToggle,
+  projectReactions,
+  REACTION_EVENT_TYPE,
+} from "../src/lib/portal/reactions";
 import { createPortalSession } from "../src/lib/portal/server";
 import { config as clerkProxyConfig } from "../src/proxy";
+
+function portalMessage(
+  id: string,
+  senderId: string,
+  type: string,
+  content: unknown,
+  timestamp: number,
+): Message<unknown> {
+  return {
+    id,
+    sender: { id: senderId, anon: false },
+    type,
+    content,
+    timestamp,
+    retracted: false,
+  } as Message<unknown>;
+}
 
 describe("Portal teaching baseline", () => {
   test("runs Clerk middleware on every auth() boundary", () => {
@@ -81,7 +107,50 @@ describe("Portal teaching baseline", () => {
     expect(await sendChatMessage(send, "   ")).toBe(false);
   });
 
-  test("manual read advances both channel and inbox positions", () => {
+  test("scrolls to a sent message once it is rendered as the latest message", () => {
+    const scrollRegion = { scrollHeight: 800, scrollTop: 120 };
+
+    expect(
+      scrollToLatestSentMessage({
+        currentUserId: "user_1",
+        latestSenderId: "user_2",
+        pending: true,
+        scrollRegion,
+      }),
+    ).toBe(false);
+    expect(scrollRegion.scrollTop).toBe(120);
+
+    expect(
+      scrollToLatestSentMessage({
+        currentUserId: "user_1",
+        latestSenderId: "user_1",
+        pending: true,
+        scrollRegion,
+      }),
+    ).toBe(true);
+    expect(scrollRegion.scrollTop).toBe(800);
+  });
+
+  test("sends selected New Hire mentions through Portal", async () => {
+    const send = mock(async () => ({ id: "message_1" }));
+    const mentions = [{ userId: "user_2", label: "@Grace" }];
+
+    expect(createMentionedContent("  Hello @Grace  ", mentions)).toEqual({
+      text: "Hello @Grace",
+      mentionRanges: [{ userId: "user_2", start: 6, length: 6 }],
+    });
+    await sendChatMessage(send, "  Hello @Grace  ", mentions);
+
+    expect(send).toHaveBeenCalledWith({
+      content: {
+        text: "Hello @Grace",
+        mentionRanges: [{ userId: "user_2", start: 6, length: 6 }],
+      },
+      mentions: [{ userId: "user_2" }],
+    });
+  });
+
+  test("visible messages advance both channel and inbox positions", () => {
     const markChannelRead = mock(() => undefined);
     const markInboxRead = mock(() => undefined);
     readChannel(markChannelRead, { markAsRead: markInboxRead });
@@ -89,63 +158,211 @@ describe("Portal teaching baseline", () => {
     expect(markInboxRead).toHaveBeenCalledTimes(1);
   });
 
-  test("consumes extension broadcasts into rendered reaction state", () => {
+  test("independent Portal snapshot timing does not block a visible read", () => {
     expect(
-      mergeReactionMessage({}, {
-        type: "reaction.state",
-        content: {
-          messageId: "message_1",
-          reactions: { like: ["user_1"] },
-        },
-      } as Message<unknown>),
-    ).toEqual({ message_1: { like: ["user_1"] } });
+      shouldMarkVisibleMessagesRead({
+        active: true,
+        channelUnread: 15,
+        documentVisible: true,
+        hasVisibleMessage: true,
+        inboxAvailable: true,
+        inboxUnread: 14,
+      }),
+    ).toBe(true);
   });
-});
 
-describe("reaction extension", () => {
-  test("toggles durable per-user reactions and snapshots late-join state", async () => {
-    const values = new Map<string, unknown>();
-    const context = {
-      storage: {
-        get: async <T>(key: string) => values.get(key) as T | undefined,
-        put: async (key: string, value: unknown) => {
-          values.set(key, value);
+  test("a visible channel repairs a stale inbox unread badge", () => {
+    expect(
+      shouldMarkVisibleMessagesRead({
+        active: true,
+        channelUnread: 0,
+        documentVisible: true,
+        hasVisibleMessage: true,
+        inboxAvailable: true,
+        inboxUnread: 11,
+      }),
+    ).toBe(true);
+  });
+
+  test("names the New Hires who are typing", () => {
+    const profiles = new Map([
+      ["user_1", { name: "Ada" }],
+      ["user_2", { name: "Grace" }],
+    ]);
+    expect(typingStatus([], profiles, "viewer")).toBeNull();
+    expect(typingStatus(["user_1"], profiles, "viewer")).toBe(
+      "Ada is typing...",
+    );
+    expect(typingStatus(["user_1", "user_2"], profiles, "viewer")).toBe(
+      "Ada and Grace are typing...",
+    );
+  });
+
+  test("does not show the current New Hire as typing", () => {
+    const profiles = new Map([
+      ["user_1", { name: "Ada" }],
+      ["user_2", { name: "Grace" }],
+    ]);
+
+    expect(typingStatus(["user_1"], profiles, "user_1")).toBeNull();
+    expect(typingStatus(["user_1", "user_2"], profiles, "user_1")).toBe(
+      "Grace is typing...",
+    );
+  });
+
+  test("keeps the detailed office roster while viewing a broadcast channel", () => {
+    const currentUser = {
+      id: "user_1",
+      name: "Ada",
+      imageUrl: "https://images.example/ada.png",
+    };
+    const detailedRoster = updateOfficeProfiles(new Map(), currentUser, {
+      kind: "detailed",
+      count: 1,
+      participants: [
+        {
+          id: "user_2",
+          anon: false,
+          username: "Grace",
+          metadata: { avatar: "https://images.example/grace.png" },
         },
-        delete: async (key: string) => values.delete(key),
-        list: async () => new Map(),
+      ],
+    });
+    const broadcastRoster = updateOfficeProfiles(detailedRoster, currentUser, {
+      kind: "aggregate",
+      count: 1,
+      recent: [],
+    });
+
+    expect([...broadcastRoster.values()]).toEqual([
+      currentUser,
+      {
+        id: "user_2",
+        name: "Grace",
+        imageUrl: "https://images.example/grace.png",
       },
-    } satisfies ExtensionContext;
-    const extension = new ReactionExtension(context);
-    await extension.onInit?.();
-    const response = await extension.onBatch({
-      kind: "batch",
-      channelId: "general",
-      epoch: 1,
-      batchSeq: 1,
-      messages: [
-        {
-          type: "reaction.toggle",
-          content: { messageId: "message_1", reaction: "like" },
-          senderId: "user_1",
-          at: 1,
-        },
-      ],
+    ]);
+  });
+
+  test("projects persistent reaction toggles for live and late clients", () => {
+    const chat = portalMessage(
+      "message_1",
+      "user_a",
+      "message",
+      { text: "Hello" },
+      1,
+    );
+    const events = [
+      portalMessage(
+        "reaction_1",
+        "user_a",
+        REACTION_EVENT_TYPE,
+        createReactionToggle("message_1", "like", "mutation_1").content,
+        2,
+      ),
+      portalMessage(
+        "reaction_2",
+        "user_b",
+        REACTION_EVENT_TYPE,
+        createReactionToggle("message_1", "like", "mutation_2").content,
+        3,
+      ),
+      portalMessage(
+        "reaction_3",
+        "user_a",
+        REACTION_EVENT_TYPE,
+        createReactionToggle("message_1", "like", "mutation_3").content,
+        4,
+      ),
+    ];
+
+    expect(projectReactions([chat, events[0]])).toEqual({
+      message_1: { like: ["user_a"] },
     });
-    expect(response).toEqual({
-      broadcasts: [
-        {
-          type: "reaction.state",
-          content: {
-            messageId: "message_1",
-            reactions: { like: ["user_1"] },
-          },
-        },
-      ],
-      snapshotDirty: true,
+    expect(projectReactions([chat, ...events.slice(0, 2)])).toEqual({
+      message_1: { like: ["user_a", "user_b"] },
     });
-    expect(extension.onSnapshot?.()).toEqual({
-      snapshot: { reactions: { message_1: { like: ["user_1"] } } },
+    expect(projectReactions([chat, ...events])).toEqual({
+      message_1: { like: ["user_b"] },
     });
+  });
+
+  test("ignores malformed, duplicated, and retracted reaction records", () => {
+    const valid = portalMessage(
+      "reaction_1",
+      "user_a",
+      REACTION_EVENT_TYPE,
+      createReactionToggle("message_1", "love", "mutation_1").content,
+      1,
+    );
+    const duplicate = { ...valid, id: "reaction_2" };
+    const malformed = portalMessage(
+      "reaction_3",
+      "user_b",
+      REACTION_EVENT_TYPE,
+      { targetMessageId: "message_1", reaction: "invalid" },
+      2,
+    );
+    const retracted = { ...valid, id: "reaction_4", retracted: true };
+
+    expect(projectReactions([valid, duplicate, malformed, retracted])).toEqual({
+      message_1: { love: ["user_a"] },
+    });
+  });
+
+  test("never renders reaction records as chat", () => {
+    const reactionWithText = portalMessage(
+      "reaction_1",
+      "user_a",
+      REACTION_EVENT_TYPE,
+      {
+        ...createReactionToggle("message_1", "like", "mutation_1").content,
+        text: "Not conversation text",
+      },
+      1,
+    );
+
+    expect(messageText(reactionWithText)).toBe("Not conversation text");
+    expect(isVisibleChatMessage(reactionWithText)).toBe(false);
+  });
+
+  test("waits for a stable Portal message ID before enabling reactions", () => {
+    expect(canReactToMessage({ status: "pending" })).toBe(false);
+    expect(canReactToMessage({ status: "sent" })).toBe(true);
+  });
+
+  test("hidden reaction records do not break visible chat grouping", () => {
+    const first = portalMessage(
+      "message_1",
+      "user_a",
+      "message",
+      { text: "First" },
+      1_000,
+    ) as Message<{ text: string }>;
+    const reaction = portalMessage(
+      "reaction_1",
+      "user_b",
+      REACTION_EVENT_TYPE,
+      createReactionToggle("message_1", "like", "mutation_1").content,
+      2_000,
+    );
+    const second = portalMessage(
+      "message_2",
+      "user_a",
+      "message",
+      { text: "Second" },
+      3_000,
+    ) as Message<{ text: string }>;
+    const visible = [first, reaction, second].filter(
+      (message): message is Message<{ text: string }> =>
+        messageText(message as Message<{ text: string }>) !== null,
+    );
+
+    expect(visible.map((message) => message.id)).toEqual([
+      "message_1",
+      "message_2",
+    ]);
+    expect(shouldGroupMessages(visible[0], visible[1])).toBe(true);
   });
 });
 

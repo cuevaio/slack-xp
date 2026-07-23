@@ -25,7 +25,6 @@
     "@biomejs/biome": "2.2.0",
     "@portalsdk/cli": "0.5.1",
     "@portalsdk/config": "0.2.0",
-    "@portalsdk/extension-protocol": "0.1.0",
     "@tailwindcss/postcss": "^4",
     "@types/bun": "^1.3.14",
     "@types/node": "^20",

@@ -6,6 +6,12 @@
 
 **Status:** Reproduced with Portal's documented counter pattern
 
+## Application Workaround
+
+Portal Messenger no longer routes reactions through a channel extension. It persists `app.reaction.toggle` as an ordinary channel message and projects reaction state from the ordered `useChannel.messages` window. This gives connected clients live convergence and lets late clients rebuild the same state from history using Portal behavior that works in both Development and Production.
+
+The workaround does not resolve the platform incident. The documented counter resolution test below remains the criterion for restoring confidence in hosted extension dispatch.
+
 ## Summary
 
 Portal channel extensions are attached and advertised to clients, but they do not produce broadcasts.
@@ -230,7 +236,7 @@ The issue is resolved when:
 
 ## Repository References
 
-- Reaction extension: `extensions/reactions.ts`
+- Reaction projection: `src/lib/portal/reactions.ts`
 - Client integration: `src/components/portal-chat.tsx`
 - Direct reaction test: `scripts/reaction-smoke.ts`
 - Application PR: `cuevaio/slack-xp#30`

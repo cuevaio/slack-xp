@@ -1605,6 +1605,279 @@ a {
   display: none;
 }
 
+.messenger-auth-shell {
+  display: grid;
+  min-height: 520px;
+  flex: 1;
+  grid-template-columns: minmax(190px, 0.72fr) minmax(0, 1.55fr);
+  gap: var(--space-0-5);
+  padding: var(--space-0-5);
+  overflow: auto;
+  background: var(--chrome);
+}
+
+.messenger-auth-sidebar {
+  position: relative;
+  display: flex;
+  min-height: 100%;
+  align-items: center;
+  flex-direction: column;
+  justify-content: center;
+  padding: var(--space-8) var(--space-5);
+  overflow: hidden;
+  border: var(--border-width-thin) inset var(--color-white);
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent 0 15px,
+      color-mix(in srgb, var(--color-white) 7%, transparent) 15px 16px
+    ), linear-gradient(150deg, var(--color-blue-900), var(--color-teal-700));
+  color: var(--color-white);
+  text-align: center;
+}
+
+.messenger-auth-mark {
+  margin-bottom: var(--space-5);
+  font-size: 3rem;
+  transform: rotate(-5deg);
+}
+
+.messenger-auth-sidebar > strong {
+  font-family: var(--font-geist-pixel-square), monospace;
+  font-size: 1.25rem;
+  letter-spacing: 0.08em;
+}
+
+.messenger-auth-sidebar > small {
+  margin-top: var(--space-2);
+  color: var(--color-blue-300);
+  font-size: 0.58rem;
+  letter-spacing: 0.12em;
+}
+
+.messenger-auth-status {
+  position: absolute;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  left: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: var(--border-width-thin) solid
+    color-mix(in srgb, var(--color-white) 22%, transparent);
+  color: var(--color-green-100);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+}
+
+.messenger-auth-status-light {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: var(--space-1);
+  border: var(--border-width-thin) solid var(--color-neutral-900);
+  background: var(--color-green-400);
+  box-shadow: 0 0 0 1px var(--color-green-100);
+}
+
+.messenger-auth-content {
+  display: grid;
+  min-width: 0;
+  place-items: center;
+  padding: clamp(var(--space-5), 5vw, var(--space-12));
+  border: var(--border-width-medium) inset var(--color-white);
+  background:
+    linear-gradient(
+      color-mix(in srgb, var(--color-blue-100) 35%, transparent) 1px,
+      transparent 1px
+    ), var(--paper);
+  background-size: 100% 24px;
+}
+
+.messenger-auth-welcome {
+  width: min(510px, 100%);
+}
+
+.messenger-auth-kicker {
+  width: fit-content;
+  margin: 0 0 var(--space-4);
+  padding: var(--space-1) var(--space-2);
+  border: var(--border-width-thin) solid var(--color-yellow-700);
+  background: var(--color-yellow-100);
+  color: var(--color-yellow-900);
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.messenger-auth-welcome h1 {
+  margin: 0;
+  font-family: var(--font-geist-pixel-square), monospace;
+  font-size: clamp(2rem, 5vw, 3.5rem);
+  line-height: 0.95;
+}
+
+.messenger-auth-welcome > p:not(.messenger-auth-kicker) {
+  max-width: 46ch;
+  margin: var(--space-5) 0;
+  color: var(--color-neutral-700);
+  line-height: 1.55;
+}
+
+.messenger-auth-notice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3);
+  margin: var(--space-6) 0;
+  padding: var(--space-3);
+  border: var(--border-width-thin) solid var(--color-blue-600);
+  background: var(--color-blue-100);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.messenger-auth-notice strong {
+  color: var(--color-blue-800);
+}
+
+.messenger-auth-button,
+.messenger-auth-back {
+  border: var(--border-width-medium) outset var(--color-neutral-100);
+  background: var(--silver);
+  color: var(--ink);
+  cursor: pointer;
+  font-family: var(--font-geist-pixel-square), monospace;
+  font-weight: 900;
+}
+
+.messenger-auth-button {
+  width: 100%;
+  min-height: 48px;
+  padding: var(--space-3) var(--space-5);
+  background: var(--color-lime-400);
+  font-size: 0.92rem;
+}
+
+.messenger-auth-button:active,
+.messenger-auth-back:active {
+  border-style: inset;
+}
+
+.messenger-auth-help {
+  display: block;
+  margin-top: var(--space-3);
+  color: var(--color-neutral-600);
+  font-size: 0.62rem;
+  text-align: center;
+}
+
+.messenger-auth-clerk {
+  width: min(440px, 100%);
+}
+
+.messenger-auth-back {
+  justify-self: start;
+  margin-bottom: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.68rem;
+}
+
+.portal-clerk-root,
+.portal-clerk-card-box {
+  width: 100%;
+}
+
+.portal-clerk-card-box {
+  border: var(--border-width-medium) outset var(--color-neutral-100);
+  border-radius: 0;
+  box-shadow: 8px 10px 0 var(--shadow-color);
+}
+
+.portal-clerk-card {
+  gap: var(--space-4);
+  padding: var(--space-5);
+  border-radius: 0;
+  background: var(--paper);
+  box-shadow: none;
+}
+
+.portal-clerk-header {
+  padding-bottom: var(--space-3);
+  border-bottom: var(--border-width-thin) solid var(--color-neutral-400);
+  text-align: left;
+}
+
+.portal-clerk-title {
+  font-size: 1.35rem;
+  line-height: 1.05;
+  text-align: left;
+}
+
+.portal-clerk-subtitle,
+.portal-clerk-provider-text,
+.portal-clerk-label,
+.portal-clerk-divider-text,
+.portal-clerk-footer {
+  font-size: 0.68rem;
+}
+
+.portal-clerk-provider-button,
+.portal-clerk-input,
+.portal-clerk-submit,
+.portal-clerk-identity,
+.portal-clerk-otp {
+  min-height: 38px;
+  border: var(--border-width-medium) outset var(--color-neutral-100);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.portal-clerk-provider-button:hover,
+.portal-clerk-submit:hover {
+  filter: brightness(1.08);
+}
+
+.portal-clerk-input,
+.portal-clerk-otp {
+  border-style: inset;
+  background: var(--color-white);
+}
+
+.portal-clerk-submit {
+  background: var(--color-blue-700);
+  font-weight: 900;
+}
+
+.portal-clerk-divider-line {
+  background: var(--color-neutral-400);
+}
+
+.portal-clerk-divider-text {
+  color: var(--color-neutral-600);
+}
+
+.portal-clerk-link {
+  color: var(--color-blue-700);
+  font-weight: 900;
+  text-decoration: underline;
+}
+
+.portal-clerk-alert {
+  border: var(--border-width-thin) solid var(--color-red-700);
+  border-radius: 0;
+  background: var(--color-red-100);
+}
+
+.messenger-auth-loading {
+  display: grid;
+  min-height: 520px;
+  flex: 1;
+  place-items: center;
+  align-content: center;
+  gap: var(--space-4);
+  border: var(--border-width-medium) inset var(--color-white);
+  background: var(--paper);
+  text-align: center;
+}
+
 .desktop-app-icon {
   position: fixed;
   z-index: 2;
@@ -3164,9 +3437,9 @@ a {
   position: relative;
   z-index: 1;
   resize: vertical;
-  background: var(--color-white);
+  background: transparent;
   caret-color: var(--ink);
-  color: var(--ink);
+  color: transparent;
 }
 
 .composer-highlight-layer {
@@ -3588,6 +3861,21 @@ a {
     border-right: 0;
     border-left: 0;
     box-shadow: none;
+  }
+
+  .messenger-auth-shell {
+    height: 100%;
+    min-height: 0;
+    grid-template-columns: 1fr;
+  }
+
+  .messenger-auth-sidebar {
+    display: none;
+  }
+
+  .messenger-auth-content {
+    min-height: 0;
+    overflow-y: auto;
   }
 
   .office-body {

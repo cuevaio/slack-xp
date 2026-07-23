@@ -7,6 +7,7 @@ import {
   messageText,
   readChannel,
   sendChatMessage,
+  shouldGroupMessages,
 } from "../src/components/portal-chat";
 import { listOfficeChannels } from "../src/lib/portal/channels";
 import { createPortalTokenSource } from "../src/lib/portal/client";
@@ -34,6 +35,29 @@ describe("Portal teaching baseline", () => {
     } as Message<{ text: string }>;
     expect(messageText(message)).toBe("Hello");
     expect(messageText({ ...message, retracted: true })).toBeNull();
+  });
+
+  test("groups consecutive messages from one sender for five minutes", () => {
+    const message = {
+      sender: { id: "user_1" },
+      timestamp: 1_000,
+      content: { text: "First" },
+      retracted: false,
+    } as Message<{ text: string }>;
+    expect(
+      shouldGroupMessages(message, {
+        ...message,
+        id: "message_2",
+        timestamp: 301_000,
+      }),
+    ).toBe(true);
+    expect(
+      shouldGroupMessages(message, {
+        ...message,
+        id: "message_3",
+        timestamp: 301_001,
+      }),
+    ).toBe(false);
   });
 
   test("requests a fresh Clerk credential for each Portal token", async () => {

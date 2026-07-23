@@ -27,6 +27,20 @@ const REACTION_OPTIONS: ReadonlyArray<{
   { id: "laugh", label: "Laugh", emoji: "😂" },
   { id: "surprise", label: "Surprise", emoji: "😮" },
 ];
+const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
+
+export function shouldGroupMessages(
+  previous: Message<ChatContent> | undefined,
+  current: Message<ChatContent>,
+) {
+  return (
+    previous !== undefined &&
+    messageText(previous) !== null &&
+    previous.sender.id === current.sender.id &&
+    current.timestamp >= previous.timestamp &&
+    current.timestamp - previous.timestamp <= MESSAGE_GROUP_WINDOW_MS
+  );
+}
 
 export function messageText(message: Message<ChatContent>) {
   return !message.retracted && typeof message.content?.text === "string"
@@ -255,9 +269,14 @@ function LiveChannel({
             className="message-history"
             aria-label={`${channel.name} message history`}
           >
-            {live.messages.map((message) => {
+            {live.messages.map((message, index) => {
               const text = messageText(message);
               if (!text) return null;
+              const previousMessage = live.messages[index - 1];
+              const groupedWithPrevious = shouldGroupMessages(
+                previousMessage,
+                message,
+              );
               const sender =
                 activeProfiles.get(message.sender.id) ??
                 ({
@@ -267,35 +286,37 @@ function LiveChannel({
                 } satisfies Profile);
               return (
                 <li
-                  className={`chat-message chat-message-${message.status}`}
+                  className={`chat-message chat-message-${message.status}${groupedWithPrevious ? " chat-message-grouped" : ""}`}
                   key={message.id}
                 >
-                  <div className="message-meta">
-                    <span className="profile-context-trigger">
-                      <Avatar
-                        active={activeProfiles.has(sender.id)}
-                        profile={sender}
-                      />
-                      <strong>{sender.name}</strong>
-                      <time
-                        dateTime={new Date(message.timestamp).toISOString()}
-                      >
-                        {new Date(message.timestamp).toLocaleTimeString([], {
-                          hour: "numeric",
-                          minute: "2-digit",
-                        })}
-                      </time>
-                    </span>
-                  </div>
+                  {groupedWithPrevious ? null : (
+                    <div className="message-meta">
+                      <span className="profile-context-trigger">
+                        <Avatar
+                          active={activeProfiles.has(sender.id)}
+                          profile={sender}
+                        />
+                        <strong>{sender.name}</strong>
+                        <time
+                          dateTime={new Date(message.timestamp).toISOString()}
+                        >
+                          {new Date(message.timestamp).toLocaleTimeString([], {
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </time>
+                      </span>
+                    </div>
+                  )}
                   <p>{text}</p>
-                  <fieldset className="message-reactions">
-                    <legend className="sr-only">Message reactions</legend>
-                    {REACTION_OPTIONS.map((reaction) => {
+                  <div className="message-reaction-summary">
+                    {REACTION_OPTIONS.flatMap((reaction) => {
                       const users = reactions[message.id]?.[reaction.id] ?? [];
+                      if (users.length === 0) return [];
                       const selected = users.includes(profile.id);
-                      return (
+                      return [
                         <button
-                          aria-label={`${reaction.label}${users.length > 0 ? `, ${users.length}` : ""}`}
+                          aria-label={`${reaction.label}, ${users.length}`}
                           aria-pressed={selected}
                           key={reaction.id}
                           onClick={() => {
@@ -312,12 +333,33 @@ function LiveChannel({
                           type="button"
                         >
                           <span aria-hidden="true">{reaction.emoji}</span>
-                          {users.length > 0 ? (
-                            <span>{users.length}</span>
-                          ) : null}
-                        </button>
-                      );
+                          <span>{users.length}</span>
+                        </button>,
+                      ];
                     })}
+                  </div>
+                  <fieldset className="message-reaction-picker">
+                    <legend className="sr-only">Add a reaction</legend>
+                    {REACTION_OPTIONS.map((reaction) => (
+                      <button
+                        aria-label={reaction.label}
+                        key={reaction.id}
+                        onClick={() => {
+                          void live.send({
+                            ephemeral: true,
+                            type: "reaction.toggle",
+                            content: {
+                              messageId: message.id,
+                              reaction: reaction.id,
+                            } as unknown as ChatContent,
+                          });
+                        }}
+                        title={reaction.label}
+                        type="button"
+                      >
+                        <span aria-hidden="true">{reaction.emoji}</span>
+                      </button>
+                    ))}
                   </fieldset>
                 </li>
               );

@@ -112,18 +112,36 @@ test("Observer compact teaser keeps sign-in reachable", async ({ page }) => {
   await expect(page).toHaveURL(/\/sign-in\?redirect_url=%2Foffice$/);
 });
 
-test("office window omits decorative window controls", async ({ page }) => {
+test("office window supports fullscreen without decorative controls", async ({
+  page,
+}) => {
   await page.goto("/office");
   await page
     .getByRole("button", { name: "Sign in as Returning New Hire" })
     .click();
 
-  await expect(
-    page.getByRole("checkbox", { name: "Toggle full screen" }),
-  ).toHaveCount(0);
+  const fullscreenToggle = page.getByRole("checkbox", {
+    name: "Toggle full screen",
+  });
+  await expect(fullscreenToggle).toBeAttached();
   await expect(
     page.locator(".messenger-window > .window-titlebar button"),
   ).toHaveCount(0);
+
+  const fullscreenControl = page.locator(".office-fullscreen-control");
+  await fullscreenControl.click();
+  await expect(fullscreenToggle).toBeChecked();
+  await expect(page.locator(".messenger-window")).toHaveCSS(
+    "position",
+    "fixed",
+  );
+
+  await fullscreenControl.click();
+  await expect(fullscreenToggle).not.toBeChecked();
+  await expect(page.locator(".messenger-window")).not.toHaveCSS(
+    "position",
+    "fixed",
+  );
   await expect(page.getByLabel("Message # General")).toBeEnabled();
 });
 

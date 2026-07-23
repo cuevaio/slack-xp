@@ -2307,6 +2307,7 @@ a {
   z-index: 30;
   top: 0.5rem;
   right: 0.5rem;
+  pointer-events: none;
   padding: 0.3rem 0.45rem;
   border: 1px solid #8c6e2a;
   background: #fff2ad;

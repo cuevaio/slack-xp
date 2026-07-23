@@ -9,8 +9,13 @@ import {
 import { listOfficeChannels } from "../src/lib/portal/channels";
 import { createPortalTokenSource } from "../src/lib/portal/client";
 import { createPortalSession } from "../src/lib/portal/server";
+import { config as clerkProxyConfig } from "../src/proxy";
 
 describe("Portal teaching baseline", () => {
+  test("runs Clerk middleware on every auth() boundary", () => {
+    expect(clerkProxyConfig.matcher).toEqual(["/", "/api/office/portal/token"]);
+  });
+
   test("defines one stable standard and one stable broadcast channel", () => {
     expect(listOfficeChannels().map(({ id, mode }) => [id, mode])).toEqual([
       ["general", "standard"],

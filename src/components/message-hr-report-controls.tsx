@@ -1,5 +1,6 @@
 "use client";
 
+import { Menu } from "@base-ui/react/menu";
 import {
   type FormEvent,
   type KeyboardEvent,
@@ -35,6 +36,7 @@ type HRReportControlsProps<Category extends HRReportCategory> = {
   categoryLabels: Readonly<Record<Category, string>>;
   context: HRReportRequestContext;
   description: string;
+  inMoreActionsMenu?: boolean;
   subjectLabel: string;
 };
 
@@ -89,6 +91,7 @@ function HRReportControls<Category extends HRReportCategory>({
   categoryLabels,
   context,
   description,
+  inMoreActionsMenu = false,
   subjectLabel,
 }: HRReportControlsProps<Category>) {
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -177,21 +180,48 @@ function HRReportControls<Category extends HRReportCategory>({
   const submitted = isSubmitted(result);
   const confirmation = confirmationMessage(result, subjectLabel);
 
+  function openDialog(): void {
+    setResult(null);
+    setDialogOpen(true);
+  }
+
   return (
     <div className="hr-report-controls">
-      <button
-        aria-haspopup="dialog"
-        className="message-action-button"
-        disabled={submitted}
-        onClick={() => {
-          setResult(null);
-          setDialogOpen(true);
-        }}
-        ref={triggerRef}
-        type="button"
-      >
-        {submitted ? "Reported to HR" : "Report to HR"}
-      </button>
+      {inMoreActionsMenu ? (
+        <Menu.Root>
+          <Menu.Trigger
+            aria-label="More actions"
+            className="message-action-button more-actions-trigger"
+            ref={triggerRef}
+          >
+            <span aria-hidden="true">•••</span>
+          </Menu.Trigger>
+          <Menu.Portal>
+            <Menu.Positioner align="end" sideOffset={4}>
+              <Menu.Popup className="message-actions-menu">
+                <Menu.Item
+                  className="message-actions-menu-item"
+                  disabled={submitted}
+                  onClick={openDialog}
+                >
+                  {submitted ? "Reported to HR" : "Report to HR"}
+                </Menu.Item>
+              </Menu.Popup>
+            </Menu.Positioner>
+          </Menu.Portal>
+        </Menu.Root>
+      ) : (
+        <button
+          aria-haspopup="dialog"
+          className="message-action-button"
+          disabled={submitted}
+          onClick={openDialog}
+          ref={triggerRef}
+          type="button"
+        >
+          {submitted ? "Reported to HR" : "Report to HR"}
+        </button>
+      )}
       {dialogOpen ? (
         <div
           aria-labelledby={titleId}
@@ -255,6 +285,7 @@ export function MessageHRReportControls({
         messageId: message.id,
       }}
       description="Choose why you want an Operator to review this message. Reporting it does not remove it automatically."
+      inMoreActionsMenu
       subjectLabel="message"
     />
   );

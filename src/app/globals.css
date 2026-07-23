@@ -1820,7 +1820,8 @@ a {
 }
 
 .chat-message {
-  padding: 0.7rem 0.8rem;
+  position: relative;
+  padding: 0.5rem 0.6rem 1.15rem;
   border: 1px solid transparent;
   background: rgb(255 255 255 / 92%);
 }
@@ -1898,6 +1899,7 @@ a {
   display: flex;
   align-items: center;
   gap: 0.55rem;
+  padding-right: 2.25rem;
 }
 
 .message-avatar,
@@ -1968,6 +1970,12 @@ a {
   font-size: 0.63rem;
 }
 
+.chat-message .message-meta time {
+  position: absolute;
+  right: 0.6rem;
+  bottom: 0.38rem;
+}
+
 .chat-message p {
   margin: 0.3rem 0 0;
   overflow-wrap: anywhere;
@@ -2022,14 +2030,19 @@ a {
 .reaction-count-button,
 .reaction-picker-trigger,
 .reaction-picker button {
-  min-width: 44px;
-  min-height: 44px;
-  border: 1px solid #7f8793;
+  min-width: 30px;
+  min-height: 30px;
+  border: 1px solid transparent;
   border-radius: 3px;
-  background: #f4f5f7;
+  background: transparent;
   color: #17233c;
   cursor: pointer;
   font: inherit;
+}
+
+.reaction-count-button:hover,
+.reaction-picker-trigger:hover {
+  background: rgb(23 35 60 / 8%);
 }
 
 .reaction-count-button {
@@ -2048,7 +2061,7 @@ a {
 }
 
 .reaction-picker-trigger {
-  font-size: 1.05rem;
+  font-size: 0.9rem;
   font-weight: 800;
 }
 
@@ -2061,8 +2074,8 @@ a {
 }
 
 .reaction-picker button {
-  padding: 0.25rem;
-  font-size: 1.15rem;
+  padding: 0.15rem;
+  font-size: 0.95rem;
 }
 
 .reaction-count-button:focus-visible,
@@ -2094,12 +2107,12 @@ a {
 }
 
 .message-action-button {
-  min-height: 44px;
+  min-height: 30px;
   margin-top: 0.45rem;
-  padding: 0.35rem 0.65rem;
-  border: 1px solid #7f8793;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid transparent;
   border-radius: 3px;
-  background: #f4f5f7;
+  background: transparent;
   color: #442052;
   cursor: pointer;
   font: inherit;
@@ -2107,9 +2120,56 @@ a {
   font-weight: 700;
 }
 
+.message-action-button:hover:not(:disabled) {
+  background: rgb(68 32 82 / 8%);
+}
+
 .message-action-button:disabled {
   cursor: default;
   opacity: 0.65;
+}
+
+.more-actions-trigger {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.4rem;
+  min-width: 30px;
+  margin-top: 0;
+  padding-inline: 0.35rem;
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+}
+
+.message-actions-menu {
+  z-index: 45;
+  min-width: 150px;
+  padding: 0.25rem;
+  border: 1px solid #7f8793;
+  border-radius: 3px;
+  background: #f4f5f7;
+  box-shadow: 2px 2px 0 rgb(23 35 60 / 28%);
+  color: #442052;
+  outline: none;
+}
+
+.message-actions-menu-item {
+  padding: 0.5rem 0.65rem;
+  border-radius: 2px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 700;
+  outline: none;
+  user-select: none;
+}
+
+.message-actions-menu-item[data-highlighted] {
+  background: #442052;
+  color: white;
+}
+
+.message-actions-menu-item[data-disabled] {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .hr-report-controls > output {

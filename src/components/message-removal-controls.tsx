@@ -1,6 +1,5 @@
 "use client";
 
-import { useQueryClient } from "@tanstack/react-query";
 import {
   type FormEvent,
   type KeyboardEvent,
@@ -12,29 +11,17 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { invalidateHRReportQueue } from "@/lib/hr-reports/client";
-import {
-  messageRemovalQueryKey,
-  submitMessageRemoval,
-} from "@/lib/message-removals/client";
-import {
-  MESSAGE_REMOVAL_PRIVATE_REASON_MAX_LENGTH,
-  type SerializedMessageRemovalProjection,
-} from "@/lib/message-removals/contract";
+import { MESSAGE_REMOVAL_PRIVATE_REASON_MAX_LENGTH } from "@/lib/message-removals/contract";
 import { OperatorAccessContext } from "@/lib/operators/client";
-import type { SafePortalChatMessage } from "@/lib/portal/chat";
 
 export function MessageRemovalControls({
-  message,
+  onRemove,
 }: {
-  message: SafePortalChatMessage;
+  onRemove(privateReason: string): Promise<void>;
 }) {
   const hasOperatorAccess = useContext(OperatorAccessContext);
-  const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [privateReason, setPrivateReason] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const instanceId = useId();
@@ -51,14 +38,13 @@ export function MessageRemovalControls({
   }
 
   function closeDialog(): void {
-    if (submitting) return;
     setDialogOpen(false);
     requestAnimationFrame(() => triggerRef.current?.focus());
   }
 
   function handleDialogKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
     event.stopPropagation();
-    if (event.key === "Escape" && !submitting) {
+    if (event.key === "Escape") {
       event.preventDefault();
       closeDialog();
       return;
@@ -81,32 +67,12 @@ export function MessageRemovalControls({
     }
   }
 
-  async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
+  function submit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-    setSubmitting(true);
-    setError(false);
-    try {
-      const removal = await submitMessageRemoval({
-        officeChannelId: message.channelId,
-        messageId: message.id,
-        privateReason,
-      });
-      queryClient.setQueryData<SerializedMessageRemovalProjection[]>(
-        messageRemovalQueryKey(message.channelId),
-        (current = []) => {
-          const alreadyCached = current.some(
-            ({ messageId }) => messageId === removal.messageId,
-          );
-          return alreadyCached ? current : [...current, removal];
-        },
-      );
-      await invalidateHRReportQueue(queryClient);
-      setDialogOpen(false);
-    } catch {
-      setError(true);
-    } finally {
-      setSubmitting(false);
-    }
+    const reason = privateReason.trim();
+    if (!reason) return;
+    setDialogOpen(false);
+    void onRemove(reason);
   }
 
   return (
@@ -116,7 +82,6 @@ export function MessageRemovalControls({
         className="message-action-button message-removal-trigger"
         onClick={() => {
           setPrivateReason("");
-          setError(false);
           setDialogOpen(true);
         }}
         ref={triggerRef}
@@ -150,21 +115,16 @@ export function MessageRemovalControls({
               value={privateReason}
             />
             <small>Only Operators can see this reason.</small>
-            {error ? (
-              <p className="chat-error" role="alert">
-                The message could not be removed. Please try again.
-              </p>
-            ) : null}
             <div className="hr-report-dialog-actions">
-              <Button disabled={submitting} onClick={closeDialog} type="button">
+              <Button onClick={closeDialog} type="button">
                 Cancel
               </Button>
               <Button
-                disabled={submitting || privateReason.trim().length === 0}
+                disabled={privateReason.trim().length === 0}
                 type="submit"
                 variant="destructive"
               >
-                {submitting ? "Removing…" : "Confirm removal"}
+                Confirm removal
               </Button>
             </div>
           </form>

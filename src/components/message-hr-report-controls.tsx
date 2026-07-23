@@ -99,8 +99,8 @@ function HRReportControls<Category extends HRReportCategory>({
 }: HRReportControlsProps<Category>) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [category, setCategory] = useState<Category>(categories[0]);
-  const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<HRReportSubmissionResult | null>(null);
+  const submissionPending = useRef(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const firstCategoryRef = useRef<HTMLInputElement>(null);
   const instanceId = useId();
@@ -119,7 +119,7 @@ function HRReportControls<Category extends HRReportCategory>({
 
   function handleDialogKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
     event.stopPropagation();
-    if (event.key === "Escape" && !submitting) {
+    if (event.key === "Escape") {
       event.preventDefault();
       closeDialog();
       return;
@@ -155,8 +155,10 @@ function HRReportControls<Category extends HRReportCategory>({
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    setSubmitting(true);
-    setResult(null);
+    if (submissionPending.current) return;
+    submissionPending.current = true;
+    setResult("created");
+    setDialogOpen(false);
 
     try {
       const response = await fetch("/api/office/hr-reports", {
@@ -172,11 +174,11 @@ function HRReportControls<Category extends HRReportCategory>({
       }
 
       setResult(submissionResult);
-      closeDialog();
     } catch {
       setResult("error");
+      setDialogOpen(true);
     } finally {
-      setSubmitting(false);
+      submissionPending.current = false;
     }
   }
 
@@ -262,11 +264,11 @@ function HRReportControls<Category extends HRReportCategory>({
               </p>
             ) : null}
             <div className="hr-report-dialog-actions">
-              <Button disabled={submitting} onClick={closeDialog} type="button">
+              <Button onClick={closeDialog} type="button">
                 Cancel
               </Button>
-              <Button disabled={submitting} type="submit" variant="primary">
-                {submitting ? "Submitting…" : "Submit private report"}
+              <Button type="submit" variant="primary">
+                Submit private report
               </Button>
             </div>
           </form>

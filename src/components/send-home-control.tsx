@@ -26,10 +26,10 @@ export function SendHomeControl({
 }: SendHomeControlProps) {
   const [open, setOpen] = useState(false);
   const [privateReason, setPrivateReason] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [requestId] = useState(() => crypto.randomUUID());
+  const requestPending = useRef(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const reasonRef = useRef<HTMLTextAreaElement>(null);
   const instanceId = useId();
@@ -47,7 +47,7 @@ export function SendHomeControl({
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
     event.stopPropagation();
-    if (event.key === "Escape" && !submitting) {
+    if (event.key === "Escape") {
       event.preventDefault();
       close();
       return;
@@ -73,9 +73,12 @@ export function SendHomeControl({
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const reason = privateReason.trim();
-    if (!reason) return;
-    setSubmitting(true);
+    if (!reason || requestPending.current) return;
+    requestPending.current = true;
     setError(false);
+    setCompleted(true);
+    setPrivateReason("");
+    setOpen(false);
     try {
       await requestSendHome({
         requestId,
@@ -83,14 +86,14 @@ export function SendHomeControl({
         privateReason: reason,
         ...(reportId ? { reportId } : {}),
       });
-      setCompleted(true);
-      setPrivateReason("");
-      close();
       onCompleted?.();
     } catch {
+      setCompleted(false);
+      setPrivateReason(reason);
       setError(true);
+      setOpen(true);
     } finally {
-      setSubmitting(false);
+      requestPending.current = false;
     }
   }
 
@@ -138,15 +141,15 @@ export function SendHomeControl({
               </p>
             ) : null}
             <div className="hr-report-dialog-actions">
-              <Button disabled={submitting} onClick={close} type="button">
+              <Button onClick={close} type="button">
                 Cancel
               </Button>
               <Button
-                disabled={submitting || privateReason.trim().length === 0}
+                disabled={privateReason.trim().length === 0}
                 type="submit"
                 variant="destructive"
               >
-                {submitting ? "Sending Home…" : "Confirm Send Home"}
+                Confirm Send Home
               </Button>
             </div>
           </form>

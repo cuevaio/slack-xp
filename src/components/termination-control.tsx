@@ -53,8 +53,10 @@ export function TerminationControl({
   >(null);
   const [action, setAction] = useState<EmploymentAction | null>(null);
   const [privateReason, setPrivateReason] = useState("");
-  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(false);
+  const [pendingAction, setPendingAction] = useState<EmploymentAction | null>(
+    null,
+  );
   const [requestIds] = useState(() => ({
     terminate: crypto.randomUUID(),
     reinstate: crypto.randomUUID(),
@@ -91,7 +93,7 @@ export function TerminationControl({
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
     event.stopPropagation();
-    if (event.key === "Escape" && !submitting) {
+    if (event.key === "Escape") {
       event.preventDefault();
       close();
       return;
@@ -117,32 +119,37 @@ export function TerminationControl({
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     const reason = privateReason.trim();
-    if (!action || !reason) return;
-    setSubmitting(true);
+    if (!action || !reason || pendingAction) return;
+    const submittedAction = action;
+    const previousTermination = hasActiveTermination;
+    setPendingAction(submittedAction);
     setError(false);
+    setHasActiveTermination(submittedAction === "terminate");
+    setAction(null);
+    setPrivateReason("");
     try {
-      if (action === "terminate") {
+      if (submittedAction === "terminate") {
         await requestTermination({
           requestId: requestIds.terminate,
           targetNewHireId,
           privateReason: reason,
           ...(reportId ? { reportId } : {}),
         });
-        setHasActiveTermination(true);
       } else {
         await requestReinstatement({
           requestId: requestIds.reinstate,
           targetNewHireId,
           privateReason: reason,
         });
-        setHasActiveTermination(false);
       }
-      close();
       onCompleted?.();
     } catch {
+      setHasActiveTermination(previousTermination);
+      setAction(submittedAction);
+      setPrivateReason(reason);
       setError(true);
     } finally {
-      setSubmitting(false);
+      setPendingAction(null);
     }
   }
 
@@ -160,7 +167,7 @@ export function TerminationControl({
       <button
         aria-haspopup="dialog"
         className="classic-button"
-        disabled={hasActiveTermination === null}
+        disabled={hasActiveTermination === null || pendingAction !== null}
         onClick={() => {
           setError(false);
           setAction(nextAction);
@@ -201,20 +208,15 @@ export function TerminationControl({
               </p>
             ) : null}
             <div className="hr-report-dialog-actions">
-              <button
-                className="classic-button"
-                disabled={submitting}
-                onClick={close}
-                type="button"
-              >
+              <button className="classic-button" onClick={close} type="button">
                 Cancel
               </button>
               <button
                 className="classic-button primary-action"
-                disabled={submitting || privateReason.trim().length === 0}
+                disabled={privateReason.trim().length === 0}
                 type="submit"
               >
-                {submitting ? "Recording…" : selectedActionCopy.confirmation}
+                {selectedActionCopy.confirmation}
               </button>
             </div>
           </form>

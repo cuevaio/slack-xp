@@ -41,8 +41,11 @@ import { invalidateHRReportQueue } from "@/lib/hr-reports/client";
 import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import {
   invalidateMessageRemovals,
+  messageRemovalQueryKey,
+  submitMessageRemoval,
   useMessageRemovals,
 } from "@/lib/message-removals/client";
+import type { SerializedMessageRemovalProjection } from "@/lib/message-removals/contract";
 import type { SafeScriptedSystemEventMessage } from "@/lib/office-days/contract";
 import { useOfficeEventSubscription } from "@/lib/office-events/client";
 import {
@@ -91,6 +94,10 @@ import {
   observeOfficeDayBoundary,
   officeDay,
 } from "@/lib/portal/office-day";
+import {
+  restoreFailedChatDraft,
+  setOptimisticReactionPending,
+} from "@/lib/portal/optimistic-activity";
 import { connectionStatusCopy } from "@/lib/portal/presence";
 import {
   isNewHireMessage,
@@ -146,6 +153,13 @@ type ReactionProps = {
   reactionEvents: readonly ReactionOfficeEvent[];
   reactionsEnabled: boolean;
   onReact(input: ReactionMutation): Promise<void>;
+};
+
+type MessageRemovalProps = {
+  onRemoveMessage(
+    message: SafePortalChatMessage,
+    privateReason: string,
+  ): Promise<void>;
 };
 
 type OfficeDayWorkspace = Pick<
@@ -267,16 +281,6 @@ const REACTION_NAMES: Record<OfficeReaction, string> = {
 
 const FALLBACK_PROFILE_NAME = "New Hire";
 const LATEST_MESSAGE_THRESHOLD = 24;
-
-function sendButtonCopy(isSending: boolean, hasError: boolean): string {
-  if (isSending) {
-    return "Sending…";
-  }
-  if (hasError) {
-    return "Retry send";
-  }
-  return "Send";
-}
 
 function inboxStatusCopy(status: InboxStatus): string {
   switch (status) {
@@ -534,7 +538,6 @@ function ReactionControls({
   onReact(input: ReactionMutation): Promise<void>;
 }) {
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const firstReactionRef = useRef<HTMLButtonElement>(null);
@@ -556,8 +559,8 @@ function ReactionControls({
 
   async function updateReaction(reaction: OfficeReaction): Promise<void> {
     setError(null);
-    setIsUpdating(true);
-    let saved = false;
+    setPickerOpen(false);
+    requestAnimationFrame(() => triggerRef.current?.focus());
     try {
       await onReact({
         officeChannelId: message.channelId,
@@ -565,15 +568,8 @@ function ReactionControls({
         reaction,
         operation: operationFor(reaction),
       });
-      setPickerOpen(false);
-      saved = true;
     } catch {
       setError("Reaction not saved. Choose it again to retry.");
-    } finally {
-      setIsUpdating(false);
-      if (saved) {
-        requestAnimationFrame(() => triggerRef.current?.focus());
-      }
     }
   }
 
@@ -598,7 +594,7 @@ function ReactionControls({
               aria-label={`${REACTION_NAMES[reaction]}: ${actorIds.length} reaction${actorIds.length === 1 ? "" : "s"}. ${ownReaction ? "Remove your reaction" : "Add your reaction"}.`}
               aria-pressed={ownReaction}
               className="reaction-count-button"
-              disabled={!enabled || isUpdating}
+              disabled={!enabled}
               key={reaction}
               onClick={() => void updateReaction(reaction)}
               type="button"
@@ -613,7 +609,7 @@ function ReactionControls({
         aria-controls={pickerId}
         aria-expanded={pickerOpen}
         className="reaction-picker-trigger"
-        disabled={!enabled || isUpdating}
+        disabled={!enabled}
         onClick={() => setPickerOpen((current) => !current)}
         ref={triggerRef}
         type="button"
@@ -634,7 +630,6 @@ function ReactionControls({
               <button
                 aria-label={`${REACTION_NAMES[reaction]} (${reaction}), ${operation} reaction`}
                 aria-pressed={operation === "remove"}
-                disabled={isUpdating}
                 key={reaction}
                 onClick={() => void updateReaction(reaction)}
                 ref={index === 0 ? firstReactionRef : undefined}
@@ -646,7 +641,6 @@ function ReactionControls({
           })}
         </fieldset>
       ) : null}
-      {isUpdating ? <span className="sr-only">Saving reaction</span> : null}
       {error ? (
         <small className="reaction-error" role="alert">
           {error}
@@ -800,16 +794,18 @@ function MessageHistory({
   reactionEvents,
   reactionsEnabled,
   onReact,
+  onRemoveMessage,
   profilesById,
   removedMessageIds,
-}: ReactionProps & {
-  channel: OfficeChannel;
-  messages: readonly SafeOfficeChannelMessage[];
-  identityId: string;
-  activeIds: ReadonlySet<string>;
-  profilesById: ReadonlyMap<string, ProfileAttribution>;
-  removedMessageIds: ReadonlySet<string>;
-}) {
+}: ReactionProps &
+  MessageRemovalProps & {
+    channel: OfficeChannel;
+    messages: readonly SafeOfficeChannelMessage[];
+    identityId: string;
+    activeIds: ReadonlySet<string>;
+    profilesById: ReadonlyMap<string, ProfileAttribution>;
+    removedMessageIds: ReadonlySet<string>;
+  }) {
   if (messages.length === 0) {
     return (
       <div className="empty-chat">
@@ -950,7 +946,11 @@ function MessageHistory({
                   reactions={projection.read(channel.id, message.id)}
                 />
                 <MessageHRReportControls message={message} />
-                <MessageRemovalControls message={message} />
+                <MessageRemovalControls
+                  onRemove={(privateReason) =>
+                    onRemoveMessage(message, privateReason)
+                  }
+                />
               </div>
             ) : null}
           </li>
@@ -1017,6 +1017,7 @@ function ChatSurface({
   onMentionVisible,
   channelError,
 }: ChatSurfaceProps) {
+  const queryClient = useQueryClient();
   const [draft, setDraft] = useState("");
   const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
   const [mentionSearch, setMentionSearch] = useState<{
@@ -1026,7 +1027,10 @@ function ChatSurface({
   } | null>(null);
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [isSending, setIsSending] = useState(false);
+  const [optimisticRemovedMessageIds, setOptimisticRemovedMessageIds] =
+    useState<ReadonlySet<string>>(() => new Set());
+  const [removalError, setRemovalError] = useState<string | null>(null);
+  const draftRef = useRef("");
   const scrollRegionRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composerOverlayRef = useRef<HTMLDivElement>(null);
@@ -1041,10 +1045,15 @@ function ChatSurface({
   const latestMessageId = messages.at(-1)?.id ?? null;
   const removalQuery = useMessageRemovals(channel.id);
   const removalSafetyStatus = useSafetyProjectionStatus(removalQuery);
-  const removedMessageIds = useMemo(
-    () => new Set((removalQuery.data ?? []).map(({ messageId }) => messageId)),
-    [removalQuery.data],
-  );
+  const removedMessageIds = useMemo(() => {
+    const messageIds = new Set(
+      (removalQuery.data ?? []).map(({ messageId }) => messageId),
+    );
+    for (const messageId of optimisticRemovedMessageIds) {
+      messageIds.add(messageId);
+    }
+    return messageIds;
+  }, [optimisticRemovedMessageIds, removalQuery.data]);
   const participantIds = useMemo(
     () => [
       ...new Set([
@@ -1110,6 +1119,7 @@ function ChatSurface({
         identityId={identityId}
         messages={messages}
         onReact={onReact}
+        onRemoveMessage={removeMessage}
         profilesById={profilesById}
         reactionEvents={reactionEvents}
         reactionsEnabled={reactionsEnabled}
@@ -1237,20 +1247,22 @@ function ChatSurface({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const submittedDraft = draftRef.current;
+    if (submittedDraft.trim().length === 0) return;
     setSendError(null);
     let content: PortalChatContent;
     try {
-      content = createChatContentWithMentions(draft, draftMentions);
+      content = createChatContentWithMentions(submittedDraft, draftMentions);
     } catch (error) {
       setSendError(error instanceof Error ? error.message : "Invalid message.");
       return;
     }
 
     const submittedMentions = draftMentions;
+    draftRef.current = "";
     setDraft("");
     setDraftMentions([]);
     setMentionSearch(null);
-    setIsSending(true);
     try {
       await onSend(
         content,
@@ -1259,11 +1271,49 @@ function ChatSurface({
         ].map((userId) => ({ userId })),
       );
     } catch {
-      setDraft(content.text);
-      setDraftMentions(submittedMentions);
+      const currentDraft = draftRef.current;
+      const restoredDraft = restoreFailedChatDraft(content.text, currentDraft);
+      draftRef.current = restoredDraft;
+      setDraft(restoredDraft);
+      setDraftMentions(currentDraft ? [] : submittedMentions);
       setSendError("Message not delivered. Your text is ready to retry.");
+    }
+  }
+
+  async function removeMessage(
+    message: SafePortalChatMessage,
+    privateReason: string,
+  ): Promise<void> {
+    setRemovalError(null);
+    setOptimisticRemovedMessageIds((current) => {
+      const next = new Set(current);
+      next.add(message.id);
+      return next;
+    });
+    try {
+      const removal = await submitMessageRemoval({
+        officeChannelId: message.channelId,
+        messageId: message.id,
+        privateReason,
+      });
+      queryClient.setQueryData<SerializedMessageRemovalProjection[]>(
+        messageRemovalQueryKey(message.channelId),
+        (current = []) =>
+          current.some(({ messageId }) => messageId === removal.messageId)
+            ? current
+            : [...current, removal],
+      );
+      void invalidateHRReportQueue(queryClient);
+    } catch {
+      setRemovalError(
+        "The message could not be removed. Its original content has been restored.",
+      );
     } finally {
-      setIsSending(false);
+      setOptimisticRemovedMessageIds((current) => {
+        const next = new Set(current);
+        next.delete(message.id);
+        return next;
+      });
     }
   }
 
@@ -1306,6 +1356,7 @@ function ChatSurface({
     const label = `@${profile.displayName}`;
     const nextDraft = `${draft.slice(0, mentionSearch.start)}${label} ${draft.slice(mentionSearch.end)}`;
     const cursor = mentionSearch.start + label.length + 1;
+    draftRef.current = nextDraft;
     setDraft(nextDraft);
     setDraftMentions((current) => [
       ...current.filter(({ userId }) => userId !== profile.clerkUserId),
@@ -1413,6 +1464,11 @@ function ChatSurface({
               {channelError}
             </p>
           ) : null}
+          {removalError ? (
+            <p className="chat-error" role="alert">
+              {removalError}
+            </p>
+          ) : null}
           {messageHistory}
         </div>
       </div>
@@ -1434,6 +1490,7 @@ function ChatSurface({
             maxLength={CHAT_TEXT_LIMIT}
             onChange={(event) => {
               const nextDraft = event.target.value;
+              draftRef.current = nextDraft;
               setDraft(nextDraft);
               updateMentionSearch(
                 nextDraft,
@@ -1487,8 +1544,7 @@ function ChatSurface({
                 selectMention(activeMention);
               } else if (shouldSendChatComposerMessage(keyDown)) {
                 event.preventDefault();
-                if (!canPublish || isSending || draft.trim().length === 0)
-                  return;
+                if (!canPublish || draftRef.current.trim().length === 0) return;
                 event.currentTarget.form?.requestSubmit();
               }
             }}
@@ -1521,11 +1577,11 @@ function ChatSurface({
             </span>
             <Button
               className="send-message-button"
-              disabled={!canPublish || isSending || draft.trim().length === 0}
+              disabled={!canPublish || draft.trim().length === 0}
               size="xs"
               type="submit"
             >
-              {sendButtonCopy(isSending, sendError !== null)}
+              {sendError ? "Retry send" : "Send"}
             </Button>
           </div>
         </div>
@@ -2078,10 +2134,12 @@ function useReactionPublisher({
   identityId,
   eventChannelId,
   publish,
+  onOptimisticChange,
 }: {
   identityId: string;
   eventChannelId: string;
   publish(event: ReactionOfficeEvent): Promise<void>;
+  onOptimisticChange(event: ReactionOfficeEvent, pending: boolean): void;
 }): (input: ReactionMutation) => Promise<void> {
   const lastTimestamp = useRef(0);
   const retryEvents = useRef(new Map<string, ReactionOfficeEvent>());
@@ -2109,10 +2167,15 @@ function useReactionPublisher({
         });
         retryEvents.current.set(retryKey, event);
       }
-      await publish(event);
-      retryEvents.current.delete(retryKey);
+      onOptimisticChange(event, true);
+      try {
+        await publish(event);
+        retryEvents.current.delete(retryKey);
+      } finally {
+        onOptimisticChange(event, false);
+      }
     },
-    [eventChannelId, identityId, publish],
+    [eventChannelId, identityId, onOptimisticChange, publish],
   );
 }
 
@@ -2172,6 +2235,9 @@ function LivePortalWorkspace({
   const [reactionEvents, setReactionEvents] = useState<ReactionOfficeEvent[]>(
     [],
   );
+  const [optimisticReactionEvents, setOptimisticReactionEvents] = useState<
+    ReactionOfficeEvent[]
+  >([]);
   const [mentionsByChannelId, setMentionsByChannelId] = useState(
     new Map<string, string>(),
   );
@@ -2252,11 +2318,24 @@ function LivePortalWorkspace({
     },
     [navigation.showConversation, setActiveChannelId],
   );
+  const updateOptimisticReaction = useCallback(
+    (event: ReactionOfficeEvent, pending: boolean) => {
+      setOptimisticReactionEvents((current) =>
+        setOptimisticReactionPending(current, event, pending),
+      );
+    },
+    [],
+  );
   const updateReaction = useReactionPublisher({
     identityId,
     eventChannelId,
     publish: publishReaction,
+    onOptimisticChange: updateOptimisticReaction,
   });
+  const visibleReactionEvents = useMemo(
+    () => [...reactionEvents, ...optimisticReactionEvents],
+    [optimisticReactionEvents, reactionEvents],
+  );
   const reactionsEnabled =
     eventStatus === "ready" ||
     eventStatus === "degraded" ||
@@ -2312,7 +2391,7 @@ function LivePortalWorkspace({
           onMentionVisible={clearMention}
           onInboxRead={markInboxRead}
           onReact={updateReaction}
-          reactionEvents={reactionEvents}
+          reactionEvents={visibleReactionEvents}
           reactionsEnabled={reactionsEnabled}
           visible={
             navigation.conversationVisible && channel.id === activeChannelId

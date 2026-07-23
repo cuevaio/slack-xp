@@ -85,18 +85,24 @@ function HRReportResolution({ report }: { report: HRReportReviewItem }) {
 function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
   const queryClient = useQueryClient();
   const [privateNote, setPrivateNote] = useState("");
+  const [optimisticallyDismissed, setOptimisticallyDismissed] = useState(false);
   const presentation = reportPresentation(report);
   const privateNoteId = `hr-private-note-${report.reportId}`;
   const dismissal = useMutation({
     mutationFn: requestHRReportDismissal,
+    onMutate: () => {
+      setOptimisticallyDismissed(true);
+    },
     onSuccess: () => {
       setPrivateNote("");
     },
     onError: () => {
+      setOptimisticallyDismissed(false);
       void invalidateOperatorState(queryClient);
     },
     onSettled: () => invalidateHRReportQueue(queryClient),
   });
+  const displayedState = optimisticallyDismissed ? "dismissed" : report.state;
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -112,10 +118,10 @@ function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
         <strong>{presentation.title}</strong>
         <Badge
           className="hr-review-state"
-          data-state={report.state}
-          variant={report.state === "open" ? "warning" : "secondary"}
+          data-state={displayedState}
+          variant={displayedState === "open" ? "warning" : "secondary"}
         >
-          {REPORT_STATE_LABELS[report.state]}
+          {REPORT_STATE_LABELS[displayedState]}
         </Badge>
       </div>
       <p>{presentation.categoryLabel}</p>
@@ -126,7 +132,7 @@ function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
         </time>
       </small>
       <a href={inAppReportHref(report.href)}>{presentation.contextLabel}</a>
-      {report.state === "open" ? (
+      {displayedState === "open" ? (
         <>
           <form onSubmit={submit}>
             <label htmlFor={privateNoteId}>Private note (optional)</label>
@@ -137,9 +143,7 @@ function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
               rows={3}
               value={privateNote}
             />
-            <Button disabled={dismissal.isPending} type="submit">
-              {dismissal.isPending ? "Dismissing…" : "Dismiss report"}
-            </Button>
+            <Button type="submit">Dismiss report</Button>
             {dismissal.isError ? (
               <p role="alert">
                 The report could not be dismissed. Please try again.
@@ -161,6 +165,15 @@ function HRReportReviewRow({ report }: { report: HRReportReviewItem }) {
             </>
           ) : null}
         </>
+      ) : optimisticallyDismissed && report.state === "open" ? (
+        <div className="hr-review-resolution">
+          <small>Dismissed by an Operator</small>
+          {privateNote.trim() ? (
+            <p>
+              <strong>Private note:</strong> {privateNote.trim()}
+            </p>
+          ) : null}
+        </div>
       ) : (
         <HRReportResolution report={report} />
       )}

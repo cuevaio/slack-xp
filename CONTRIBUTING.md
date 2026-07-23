@@ -11,7 +11,7 @@ improvements that keep it useful to an ordinary Portal customer.
    labels, see [docs/agents/issue-tracker.md](docs/agents/issue-tracker.md).
 3. Keep one issue per change. Surface a conflict with an ADR instead of silently
    changing an authority or safety boundary.
-4. Never add credentials, copied production data, private HR Report details,
+4. Never add credentials, copied production data, private moderation details,
    message bodies in logs, or a dependency on Portal's private repository.
 
 ## Local workflow

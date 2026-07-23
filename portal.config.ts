@@ -63,16 +63,12 @@ export const moderateChatMessage = defineMiddleware<ChatMessage>(
 
 const publicOfficeChannel = {
   anonymous: false,
+  middleware: [moderateChatMessage],
 };
 
 export default defineConfig({
   channels: {
-    "general:*": publicOfficeChannel,
-    "watercooler:*": publicOfficeChannel,
-    "tech-support:*": publicOfficeChannel,
-    "urgent:*": publicOfficeChannel,
-    "all-hands:*": { ...publicOfficeChannel, mode: "broadcast" },
-    "office-events:*": { anonymous: false },
-    "hr-reports": { anonymous: false },
+    general: publicOfficeChannel,
+    announcements: { ...publicOfficeChannel, mode: "broadcast" },
   },
 });

@@ -1,5 +1,7 @@
 # Cache conversations in Portal SQLite
 
+**Status: Superseded by ADR 0009.** The app now renders `useChannel` state directly and does not depend on Portal storage internals.
+
 Portal's per-channel Durable Object SQLite database is the durable hot cache and authority for Office Channel messages. Portal Messenger acquires every Office Channel when the workspace mounts, so Portal reads all recent histories in parallel and keeps each channel current even while another channel is visible.
 
 TanStack Query stores only in-memory client snapshots and application-owned safety projections. Those snapshots remain visible while Portal reconnects or Neon-backed projections revalidate. Invalidation marks cached data stale and refetches active and hidden channel projections instead of resetting them, so a background repair does not create a loading state.

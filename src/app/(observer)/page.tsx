@@ -1,5 +1,5 @@
 import { SignInButton } from "@clerk/nextjs";
-import { auth } from "@clerk/nextjs/server";
+import { auth, currentUser } from "@clerk/nextjs/server";
 import { OfficeFoundation } from "@/components/office-foundation";
 
 export default async function HomePage() {
@@ -23,5 +23,15 @@ export default async function HomePage() {
   }
   const publishableKey = process.env.NEXT_PUBLIC_PORTAL_KEY;
   if (!publishableKey) throw new Error("NEXT_PUBLIC_PORTAL_KEY is required.");
-  return <OfficeFoundation publishableKey={publishableKey} />;
+  const user = await currentUser();
+  return (
+    <OfficeFoundation
+      profile={{
+        id: userId,
+        name: user?.fullName ?? user?.firstName ?? "New Hire",
+        imageUrl: user?.imageUrl || null,
+      }}
+      publishableKey={publishableKey}
+    />
+  );
 }

@@ -1,6 +1,7 @@
 import { ClerkProvider } from "@clerk/nextjs";
 import { GeistPixelSquare } from "geist/font/pixel";
 import type { Metadata } from "next";
+import { InteractionFeedback } from "@/components/interaction-feedback";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -16,6 +17,7 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${GeistPixelSquare.variable} h-full`}>
       <body>
+        <InteractionFeedback />
         <ClerkProvider>{children}</ClerkProvider>
       </body>
     </html>

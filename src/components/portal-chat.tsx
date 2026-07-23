@@ -12,8 +12,14 @@ import {
 import { createPortalTokenSource } from "@/lib/portal/client";
 
 type ChatContent = { text: string };
-
+type Profile = { id: string; name: string; imageUrl: string | null };
 type SendChatMessage = (input: { content: ChatContent }) => Promise<unknown>;
+
+export function messageText(message: Message<ChatContent>) {
+  return !message.retracted && typeof message.content?.text === "string"
+    ? message.content.text
+    : null;
+}
 
 export async function sendChatMessage(send: SendChatMessage, draft: string) {
   const text = draft.trim();
@@ -30,52 +36,68 @@ export function readChannel(
   inboxEntry?.markAsRead();
 }
 
-function messageText(message: Message<ChatContent>) {
-  return !message.retracted && typeof message.content?.text === "string"
-    ? message.content.text
-    : null;
-}
-
-function ChannelDirectory({
-  active,
-  onSelect,
+function Avatar({
+  profile,
+  active = false,
 }: {
-  active: OfficeChannelSlug;
-  onSelect(channel: OfficeChannelSlug): void;
+  profile: Profile;
+  active?: boolean;
 }) {
-  const inbox = useInbox();
   return (
-    <nav className="channel-list" aria-label="Office Channels">
-      {listOfficeChannels().map((channel) => {
-        const unread = inbox.channels.get(channel.id)?.unread ?? 0;
-        return (
-          <button
-            className="channel-button"
-            data-active={channel.id === active}
-            key={channel.id}
-            onClick={() => onSelect(channel.id)}
-            type="button"
-          >
-            <span># {channel.name}</span>
-            {unread > 0 ? <strong>{unread}</strong> : null}
-          </button>
-        );
-      })}
-    </nav>
+    <span className="message-avatar-wrap">
+      {profile.imageUrl ? (
+        // Clerk controls this authenticated profile URL.
+        // biome-ignore lint/performance/noImgElement: arbitrary Clerk image hosts are expected.
+        <img alt="" className="message-avatar" src={profile.imageUrl} />
+      ) : (
+        <span className="message-avatar-placeholder">
+          {profile.name.slice(0, 1)}
+        </span>
+      )}
+      <span
+        aria-hidden="true"
+        className="participant-activity-dot"
+        data-active={active}
+      />
+    </span>
   );
 }
 
-function LiveChannel({ channel }: { channel: OfficeChannel }) {
+function LiveChannel({
+  channel,
+  profile,
+}: {
+  channel: OfficeChannel;
+  profile: Profile;
+}) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const inbox = useInbox();
   const live = useChannel<ChatContent>({
     channelId: channel.id,
     history: 50,
     readOn: "manual",
+    metadata: { username: profile.name, avatar: profile.imageUrl },
     onError: () => setError("Connection lost. Portal will keep retrying."),
   });
-  const inbox = useInbox();
   const participants = live.presence?.count ?? 0;
+  const activeProfiles = new Map<string, Profile>([[profile.id, profile]]);
+  if (live.presence?.kind === "detailed") {
+    for (const participant of live.presence.participants) {
+      activeProfiles.set(participant.id, {
+        id: participant.id,
+        name:
+          participant.username ??
+          (typeof participant.metadata?.username === "string"
+            ? participant.metadata.username
+            : "New Hire"),
+        imageUrl:
+          typeof participant.metadata?.avatar === "string"
+            ? participant.metadata.avatar
+            : null,
+      });
+    }
+  }
 
   async function send() {
     const text = draft.trim();
@@ -91,15 +113,141 @@ function LiveChannel({ channel }: { channel: OfficeChannel }) {
   }
 
   return (
-    <section className="chat-panel" aria-labelledby="channel-title">
-      <header className="chat-header">
+    <section
+      className={`general-chat ${channel.mode === "broadcast" ? "broadcast-chat" : ""}`}
+    >
+      <header className="conversation-heading">
         <div>
-          <h1 id="channel-title"># {channel.name}</h1>
-          <p>{channel.purpose}</p>
+          <span
+            aria-hidden="true"
+            className={`presence-dot connection-${live.status}`}
+          />
+          <strong># {channel.name}</strong>
+          <span className="channel-purpose">{channel.purpose}</span>
         </div>
-        <span>
+        <span className="connection-status">
           {live.status === "ready" ? `${participants} online` : live.status}
         </span>
+      </header>
+
+      <div className="conversation-content">
+        <aside className="detailed-presence" aria-label="New Hires online">
+          <strong>Online now</strong>
+          {activeProfiles.size > 0 ? (
+            <ul>
+              {[...activeProfiles.values()].map((participant) => (
+                <li key={participant.id}>
+                  <Avatar active profile={participant} />
+                  <span>{participant.name}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <small>No one else is online.</small>
+          )}
+        </aside>
+        <div className="chat-scroll-region">
+          {live.hasPrevious ? (
+            <button
+              className="load-history-button"
+              disabled={live.isLoadingPrevious}
+              onClick={live.loadPrevious}
+              type="button"
+            >
+              {live.isLoadingPrevious ? "Loading..." : "Load earlier messages"}
+            </button>
+          ) : null}
+          <ol
+            className="message-history"
+            aria-label={`${channel.name} message history`}
+          >
+            {live.messages.map((message) => {
+              const text = messageText(message);
+              if (!text) return null;
+              const sender =
+                activeProfiles.get(message.sender.id) ??
+                ({
+                  id: message.sender.id,
+                  name: message.sender.username ?? "New Hire",
+                  imageUrl: null,
+                } satisfies Profile);
+              return (
+                <li
+                  className={`chat-message chat-message-${message.status}`}
+                  key={message.id}
+                >
+                  <div className="message-meta">
+                    <span className="profile-context-trigger">
+                      <Avatar
+                        active={activeProfiles.has(sender.id)}
+                        profile={sender}
+                      />
+                      <strong>{sender.name}</strong>
+                      <time
+                        dateTime={new Date(message.timestamp).toISOString()}
+                      >
+                        {new Date(message.timestamp).toLocaleTimeString([], {
+                          hour: "numeric",
+                          minute: "2-digit",
+                        })}
+                      </time>
+                    </span>
+                  </div>
+                  <p>{text}</p>
+                </li>
+              );
+            })}
+          </ol>
+          {live.typing.length > 0 ? (
+            <p className="typing-status">Someone is typing...</p>
+          ) : null}
+        </div>
+      </div>
+
+      <form
+        className="chat-composer"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void send();
+        }}
+      >
+        <div className="composer-input-shell">
+          <textarea
+            aria-label={`Message #${channel.name}`}
+            disabled={live.status !== "ready"}
+            maxLength={1000}
+            onChange={(event) => {
+              setDraft(event.target.value);
+              if (channel.mode === "standard" && event.target.value.trim())
+                live.sendTyping();
+            }}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing
+              ) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
+            placeholder={
+              live.status === "ready" ? "Type a message..." : "Reconnecting..."
+            }
+            rows={2}
+            value={draft}
+          />
+          <div className="composer-actions">
+            <span className="character-count">{draft.length} / 1,000</span>
+            <button
+              className="send-message-button"
+              disabled={live.status !== "ready" || !draft.trim()}
+              type="submit"
+            >
+              {error ? "Retry send" : "Send"}
+            </button>
+          </div>
+        </div>
         {live.unread > 0 ? (
           <button
             onClick={() =>
@@ -110,72 +258,61 @@ function LiveChannel({ channel }: { channel: OfficeChannel }) {
             Mark {live.unread} read
           </button>
         ) : null}
-      </header>
-      <div className="message-list">
-        {live.hasPrevious ? (
-          <button
-            disabled={live.isLoadingPrevious}
-            onClick={live.loadPrevious}
-            type="button"
-          >
-            {live.isLoadingPrevious ? "Loading..." : "Load earlier messages"}
-          </button>
+        {error ? (
+          <p className="chat-error" role="alert">
+            {error}
+          </p>
         ) : null}
-        {live.messages.map((message) => {
-          const text = messageText(message);
-          return text ? (
-            <article className="message-row" key={message.id}>
-              <strong>{message.sender.username ?? "New Hire"}</strong>
-              <p>{text}</p>
-            </article>
-          ) : null;
-        })}
-        {live.typing.length > 0 ? (
-          <p className="typing-status">Someone is typing...</p>
-        ) : null}
-      </div>
-      {error ? <p role="alert">{error}</p> : null}
-      <form
-        className="message-composer"
-        onSubmit={(event) => {
-          event.preventDefault();
-          void send();
-        }}
-      >
-        <textarea
-          aria-label={`Message #${channel.name}`}
-          maxLength={1000}
-          onChange={(event) => {
-            setDraft(event.target.value);
-            live.sendTyping();
-          }}
-          value={draft}
-        />
-        <button
-          disabled={live.status !== "ready" || !draft.trim()}
-          type="submit"
-        >
-          Send
-        </button>
       </form>
     </section>
   );
 }
 
-function Messenger() {
+function Messenger({ profile }: { profile: Profile }) {
   const [activeId, setActiveId] = useState<OfficeChannelSlug>("general");
-  const active =
-    listOfficeChannels().find(({ id }) => id === activeId) ??
-    listOfficeChannels()[0];
+  const inbox = useInbox();
+  const channels = listOfficeChannels();
+  const active = channels.find(({ id }) => id === activeId) ?? channels[0];
   return (
-    <div className="messenger-layout">
-      <ChannelDirectory active={activeId} onSelect={setActiveId} />
-      <LiveChannel channel={active} />
+    <div className="office-body">
+      <aside className="channel-panel">
+        <h1>Portal Messenger</h1>
+        <span className="job-title">Signed in as {profile.name}</span>
+        <nav aria-label="Office Channels">
+          {channels.map((channel) => {
+            const unread = inbox.channels.get(channel.id)?.unread ?? 0;
+            return (
+              <button
+                aria-current={channel.id === activeId ? "page" : undefined}
+                className="channel-button"
+                key={channel.id}
+                onClick={() => setActiveId(channel.id)}
+                type="button"
+              >
+                <span className="channel-button-copy">
+                  <strong># {channel.name}</strong>
+                  <small>{channel.purpose}</small>
+                </span>
+                {unread > 0 ? <b>{unread}</b> : null}
+              </button>
+            );
+          })}
+        </nav>
+      </aside>
+      <div className="conversation-panel">
+        <LiveChannel channel={active} profile={profile} />
+      </div>
     </div>
   );
 }
 
-export function PortalChat({ publishableKey }: { publishableKey: string }) {
+export function PortalChat({
+  profile,
+  publishableKey,
+}: {
+  profile: Profile;
+  publishableKey: string;
+}) {
   const { getToken } = useAuth();
   const [portal] = useState(() => new Portal({ apiKey: publishableKey }));
   const [token] = useState(() =>
@@ -183,9 +320,7 @@ export function PortalChat({ publishableKey }: { publishableKey: string }) {
   );
   return (
     <PortalProvider client={portal} token={token}>
-      <Messenger />
+      <Messenger profile={profile} />
     </PortalProvider>
   );
 }
-
-export { messageText };

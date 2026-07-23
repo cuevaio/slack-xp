@@ -7,6 +7,7 @@ import {
 } from "@/lib/office-events/contract";
 import {
   createPortalControlPlane,
+  createPortalObserverHistoryReader,
   createPortalProfileInvalidationPublisher,
 } from "@/lib/portal/server";
 import {
@@ -34,6 +35,80 @@ const eligibleEmploymentAccess = {
 };
 
 describe("Portal control-plane boundary", () => {
+  test("reads Observer history with a server-retained connect-only identity", async () => {
+    const requests: Array<{ url: string; init?: RequestInit }> = [];
+    const fetcher: typeof fetch = Object.assign(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        requests.push({ url, init });
+        if (url.endsWith("/members")) return Response.json({ added: 1 });
+        if (url.endsWith("/tokens")) {
+          return Response.json({
+            token: "observer-reader-token",
+            expiresAt: "2026-07-22T12:15:00.000Z",
+          });
+        }
+        return Response.json({
+          msgs: [
+            {
+              id: "observer-message",
+              sender: { id: "user_sender", anon: false },
+              timestamp: 1_753_184_800_000,
+              kind: "text",
+              type: "message",
+              ephemeral: false,
+              retracted: false,
+              content: { text: "Visible update" },
+            },
+          ],
+          hasMore: false,
+        });
+      },
+      { preconnect: fetch.preconnect },
+    );
+    const reader = createPortalObserverHistoryReader({
+      secret: "sk_portal_test",
+      apiKey: "pk_portal_test",
+      fetcher,
+    });
+
+    const messages = await reader.readChannelHistory("general:2026-07-22");
+
+    expect(requests.map(({ url }) => url)).toEqual([
+      "https://api.useportal.co/v1/channels/general%3A2026-07-22/members",
+      "https://api.useportal.co/v1/tokens",
+      "https://realtime.useportal.co/v1/channels/general%3A2026-07-22/history?limit=50",
+    ]);
+    expect(JSON.parse(String(requests[1]?.init?.body))).toEqual({
+      userId: "portal-messenger-observer-reader",
+      claims: {
+        username: "Portal Messenger Observer",
+        avatar: null,
+      },
+      channels: { "general:2026-07-22": ["connect"] },
+      ttl: "15m",
+    });
+    expect(requests[2]?.init?.headers).toEqual({
+      Authorization: "Bearer observer-reader-token",
+      "x-portal-key": "pk_portal_test",
+    });
+    expect(messages).toEqual([
+      {
+        id: "observer-message",
+        channelId: "general:2026-07-22",
+        sender: { id: "user_sender", anon: false },
+        timestamp: 1_753_184_800_000,
+        kind: "text",
+        type: "message",
+        ephemeral: false,
+        retracted: false,
+        content: { text: "Visible update" },
+        status: "sent",
+        unread: false,
+      },
+    ]);
+  });
+
   test("publishes profile invalidations as the reserved sender without profile values", async () => {
     const requests: Array<{ url: string; init?: RequestInit }> = [];
     const fetcher: typeof fetch = Object.assign(

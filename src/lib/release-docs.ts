@@ -379,13 +379,13 @@ function escapeRegularExpression(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-function portalChannelAllowsAnonymousAccess(
+function portalChannelUsesAuthenticatedPolicy(
   source: string,
   channel: string,
 ): boolean {
   const escapedChannel = escapeRegularExpression(channel);
   return new RegExp(
-    `"${escapedChannel}"\\s*:\\s*(?:publicOfficeChannel|\\{[^}]*(?:anonymous:\\s*true|\\.\\.\\.publicOfficeChannel))`,
+    `"${escapedChannel}"\\s*:\\s*(?:publicOfficeChannel|\\{[^}]*\\.\\.\\.publicOfficeChannel)`,
   ).test(source);
 }
 
@@ -406,7 +406,7 @@ function allHandsUsesBroadcastMode(source: string): boolean {
 async function checkPortalConfiguration(root: string): Promise<ReleaseCheck> {
   const source = await readFile(resolve(root, "portal.config.ts"), "utf8");
   const missing = PUBLIC_PORTAL_CHANNELS.filter(
-    (channel) => !portalChannelAllowsAnonymousAccess(source, channel),
+    (channel) => !portalChannelUsesAuthenticatedPolicy(source, channel),
   );
   const privateChannelsExposed = PRIVATE_PORTAL_CHANNELS.filter(
     (channel) => !portalChannelRefusesAnonymousAccess(source, channel),
@@ -414,20 +414,20 @@ async function checkPortalConfiguration(root: string): Promise<ReleaseCheck> {
   const isValid =
     missing.length === 0 &&
     privateChannelsExposed.length === 0 &&
-    source.includes("allow({ publish: ctx.claims.anon !== true })") &&
+    /const publicOfficeChannel\s*=\s*\{[^}]*anonymous:\s*false/u.test(source) &&
     allHandsUsesBroadcastMode(source);
 
   if (isValid) {
     return pass(
       "portal-configuration",
       "Portal customer configuration",
-      "Office Channels allow anonymous reads, protect publishing with authz, and All Hands uses broadcast mode.",
+      "Office Channels require authenticated Portal sessions, Observer history is server-projected, and All Hands uses broadcast mode.",
     );
   }
 
   const missingChannelDetail =
     missing.length > 0
-      ? `; missing anonymous read access: ${missing.join(", ")}`
+      ? `; missing authenticated channel policy: ${missing.join(", ")}`
       : "";
   const privateChannelDetail =
     privateChannelsExposed.length > 0

@@ -44,6 +44,8 @@ import type {
 import { SAFETY_PROJECTION_TIMEOUT_MS } from "@/lib/safety/contract";
 
 const DEFAULT_PORTAL_API_URL = "https://api.useportal.co";
+const DEFAULT_PORTAL_REALTIME_URL = "https://realtime.useportal.co";
+const OBSERVER_READER_USER_ID = "portal-messenger-observer-reader";
 
 export class PortalServiceError extends Error {
   readonly status: number;
@@ -176,9 +178,17 @@ export function createPortalControlPlane({
       });
     },
 
-    async mintToken({ channelIds, userId, claims }: PortalTokenInput) {
+    async mintToken({
+      channelIds,
+      userId,
+      claims,
+      capabilities,
+    }: PortalTokenInput) {
       const permissionsByChannel = Object.fromEntries(
-        channelIds.map((channelId) => [channelId, ["connect", "publish"]]),
+        channelIds.map((channelId) => [
+          channelId,
+          capabilities ?? ["connect", "publish"],
+        ]),
       );
       const token = parseToken(
         await post("/v1/tokens", {
@@ -192,6 +202,78 @@ export function createPortalControlPlane({
         throw new PortalServiceError(502, "invalid_portal_response");
       }
       return token;
+    },
+  };
+}
+
+export function createPortalObserverHistoryReader({
+  secret,
+  apiKey,
+  apiUrl = DEFAULT_PORTAL_API_URL,
+  realtimeUrl = DEFAULT_PORTAL_REALTIME_URL,
+  fetcher = fetch,
+}: PortalControlPlaneOptions & {
+  apiKey: string;
+  realtimeUrl?: string;
+}) {
+  const portal = createPortalControlPlane({ secret, apiUrl, fetcher });
+  const baseRealtimeUrl = realtimeUrl.replace(/\/$/u, "");
+
+  return {
+    async readChannelHistory(channelId: string): Promise<readonly unknown[]> {
+      const identity = {
+        userId: OBSERVER_READER_USER_ID,
+        claims: { username: "Portal Messenger Observer", avatar: null },
+      };
+      await portal.ensureMembership({ channelId, ...identity });
+      const { token } = await portal.mintToken({
+        channelIds: [channelId],
+        capabilities: ["connect"],
+        ...identity,
+      });
+
+      let response: Response;
+      try {
+        const url = new URL(
+          `${baseRealtimeUrl}/v1/channels/${encodeURIComponent(channelId)}/history`,
+        );
+        url.searchParams.set("limit", "50");
+        response = await fetcher(url, {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "x-portal-key": apiKey,
+          },
+          cache: "no-store",
+          signal: AbortSignal.timeout(SAFETY_PROJECTION_TIMEOUT_MS),
+        });
+      } catch {
+        throw new PortalServiceError(503, "portal_unavailable");
+      }
+
+      const payload: unknown = await response.json().catch(() => null);
+      if (
+        !response.ok ||
+        typeof payload !== "object" ||
+        payload === null ||
+        !("msgs" in payload) ||
+        !Array.isArray(payload.msgs)
+      ) {
+        throw new PortalServiceError(
+          response.ok ? 502 : response.status,
+          portalResponseErrorCode(payload, "portal_history_failed"),
+        );
+      }
+
+      return payload.msgs.map((message) =>
+        typeof message === "object" && message !== null
+          ? {
+              ...message,
+              channelId,
+              status: "sent",
+              unread: false,
+            }
+          : message,
+      );
     },
   };
 }

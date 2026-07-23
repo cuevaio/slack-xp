@@ -156,7 +156,9 @@ bun run setup:check
 Production requires Clerk live keys and treats unavailable proof as failure.
 Then verify manually:
 
-1. `/` renders only the non-live Observer preview while signed out.
+1. `/` renders the read-only Observer preview while signed out, refreshes
+   current Office Channel messages within several seconds, and exposes no
+   Portal credential or publishing control.
 2. `/office` refuses signed-out access and completes Clerk sign-in.
 3. A New Hire can finish onboarding, publish, reload history, see presence and
    typing, switch channels, and reconnect.

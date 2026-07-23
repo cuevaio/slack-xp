@@ -35,15 +35,15 @@ describe("office authentication proxy", () => {
     expect(wasProtectCalled()).toBe(false);
   });
 
-  test("keeps sign-in redirects for signed-out office documents", async () => {
+  test("leaves signed-out public office documents accessible", async () => {
     const { auth, wasProtectCalled } = signedOutAuth();
     const response = await enforceClerkOfficeAuthentication(
       auth,
-      new NextRequest("http://localhost/office"),
+      new NextRequest("http://localhost/"),
     );
 
     expect(response).toBeUndefined();
-    expect(wasProtectCalled()).toBe(true);
+    expect(wasProtectCalled()).toBe(false);
   });
 
   test("blocks authenticated server operations when maintenance is active", async () => {

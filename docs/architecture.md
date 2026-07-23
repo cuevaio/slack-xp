@@ -31,7 +31,9 @@ flowchart LR
   Clerk -->|"verified lifecycle webhooks"| App
   App -->|"project profile; read/write workflows"| Neon
   App -->|"mint scoped token; publish controlled effects"| Portal
-  Browser <-->|"messages, history, presence, typing,<br/>unreads, reactions"| Portal
+  Browser <-->|"New Hire messages, history, presence,<br/>typing, unreads, reactions"| Portal
+  Portal -->|"Observer history with server-retained token"| App
+  App -->|"sanitized read-only Observer feed"| Browser
   App -->|"body-free safety projections"| Browser
 ```
 
@@ -59,6 +61,12 @@ sequenceDiagram
 The browser does not send a message body to Neon. A Removed Message records only
 stable coordinates in Neon and causes the normal UI to render a tombstone; it
 does not erase Portal storage.
+
+Observers never connect to Portal directly. The application uses a server-only
+Portal identity to fetch current-day history, composes it with Neon Removed
+Message projections, and returns only the message ID, generic sender label,
+timestamp, and validated text. Short polling provides near-live public reading
+without giving an unauthenticated browser a credential that could publish.
 
 ## Profile flow
 

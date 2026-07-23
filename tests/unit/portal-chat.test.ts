@@ -14,6 +14,24 @@ import {
   validateChatDraft,
 } from "@/lib/portal/chat";
 import { createPortalTokenSource } from "@/lib/portal/client";
+import {
+  CACHED_MESSAGE_LIMIT,
+  channelMessageQueryKey,
+  readCachedChannelMessages,
+  writeCachedChannelMessages,
+} from "@/lib/portal/message-cache";
+
+function createMemoryStorage() {
+  const values = new Map<string, string>();
+  return {
+    getItem(key: string) {
+      return values.get(key) ?? null;
+    },
+    setItem(key: string, value: string) {
+      values.set(key, value);
+    },
+  };
+}
 
 describe("Office Channel chat contract", () => {
   test("defines the complete curated directory with channel-first UTC Office Day ids", () => {
@@ -156,6 +174,50 @@ describe("Office Channel chat contract", () => {
     ).toBeNull();
   });
 
+  test("keeps a bounded validated local fallback for each Office Channel", () => {
+    const storage = createMemoryStorage();
+    const channelId = "general:2026-07-22";
+    const messages = Array.from(
+      { length: CACHED_MESSAGE_LIMIT + 5 },
+      (_, index) => ({
+        id: `message-${index}`,
+        channelId,
+        sender: { id: "user-1", anon: false },
+        timestamp: 1_753_184_800_000 + index,
+        kind: "text",
+        type: "message",
+        ephemeral: false,
+        retracted: false,
+        status: "sent",
+        content: { text: `Message ${index}` },
+      }),
+    );
+
+    writeCachedChannelMessages(storage, channelId, [
+      { unsafe: true },
+      { ...messages[0], channelId: "urgent:2026-07-22" },
+      ...messages,
+    ]);
+
+    const cached = readCachedChannelMessages(storage, channelId) as Array<{
+      id: string;
+    }>;
+    expect(cached).toHaveLength(CACHED_MESSAGE_LIMIT);
+    expect(cached[0]?.id).toBe("message-5");
+    expect(cached.at(-1)?.id).toBe(`message-${CACHED_MESSAGE_LIMIT + 4}`);
+    expect(readCachedChannelMessages(storage, "urgent:2026-07-22")).toEqual([]);
+  });
+
+  test("isolates cached message snapshots by Office Channel", () => {
+    expect(channelMessageQueryKey("general:2026-07-22")).toEqual([
+      "portal-channel-messages",
+      "general:2026-07-22",
+    ]);
+    expect(channelMessageQueryKey("general:2026-07-22")).not.toEqual(
+      channelMessageQueryKey("urgent:2026-07-22"),
+    );
+  });
+
   test("linkifies only safe HTTP(S) destinations and leaves markup as text", () => {
     expect(
       linkifyChatText(
@@ -189,6 +251,38 @@ describe("Office Channel chat contract", () => {
 
     expect(await tokenSource()).toBe("token-1");
     expect(await tokenSource()).toBe("token-2");
+  });
+
+  test("shares one server request across concurrent SDK token resolutions", async () => {
+    let fetches = 0;
+    let releaseFetch: () => void = () => {};
+    const fetchGate = new Promise<void>((resolve) => {
+      releaseFetch = resolve;
+    });
+    const tokenSource = createPortalTokenSource({
+      expectedOfficeDay: "2026-07-22",
+      fetcher: async () => {
+        fetches += 1;
+        await fetchGate;
+        return Response.json({
+          token: "shared-token",
+          channelIds: listOfficeChannelsForDay("2026-07-22").map(
+            ({ id }) => id,
+          ),
+          eventChannelId: "office-events:2026-07-22",
+        });
+      },
+    });
+
+    const resolutions = Promise.all(
+      Array.from({ length: 13 }, () => tokenSource()),
+    );
+    await Promise.resolve();
+    const concurrentFetches = fetches;
+    releaseFetch();
+
+    expect(await resolutions).toEqual(Array(13).fill("shared-token"));
+    expect(concurrentFetches).toBe(1);
   });
 
   test("uses a fresh Clerk token for every server token request", async () => {

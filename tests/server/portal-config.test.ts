@@ -1,24 +1,51 @@
 import { describe, expect, test } from "bun:test";
 import packageJson from "../../package.json";
-import portalConfig from "../../portal.config";
+import portalConfig, {
+  containsBlockedLanguage,
+  moderateChatMessage,
+} from "../../portal.config";
 import vercelConfig from "../../vercel.json";
 
 describe("deployed Portal customer contract", () => {
-  test("allows anonymous reads but not anonymous publishing", () => {
+  test("keeps every browser-connected Portal channel authenticated", () => {
     for (const channel of [
       "general:*",
       "watercooler:*",
       "tech-support:*",
       "urgent:*",
     ]) {
-      expect(portalConfig.channels?.[channel]?.anonymous).toBe(true);
+      expect(portalConfig.channels?.[channel]).toEqual({ anonymous: false });
     }
-    expect(portalConfig.channels?.["all-hands:*"]?.anonymous).toBe(true);
-    expect(portalConfig.channels?.["all-hands:*"]?.mode).toBe("broadcast");
+    expect(portalConfig.channels?.["all-hands:*"]).toEqual({
+      anonymous: false,
+      mode: "broadcast",
+    });
     expect(portalConfig.channels?.["office-events:*"]).toEqual({
       anonymous: false,
     });
     expect(portalConfig.channels?.["hr-reports"]).toEqual({ anonymous: false });
+  });
+
+  test("does not attach hosted hooks while retaining moderation rules", () => {
+    for (const channel of [
+      "general:*",
+      "watercooler:*",
+      "tech-support:*",
+      "urgent:*",
+      "all-hands:*",
+    ]) {
+      expect(portalConfig.channels?.[channel]?.authz).toBeUndefined();
+      expect(portalConfig.channels?.[channel]?.onPublish).toBeUndefined();
+    }
+    expect(moderateChatMessage).toBeDefined();
+  });
+
+  test("blocks whole-word profanity and basic evasions", () => {
+    expect(containsBlockedLanguage("what the FUCK")).toBe(true);
+    expect(containsBlockedLanguage("this is sh1t")).toBe(true);
+    expect(containsBlockedLanguage("f.u.c.k that")).toBe(true);
+    expect(containsBlockedLanguage("please assist the class")).toBe(false);
+    expect(containsBlockedLanguage("a classic bass line")).toBe(false);
   });
 
   test("pins every direct pre-1.0 Portal package exactly", () => {

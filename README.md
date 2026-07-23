@@ -14,8 +14,9 @@ before Clerk, Portal, or Neon credentials are available.
 
 ## The experience
 
-- An **Observer** sees a designed, non-live preview. No Portal client, live
-  message, presence state, or service credential is loaded.
+- An **Observer** sees a designed, read-only preview of current Office Channel
+  history. The browser polls a narrow Portal Messenger endpoint and never
+  receives a Portal credential, presence state, or publishing capability.
 - A signed-in **New Hire** completes the New Employee Setup Wizard, then joins
   five curated Office Channels for the current UTC Office Day with persistent
   messages, history, presence, typing, unreads, reactions, and System Events.
@@ -125,10 +126,11 @@ is deployment configuration, not an environment secret.
 
 Configuration is validated before service adapters are created. Invalid or
 partial configuration renders Installation Incomplete and lists only variable
-names and reasons. Values are never returned to that screen. The Observer route
-does not import the adapter boundary and cannot initialize Portal. Its office
-entry links also disable route prefetching, so the office boundary is not
-rendered until an Observer explicitly chooses to enter it.
+names and reasons. Values are never returned to that screen. The Observer page
+does not receive a Portal credential; its public history endpoint retains the
+credential server-side and returns only safety-projected message fields. Office
+entry links disable route prefetching, so the authenticated office boundary is
+not rendered until an Observer explicitly chooses to enter it.
 
 Missing or invalid service credentials fail closed with the Installation
 Incomplete screen. The application never substitutes local authentication,
@@ -636,9 +638,12 @@ bun run deploy:dry-run
 
 ## Architecture Boundaries
 
-- `/` is the Observer experience. It uses static fixtures and imports no Clerk,
-  Portal, Neon, configuration, or adapter modules. Desktop interactions remain
-  local UI state, and small viewports receive a separate non-windowed teaser.
+- `/` is the Observer experience. It polls a public, read-only application
+  endpoint for current-day Office Channel history; the server retains Portal
+  credentials and applies Neon Removed Message projections before returning a
+  narrow public shape.
+- `/api/observer/portal/history` accepts only curated channel slugs and returns
+  no Portal token, sender ID, profile value, or removed message body.
 - `/office` is the office entry point. It reads runtime configuration on the
   server, requires a server-verified New Hire identity, and constructs service
   adapters only after both checks pass.

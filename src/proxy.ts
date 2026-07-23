@@ -28,8 +28,6 @@ export async function enforceClerkOfficeAuthentication(
     }
     return;
   }
-
-  await auth.protect();
 }
 
 const clerkAuthenticationProxy = clerkMiddleware((auth, request) =>
@@ -53,5 +51,5 @@ export async function proxy(request: NextRequest, event: NextFetchEvent) {
 }
 
 export const config = {
-  matcher: ["/office/:path*", "/api/office/:path*"],
+  matcher: ["/", "/office/:path*", "/api/office/:path*"],
 };

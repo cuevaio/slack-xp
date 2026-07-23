@@ -19,6 +19,7 @@ export type PortalTokenInput = {
   channelIds: readonly string[];
   userId: string;
   claims: PortalMembershipInput["claims"];
+  capabilities?: readonly string[];
 };
 
 export type PortalToken = {

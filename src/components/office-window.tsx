@@ -5,7 +5,7 @@ import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 type WindowState = "open" | "minimized" | "closed" | "loading";
 
 export function OfficeWindow({ children }: { children: ReactNode }) {
-  const [windowState, setWindowState] = useState<WindowState>("open");
+  const [windowState, setWindowState] = useState<WindowState>("closed");
 
   useEffect(() => {
     if (windowState !== "loading") return;

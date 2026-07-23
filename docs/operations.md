@@ -15,7 +15,8 @@ upstream response bodies.
 | Symptom | Likely cause | Safe action |
 | --- | --- | --- |
 | **Installation Incomplete** | A required Clerk, Portal, or Neon variable is missing or invalid, or maintenance has an invalid value. | Compare variable names with [Environment reference](environment.md). Correct the Vercel scope and redeploy. Values are intentionally absent from the screen. |
-| Signed-out or anonymous access is refused | Expected behavior: Clerk authentication and Portal `anonymous: false` are both required boundaries. | Sign in through Clerk. Never enable Portal anonymous access to bypass an application problem. |
+| A signed-out browser cannot connect directly to Portal | Expected behavior: Portal `anonymous: false` protects every Office Channel. The Observer reads only through the server-projected history endpoint. | Check `/api/observer/portal/history` and its Portal/Neon dependencies. Never enable direct Portal anonymous access to bypass an application problem. |
+| Observer messages stop refreshing | Portal history, the server-side Observer identity, or Neon Removed Message projections are unavailable. | Check privacy-safe `observer_history` logs by correlation ID. Keep the preview unavailable rather than returning raw Portal history or a browser token. |
 | Allowed deployment cannot connect, or an unexpected origin connects | `APP_ORIGIN` and Portal/Clerk origin lists disagree, include a path/trailing slash, or contain a preview origin unintentionally. | Register the exact scheme and host, redeploy `portal.config.ts`, and rerun setup verification. Remove untrusted preview origins. |
 | Portal disconnects near 15 minutes | Portal user-token refresh failed, Clerk authentication expired, employment access changed, or safety maintenance activated. | Check the authenticated token route and Clerk session. The SDK callback must request a fresh server-minted token; never place `PORTAL_SECRET` in the browser. |
 | **Migration drift** | The selected Neon database lacks a committed Drizzle migration. | Confirm `DATABASE_URL`, run `bun run db:migrate` explicitly, then rerun `bun run setup:check`. Do not add migration execution to build or startup. |
@@ -31,7 +32,7 @@ upstream response bodies.
 Set `PORTAL_MESSENGER_MAINTENANCE=on` in the affected Vercel project and
 redeploy. New office API requests, Portal token issuance and refresh, active
 conversation rendering, and publishing stop fail-closed. The Observer remains a
-non-live preview.
+read-only, server-projected preview and never receives a Portal credential.
 
 Portal enforces the lifetime of an already issued token, so use Portal customer
 access controls when immediate direct-client containment is required. Restore

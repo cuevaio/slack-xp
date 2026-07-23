@@ -37,31 +37,43 @@ export function createPortalTokenSource({
   getAuthorizationToken,
   onOfficeDayExpired,
 }: PortalTokenSourceOptions): () => Promise<string> {
-  return async () => {
-    const authorizationToken = await getAuthorizationToken?.();
-    if (getAuthorizationToken && !authorizationToken) {
-      throw new Error("Portal authentication is temporarily unavailable.");
-    }
-    const response = await fetcher("/api/office/portal/token", {
-      method: "POST",
-      credentials: "include",
-      cache: "no-store",
-      headers: authorizationToken
-        ? { Authorization: `Bearer ${authorizationToken}` }
-        : undefined,
-      signal: AbortSignal.timeout(SAFETY_PROJECTION_TIMEOUT_MS),
-    });
-    const payload: unknown = await response.json().catch(() => null);
-    if (!response.ok || typeof payload !== "object" || payload === null) {
-      throw new Error("Portal authentication is temporarily unavailable.");
-    }
-    if (!hasExpectedOfficeChannels(payload, expectedOfficeDay)) {
-      onOfficeDayExpired?.();
-      throw new Error("This Office Day has ended. Continue to reconnect.");
-    }
-    if (!("token" in payload) || typeof payload.token !== "string") {
-      throw new Error("Portal authentication is temporarily unavailable.");
-    }
-    return payload.token;
+  let inFlight: Promise<string> | undefined;
+
+  return () => {
+    if (inFlight) return inFlight;
+
+    const request = (async () => {
+      const authorizationToken = await getAuthorizationToken?.();
+      if (getAuthorizationToken && !authorizationToken) {
+        throw new Error("Portal authentication is temporarily unavailable.");
+      }
+      const response = await fetcher("/api/office/portal/token", {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: authorizationToken
+          ? { Authorization: `Bearer ${authorizationToken}` }
+          : undefined,
+        signal: AbortSignal.timeout(SAFETY_PROJECTION_TIMEOUT_MS),
+      });
+      const payload: unknown = await response.json().catch(() => null);
+      if (!response.ok || typeof payload !== "object" || payload === null) {
+        throw new Error("Portal authentication is temporarily unavailable.");
+      }
+      if (!hasExpectedOfficeChannels(payload, expectedOfficeDay)) {
+        onOfficeDayExpired?.();
+        throw new Error("This Office Day has ended. Continue to reconnect.");
+      }
+      if (!("token" in payload) || typeof payload.token !== "string") {
+        throw new Error("Portal authentication is temporarily unavailable.");
+      }
+      return payload.token;
+    })();
+    inFlight = request;
+    const clear = () => {
+      if (inFlight === request) inFlight = undefined;
+    };
+    void request.then(clear, clear);
+    return request;
   };
 }

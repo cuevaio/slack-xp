@@ -1,6 +1,6 @@
 "use client";
 
-import { useAuth } from "@clerk/nextjs";
+import { SignInButton, useAuth } from "@clerk/nextjs";
 import {
   type AggregatePresence,
   type ChannelStatus,
@@ -11,9 +11,10 @@ import {
   type PortalError,
 } from "@portalsdk/core";
 import { PortalProvider, useChannel, useInbox } from "@portalsdk/react";
-import { useQueryClient } from "@tanstack/react-query";
+import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
 import {
+  Activity,
   type FormEvent,
   type KeyboardEvent,
   type ReactNode,
@@ -73,6 +74,16 @@ import {
 import { createPortalTokenSource } from "@/lib/portal/client";
 import { type OfficeInboxRow, reconcileOfficeInbox } from "@/lib/portal/inbox";
 import {
+  channelMessageQueryKey,
+  readCachedChannelMessages,
+  writeCachedChannelMessages,
+} from "@/lib/portal/message-cache";
+import {
+  fetchObserverChannelHistory,
+  OBSERVER_HISTORY_REFRESH_MS,
+  type ObserverChannelMessage,
+} from "@/lib/portal/observer";
+import {
   formatOfficeTimestamp,
   observeOfficeDayBoundary,
   officeDay,
@@ -114,10 +125,17 @@ type PortalOfficeBaseProps = {
   canSignOut: boolean;
 };
 
-type PortalChatProps = PortalOfficeBaseProps & {
+type LivePortalChatProps = PortalOfficeBaseProps & {
   mode: "live";
   publishableKey: string;
 };
+
+type ObserverPortalChatProps = {
+  channels: readonly OfficeChannel[];
+  mode: "observer";
+};
+
+type PortalChatProps = LivePortalChatProps | ObserverPortalChatProps;
 
 type ReactionMutation = Pick<
   ReactionOfficeEvent,
@@ -167,6 +185,7 @@ type OfficeWorkspaceProps = Pick<
   | "isOperator"
   | "canSignOut"
 > & {
+  authenticated: boolean;
   activeChannelId: string;
   inboxRows: readonly OfficeInboxRow[];
   inboxStatus: InboxStatus;
@@ -1548,9 +1567,8 @@ function ChatSurface({
 }
 
 function OfficeWorkspace({
+  authenticated,
   channels,
-  identityId,
-  displayName,
   employeeRecord,
   isOperator,
   canSignOut,
@@ -1565,17 +1583,9 @@ function OfficeWorkspace({
   mentionAnnouncement,
   children,
 }: OfficeWorkspaceProps) {
-  const currentProfile = useProfileBatch([identityId]);
-  const currentProfileSafety = useSafetyProjectionStatus(currentProfile);
-  const operatorState = useOperatorState(isOperator);
+  const operatorState = useOperatorState(authenticated && isOperator);
   const hasOperatorAccess =
     !operatorState.isError && operatorState.data?.isOperator === true;
-  const currentDisplayName =
-    currentProfileSafety === "ready"
-      ? (currentProfile.data?.find(
-          (profile) => profile.clerkUserId === identityId,
-        )?.displayName ?? displayName)
-      : FALLBACK_PROFILE_NAME;
   const directoryButtons = useRef(new Map<string, HTMLButtonElement>());
   const mobileDirectoryTrigger = useRef<HTMLButtonElement>(null);
   const inboxRowsByChannelId = new Map(
@@ -1676,8 +1686,265 @@ function OfficeWorkspace({
           {children}
         </section>
       </div>
-      <NewHireProfileContext canSendHome={hasOperatorAccess} />
+      {authenticated ? (
+        <NewHireProfileContext canSendHome={hasOperatorAccess} />
+      ) : null}
     </OperatorAccessContext.Provider>
+  );
+}
+
+type ObserverHistoryStatus = "connecting" | "ready" | "unavailable";
+
+function observerHistoryQueryOptions(channel: OfficeChannel, refresh: boolean) {
+  const refetchInterval: number | false = refresh
+    ? OBSERVER_HISTORY_REFRESH_MS
+    : false;
+  return {
+    queryKey: ["observer-channel-history", channel.slug] as const,
+    queryFn: ({ signal }: { signal: AbortSignal }) =>
+      fetchObserverChannelHistory(channel.slug, fetch, signal),
+    refetchInterval,
+    retry: false,
+    staleTime: 0,
+  };
+}
+
+export function ObserverMessageHistory({
+  channel,
+  messages,
+}: {
+  channel: OfficeChannel;
+  messages: readonly ObserverChannelMessage[];
+}) {
+  if (messages.length === 0) {
+    return (
+      <div className="empty-chat">
+        <strong>No messages yet.</strong>
+      </div>
+    );
+  }
+
+  return (
+    <ol
+      aria-label={`${channel.name} message history`}
+      className="message-history"
+    >
+      {messages.map((message) => (
+        <li
+          className={`chat-message chat-message-sent${message.groupedWithPrevious ? " chat-message-grouped" : ""}`}
+          data-message-id={message.id}
+          key={message.id}
+          tabIndex={-1}
+        >
+          {message.groupedWithPrevious ? null : (
+            <div className="message-meta">
+              <span className="profile-context-trigger">
+                <span className="message-avatar-wrap">
+                  <span
+                    aria-hidden="true"
+                    className="message-avatar-placeholder"
+                  >
+                    {message.sender.slice(0, 1)}
+                  </span>
+                  <span
+                    aria-hidden="true"
+                    className="participant-activity-dot"
+                    data-active="false"
+                  />
+                </span>
+                <strong>{message.sender}</strong>
+                <time dateTime={new Date(message.timestamp).toISOString()}>
+                  {formatOfficeTimestamp(message.timestamp)}
+                </time>
+              </span>
+            </div>
+          )}
+          <p>
+            <SafeMessageText content={{ text: message.text }} />
+          </p>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function ObserverOfficeChannel({
+  channel,
+  visible,
+}: {
+  channel: OfficeChannel;
+  visible: boolean;
+}) {
+  const history = useQuery(observerHistoryQueryOptions(channel, visible));
+  const scrollRegionRef = useRef<HTMLDivElement>(null);
+  const messages = history.data ?? [];
+  const status: ObserverHistoryStatus =
+    history.data !== undefined
+      ? "ready"
+      : history.isError
+        ? "unavailable"
+        : "connecting";
+  const channelStatus: ChannelStatus =
+    status === "ready"
+      ? "ready"
+      : status === "unavailable"
+        ? "blocked"
+        : "connecting";
+  const latestMessageId = messages.at(-1)?.id;
+  const headingId = `office-channel-heading-${channel.slug}`;
+
+  useEffect(() => {
+    if (!visible || !latestMessageId) return;
+    const region = scrollRegionRef.current;
+    if (region) region.scrollTop = region.scrollHeight;
+  }, [latestMessageId, visible]);
+
+  return (
+    <section
+      aria-labelledby={headingId}
+      className={`general-chat ${channel.mode === "broadcast" ? "broadcast-chat" : ""}`}
+      hidden={!visible}
+      id={`office-channel-${channel.slug}`}
+    >
+      <header className="conversation-heading">
+        <div>
+          <span
+            aria-hidden="true"
+            className={`presence-dot connection-${channelStatus}`}
+          />
+          <strong id={headingId}># {channel.slug}</strong>
+          <span className="channel-purpose">{channel.purpose}</span>
+        </div>
+        {status === "ready" ? null : (
+          <output aria-live="polite" className="connection-status">
+            {connectionStatusCopy(channelStatus)}
+          </output>
+        )}
+      </header>
+
+      <div className="conversation-content">
+        <LiveActivity
+          active={false}
+          channel={channel}
+          participantIds={[]}
+          status={channelStatus}
+        />
+        <div className="chat-scroll-region" ref={scrollRegionRef}>
+          {status === "unavailable" ? (
+            <div className="portal-outage" aria-live="polite">
+              <strong>Connection lost. Portal is offline.</strong>
+              <span className="outage-detail">
+                Live conversation service is temporarily unavailable.
+              </span>
+              <Button onClick={() => void history.refetch()} type="button">
+                Retry
+              </Button>
+            </div>
+          ) : null}
+          {status === "connecting" ? (
+            <p className="profile-status">Verifying message safety…</p>
+          ) : (
+            <ObserverMessageHistory channel={channel} messages={messages} />
+          )}
+        </div>
+      </div>
+
+      <form
+        className="chat-composer"
+        onSubmit={(event) => event.preventDefault()}
+      >
+        <div className="composer-input-shell">
+          <div aria-hidden="true" className="composer-highlight-layer" />
+          <Textarea
+            aria-label={`Message # ${channel.name}`}
+            disabled
+            id={`message-${channel.id}`}
+            maxLength={CHAT_TEXT_LIMIT}
+            placeholder="Sign in to send a message…"
+            rows={2}
+            value=""
+          />
+          <div className="composer-actions">
+            <span className="character-count">0 / 1,000</span>
+            <Button
+              className="send-message-button"
+              disabled
+              size="xs"
+              type="submit"
+            >
+              Send
+            </Button>
+          </div>
+        </div>
+      </form>
+    </section>
+  );
+}
+
+function ObserverSignInControl() {
+  return (
+    <SignInButton forceRedirectUrl="/">
+      <button className="employee-record-trigger" type="button">
+        <span aria-hidden="true" className="employee-record-avatar-fallback">
+          ?
+        </span>
+        <span className="employee-record-name">Sign in</span>
+      </button>
+    </SignInButton>
+  );
+}
+
+function ObserverPortalWorkspace({
+  channels,
+}: Pick<ObserverPortalChatProps, "channels">) {
+  const currentOfficeDay = channels[0]?.id.split(":")[1] ?? officeDay();
+  const { activeChannelId, setActiveChannelId } = useActiveOfficeChannel(
+    channels,
+    currentOfficeDay,
+  );
+  const navigation = useResponsiveOfficeNavigation();
+  const selectChannel = useCallback(
+    (channelId: string) => {
+      setActiveChannelId(channelId);
+      navigation.showConversation();
+    },
+    [navigation.showConversation, setActiveChannelId],
+  );
+  const inboxRows: OfficeInboxRow[] = channels.map((channel) => ({
+    channelId: channel.id,
+    preview: null,
+    unread: 0,
+  }));
+
+  return (
+    <OfficeWorkspace
+      activeChannelId={activeChannelId}
+      authenticated={false}
+      canSignOut={false}
+      channels={channels}
+      displayName="Observer"
+      employeeRecord={<ObserverSignInControl />}
+      identityId=""
+      inboxRows={inboxRows}
+      inboxStatus="ready"
+      isMobile={navigation.isMobile}
+      isOperator={false}
+      mobileNavigationOpen={navigation.mobileNavigationOpen}
+      mentionedChannelIds={new Set()}
+      mentionAnnouncement=""
+      onOpenMobileNavigation={navigation.openMobileNavigation}
+      onSelectChannel={selectChannel}
+    >
+      {channels.map((channel) => (
+        <ObserverOfficeChannel
+          channel={channel}
+          key={channel.id}
+          visible={
+            navigation.conversationVisible && channel.id === activeChannelId
+          }
+        />
+      ))}
+    </OfficeWorkspace>
   );
 }
 
@@ -1702,6 +1969,27 @@ function LiveOfficeChannel({
   onMentionVisible(channelId: string): void;
 }) {
   const [channelError, setChannelError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const cachedMessages = useQuery<readonly unknown[]>({
+    queryKey: channelMessageQueryKey(officeChannel.id),
+    queryFn: skipToken,
+  });
+  useEffect(() => {
+    if (cachedMessages.data !== undefined) return;
+    let messages: readonly unknown[] = [];
+    try {
+      messages = readCachedChannelMessages(
+        window.localStorage,
+        officeChannel.id,
+      );
+    } catch {
+      // Access to local storage can be disabled; the live query remains available.
+    }
+    queryClient.setQueryData(
+      channelMessageQueryKey(officeChannel.id),
+      messages,
+    );
+  }, [cachedMessages.data, officeChannel.id, queryClient]);
   const channel = useChannel<{ text: string }>({
     channelId: officeChannel.id,
     history: 50,
@@ -1716,38 +2004,60 @@ function LiveOfficeChannel({
   useEffect(() => {
     if (channel.status === "ready") setChannelError(null);
   }, [channel.status]);
+  useEffect(() => {
+    if (!isChatContentReady(channel.status)) return;
+    queryClient.setQueryData(
+      channelMessageQueryKey(officeChannel.id),
+      channel.messages,
+    );
+    try {
+      writeCachedChannelMessages(
+        window.localStorage,
+        officeChannel.id,
+        channel.messages,
+      );
+    } catch {
+      // Access to local storage can be disabled; live Portal data still works.
+    }
+  }, [channel.messages, channel.status, officeChannel.id, queryClient]);
   const markVisibleContentRead = useCallback(() => {
     channel.markAsRead();
     onInboxRead(officeChannel.id);
   }, [channel.markAsRead, officeChannel.id, onInboxRead]);
 
   return (
-    <ChatSurface
-      channel={officeChannel}
-      hasPrevious={channel.hasPrevious}
-      identityId={identityId}
-      isLoadingPrevious={channel.isLoadingPrevious}
-      loadPrevious={channel.loadPrevious}
-      messages={channel.messages}
-      mentionMessageId={mentionMessageId}
-      onMentionVisible={() => onMentionVisible(officeChannel.id)}
-      onTyping={channel.sendTyping}
-      onReact={onReact}
-      onRetryConnection={() => window.location.reload()}
-      onContentVisible={markVisibleContentRead}
-      onSend={async (content, mentions) => {
-        await channel.send({
-          content,
-          ...(mentions.length > 0 ? { mentions: [...mentions] } : {}),
-        });
-      }}
-      reactionEvents={reactionEvents}
-      reactionsEnabled={reactionsEnabled}
-      status={channel.status}
-      presence={channel.presence}
-      channelError={channelError}
-      visible={visible}
-    />
+    <Activity mode={visible ? "visible" : "hidden"}>
+      <ChatSurface
+        channel={officeChannel}
+        hasPrevious={channel.hasPrevious}
+        identityId={identityId}
+        isLoadingPrevious={channel.isLoadingPrevious}
+        loadPrevious={channel.loadPrevious}
+        messages={
+          isChatContentReady(channel.status)
+            ? channel.messages
+            : (cachedMessages.data ?? [])
+        }
+        mentionMessageId={mentionMessageId}
+        onMentionVisible={() => onMentionVisible(officeChannel.id)}
+        onTyping={channel.sendTyping}
+        onReact={onReact}
+        onRetryConnection={() => window.location.reload()}
+        onContentVisible={markVisibleContentRead}
+        onSend={async (content, mentions) => {
+          await channel.send({
+            content,
+            ...(mentions.length > 0 ? { mentions: [...mentions] } : {}),
+          });
+        }}
+        reactionEvents={reactionEvents}
+        reactionsEnabled={reactionsEnabled}
+        status={channel.status}
+        presence={channel.presence}
+        channelError={channelError}
+        visible={visible}
+      />
+    </Activity>
   );
 }
 
@@ -1842,7 +2152,7 @@ function LivePortalWorkspace({
   isOperator,
   canSignOut,
   onEmploymentAccessEnded,
-}: Omit<PortalChatProps, "mode" | "publishableKey"> & {
+}: Omit<LivePortalChatProps, "mode" | "publishableKey"> & {
   onEmploymentAccessEnded(access: EmploymentAccessDeniedDecision): void;
 }) {
   const queryClient = useQueryClient();
@@ -1958,6 +2268,7 @@ function LivePortalWorkspace({
   return (
     <OfficeWorkspace
       activeChannelId={activeChannelId}
+      authenticated
       canSignOut={canSignOut}
       channels={channels}
       displayName={displayName}
@@ -1995,7 +2306,7 @@ function LivePortalWorkspace({
 }
 
 function LivePortalOffice(
-  props: Omit<PortalChatProps, "mode"> & {
+  props: Omit<LivePortalChatProps, "mode"> & {
     onOfficeDayExpired(): void;
     onEmploymentAccessEnded(access: EmploymentAccessDeniedDecision): void;
   },
@@ -2107,7 +2418,7 @@ function createOfficeDayWorkspace(
   };
 }
 
-function PortalChatWorkspace(props: PortalChatProps): ReactNode {
+function PortalChatWorkspace(props: LivePortalChatProps): ReactNode {
   const applicationSafety = useApplicationSafetyControl();
   const [workspace, setWorkspace] = useState<OfficeDayWorkspace>(() => ({
     channels: props.channels,
@@ -2197,7 +2508,11 @@ function PortalChatWorkspace(props: PortalChatProps): ReactNode {
 export function PortalChat(props: PortalChatProps): ReactNode {
   return (
     <ProfileQueryProvider>
-      <PortalChatWorkspace {...props} />
+      {props.mode === "observer" ? (
+        <ObserverPortalWorkspace channels={props.channels} />
+      ) : (
+        <PortalChatWorkspace {...props} />
+      )}
     </ProfileQueryProvider>
   );
 }

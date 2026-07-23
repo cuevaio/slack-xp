@@ -52,5 +52,5 @@ export async function requireOfficeIdentity(
   }
 
   const session = await auth();
-  return session.redirectToSignIn({ returnBackUrl: "/office" });
+  return session.redirectToSignIn({ returnBackUrl: "/" });
 }

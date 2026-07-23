@@ -7,7 +7,6 @@ import {
 
 const liveEnvironment = {
   APP_ENV: "preview",
-  SERVICE_MODE: "live",
   APP_ORIGIN: "https://preview.example.com",
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_public",
   CLERK_SECRET_KEY: "sk_test_secret",
@@ -67,7 +66,7 @@ describe("fork setup verification", () => {
 
   test("distinguishes missing credentials from invalid configuration", async () => {
     const unavailable = await runSetupVerification(
-      { APP_ENV: "preview", SERVICE_MODE: "live" },
+      { APP_ENV: "preview" },
       passingVerifier(),
     );
     expect(unavailable.exitCode).toBe(2);
@@ -200,7 +199,6 @@ describe("fork setup verification", () => {
       env: {
         PATH: process.env.PATH ?? "",
         APP_ENV: "preview",
-        SERVICE_MODE: "live",
       },
       stdout: "pipe",
       stderr: "pipe",

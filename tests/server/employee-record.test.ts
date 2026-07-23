@@ -30,7 +30,6 @@ const editedProfile: NewHireProfile = {
 const mockConfiguration: ReadyAppConfiguration = {
   status: "ready",
   environment: "test",
-  serviceMode: "mock",
   values: {},
 };
 
@@ -43,7 +42,6 @@ const identity: AuthenticatedNewHire = {
   imageUrl: originalProfile.imageUrl,
   sourceVersion: originalProfile.sourceVersion,
   isOperator: false,
-  authentication: "mock",
 };
 
 function updateFormData(fields: Record<string, string>): FormData {

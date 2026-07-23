@@ -16,7 +16,7 @@
     "docs:check": "bun scripts/release-docs-check.ts",
     "deploy:dry-run": "bun scripts/release-docs-check.ts --dry-run",
     "format": "biome format --write",
-    "test": "bun run test:unit && bun run test:server && bun run test:browser",
+    "test": "bun run test:unit && bun run test:server",
     "test:unit": "bun test tests/unit",
     "test:server": "bun test tests/server",
     "test:browser": "playwright test"

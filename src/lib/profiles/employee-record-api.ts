@@ -7,7 +7,6 @@ import {
   validateProfileInput,
 } from "@/lib/onboarding/domain";
 import {
-  isMockProfileProjectionReady,
   profileFromIdentity,
   readAuthoritativeProfile,
   updateAuthoritativeProfile,
@@ -15,7 +14,6 @@ import {
 import type { NewHireProfile } from "@/lib/onboarding/types";
 import {
   ProfileUpdateError,
-  readEmployeeRecordProjection,
   repairEmployeeRecordProjection,
   updateEmployeeRecord,
 } from "@/lib/profiles/edit";
@@ -130,19 +128,6 @@ export async function handleEmployeeRecordConvergence(
       dependencies.configuration,
       dependencies.identity,
     );
-    const projectionIsDelayed =
-      dependencies.configuration.serviceMode === "mock" &&
-      !isMockProfileProjectionReady(authoritativeProfile.clerkUserId);
-
-    if (projectionIsDelayed) {
-      return Response.json(
-        await readEmployeeRecordProjection(
-          dependencies.repository,
-          authoritativeProfile,
-        ),
-      );
-    }
-
     return Response.json(
       await repairEmployeeRecordProjection(
         dependencies.repository,

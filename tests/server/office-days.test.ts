@@ -11,8 +11,8 @@ import {
 import type { ScriptedSystemEventPublisher } from "@/lib/office-days/types";
 import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
 import { listOfficeChannels } from "@/lib/portal/channels";
-import { createMockPortalAdapter } from "@/lib/portal/mock";
 import { createPortalScriptedSystemEventPublisher } from "@/lib/portal/server";
+import { createMockPortalAdapter } from "../support/portal";
 
 describe("Office Day seeding and publishing", () => {
   test("creates the Office Day and its deterministic plan once under concurrency", async () => {

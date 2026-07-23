@@ -57,7 +57,6 @@ export function createLiveAdapters(
   });
 
   return {
-    kind: "live",
     portal: {
       ...portalControlPlane,
       ...profileInvalidationPublisher,

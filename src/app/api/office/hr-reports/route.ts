@@ -11,7 +11,6 @@ import {
   submitMessageHRReport,
   submitProfileHRReport,
 } from "@/lib/hr-reports/service";
-import { officeNowForRequest } from "@/lib/portal/request-controls";
 
 export const runtime = "nodejs";
 
@@ -30,7 +29,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "new_hire_ineligible" }, { status: 403 });
   }
 
-  const now = officeNowForRequest(request.headers, configuration);
+  const now = new Date();
   const body: unknown = await request.json().catch(() => null);
   const input =
     parseProfileHRReportRequest(body) ?? parseMessageHRReportRequest(body, now);

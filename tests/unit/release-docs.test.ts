@@ -15,7 +15,7 @@ describe("fork-and-deploy release package", () => {
     expect(report.exitCode).toBe(0);
   });
 
-  test("renders a credential-free deployment rehearsal", async () => {
+  test("renders a documentation-only deployment rehearsal", async () => {
     const dryRun = await createDeploymentDryRun(repositoryRoot);
 
     expect(dryRun.exitCode).toBe(0);

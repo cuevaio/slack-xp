@@ -9,7 +9,6 @@ import type {
 import { parseMessageRemovalRequest } from "@/lib/message-removals/domain";
 import { removeMessage } from "@/lib/message-removals/service";
 import { officeDay } from "@/lib/portal/office-day";
-import { officeNowForRequest } from "@/lib/portal/request-controls";
 
 export const runtime = "nodejs";
 
@@ -85,6 +84,6 @@ export async function POST(request: Request) {
     publisher: adapters.portal,
     requesterId: identity.id,
     operatorUserIds: process.env.OPERATOR_CLERK_USER_IDS,
-    now: officeNowForRequest(request.headers, configuration),
+    now: new Date(),
   });
 }

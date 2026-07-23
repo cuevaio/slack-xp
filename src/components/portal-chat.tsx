@@ -46,12 +46,10 @@ import {
   createReactionOfficeEvent,
   createReactionProjection,
   OFFICE_REACTIONS,
-  type OfficeEvent,
   type OfficeInvalidationEvent,
   type OfficeReaction,
   officeEventChannelIdForDay,
   type ProjectedOfficeReaction,
-  parseOfficeEventMessage,
   type ReactionOfficeEvent,
 } from "@/lib/office-events/contract";
 import {
@@ -67,17 +65,11 @@ import {
   CHAT_TEXT_LIMIT,
   linkifyChatText,
   type PortalChatContent,
-  parsePortalChatMessage,
   type SafePortalChatMessage,
   validateChatDraft,
 } from "@/lib/portal/chat";
 import { createPortalTokenSource } from "@/lib/portal/client";
-import {
-  type OfficeInboxEntry,
-  type OfficeInboxRow,
-  parseOfficeInboxSnapshot,
-  reconcileOfficeInbox,
-} from "@/lib/portal/inbox";
+import { type OfficeInboxRow, reconcileOfficeInbox } from "@/lib/portal/inbox";
 import {
   formatOfficeTimestamp,
   observeOfficeDayBoundary,
@@ -119,17 +111,10 @@ type PortalOfficeBaseProps = {
   canSignOut: boolean;
 };
 
-type MockPortalOfficeProps = PortalOfficeBaseProps & {
-  mode: "mock";
-  publishableKey?: never;
-};
-
-type LivePortalOfficeProps = PortalOfficeBaseProps & {
+type PortalChatProps = PortalOfficeBaseProps & {
   mode: "live";
   publishableKey: string;
 };
-
-type PortalChatProps = MockPortalOfficeProps | LivePortalOfficeProps;
 
 type ReactionMutation = Pick<
   ReactionOfficeEvent,
@@ -183,11 +168,6 @@ type OfficeWorkspaceProps = Pick<
   children: ReactNode;
 };
 
-type MockHistoryPage = {
-  messages: unknown[];
-  hasPrevious: boolean;
-};
-
 type ProfileResolution = {
   status: "loading" | "ready" | "error";
   profiles: readonly ProfileAttribution[];
@@ -199,12 +179,6 @@ type LiveActivityProps = {
   participantIds: readonly string[];
   presence?: PortalPresence;
   status: ChannelStatus;
-};
-
-type MockOfficeInbox = {
-  entries: readonly OfficeInboxEntry[];
-  status: InboxStatus;
-  markAsRead(channelId: string): Promise<void>;
 };
 
 type ResponsiveOfficeNavigation = {
@@ -284,73 +258,14 @@ function useResponsiveOfficeNavigation(): ResponsiveOfficeNavigation {
   };
 }
 
-function getMessageId(message: unknown): string | undefined {
-  if (
-    typeof message !== "object" ||
-    message === null ||
-    !("id" in message) ||
-    typeof message.id !== "string"
-  ) {
-    return undefined;
-  }
-  return message.id;
-}
-
-function replaceMessage(
-  messages: readonly unknown[],
-  id: string,
-  replacement: unknown,
-): unknown[] {
-  return messages.map((message) =>
-    getMessageId(message) === id ? replacement : message,
-  );
-}
-
-function prependUniqueMessages(
-  current: readonly unknown[],
-  previous: readonly unknown[],
-): unknown[] {
-  const currentIds = new Set(
-    current.map(getMessageId).filter((id): id is string => id !== undefined),
-  );
-  return [
-    ...previous.filter((message) => {
-      const id = getMessageId(message);
-      return id === undefined || !currentIds.has(id);
-    }),
-    ...current,
-  ];
-}
-
-function firstMessageId(messages: readonly unknown[]): string | undefined {
-  return getMessageId(messages[0]);
-}
-
 function appendReactionEvent(
-  events: ReactionOfficeEvent[],
+  events: readonly ReactionOfficeEvent[],
   event: ReactionOfficeEvent,
 ): ReactionOfficeEvent[] {
   if (events.some(({ eventKey }) => eventKey === event.eventKey)) {
-    return events;
+    return [...events];
   }
   return [...events, event];
-}
-
-function parseMockHistoryPage(value: unknown): MockHistoryPage | null {
-  if (
-    typeof value !== "object" ||
-    value === null ||
-    !("messages" in value) ||
-    !Array.isArray(value.messages) ||
-    !("hasPrevious" in value) ||
-    typeof value.hasPrevious !== "boolean"
-  ) {
-    return null;
-  }
-  return {
-    messages: value.messages,
-    hasPrevious: value.hasPrevious,
-  };
 }
 
 function useResolvedNewHireProfiles(
@@ -481,103 +396,6 @@ function LiveActivity({
       />
     </aside>
   );
-}
-
-async function fetchMockHistoryPage(
-  channelSlug: OfficeChannel["slug"],
-  before?: string,
-): Promise<MockHistoryPage> {
-  const searchParams = new URLSearchParams({ channel: channelSlug });
-  if (before) {
-    searchParams.set("before", before);
-  }
-
-  const response = await fetch(
-    `/api/office/portal/mock-chat?${searchParams.toString()}`,
-    { credentials: "include", cache: "no-store" },
-  );
-  const payload: unknown = await response.json().catch(() => null);
-  const historyPage = parseMockHistoryPage(payload);
-  if (!response.ok || !historyPage) {
-    throw new Error("Mock Portal history unavailable");
-  }
-  return historyPage;
-}
-
-function useMockOfficeInbox(): MockOfficeInbox {
-  const [entries, setEntries] = useState<readonly OfficeInboxEntry[]>([]);
-  const [status, setStatus] = useState<InboxStatus>("connecting");
-  const requestInFlight = useRef(false);
-
-  const refresh = useCallback(async () => {
-    if (requestInFlight.current) {
-      return;
-    }
-    requestInFlight.current = true;
-    try {
-      const response = await fetch("/api/office/portal/mock-inbox", {
-        credentials: "include",
-        cache: "no-store",
-      });
-      const payload: unknown = await response.json().catch(() => null);
-      const snapshot = parseOfficeInboxSnapshot(payload);
-      if (!response.ok || !snapshot) {
-        throw new Error("Mock Portal inbox unavailable");
-      }
-      setEntries(snapshot.entries);
-      setStatus("ready");
-    } catch {
-      setStatus("reconnecting");
-    } finally {
-      requestInFlight.current = false;
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-    const interval = window.setInterval(() => void refresh(), 300);
-    return () => window.clearInterval(interval);
-  }, [refresh]);
-
-  const markAsRead = useCallback(
-    async (channelId: string) => {
-      const response = await fetch("/api/office/portal/mock-inbox", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channelId }),
-      });
-      if (!response.ok) {
-        setStatus("reconnecting");
-        return;
-      }
-      await refresh();
-    },
-    [refresh],
-  );
-
-  return {
-    entries,
-    status,
-    markAsRead,
-  };
-}
-
-async function fetchMockOfficeEvents(
-  eventChannelId: string,
-): Promise<OfficeEvent[]> {
-  const response = await fetch("/api/office/portal/mock-events", {
-    credentials: "include",
-    cache: "no-store",
-  });
-  const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok || !Array.isArray(payload)) {
-    throw new Error("Mock Portal Office Event history unavailable");
-  }
-  return payload.flatMap((message) => {
-    const parsed = parseOfficeEventMessage(message, eventChannelId);
-    return parsed ? [parsed.event] : [];
-  });
 }
 
 function SafeMessageText({ text }: { text: string }) {
@@ -1667,8 +1485,6 @@ function recheckEmploymentAccess(
     .catch(onError);
 }
 
-function ignoreMockEmploymentAccessError(): void {}
-
 function LivePortalWorkspace({
   channels,
   identityId,
@@ -1679,7 +1495,7 @@ function LivePortalWorkspace({
   isOperator,
   canSignOut,
   onEmploymentAccessEnded,
-}: Omit<LivePortalOfficeProps, "mode" | "publishableKey"> & {
+}: Omit<PortalChatProps, "mode" | "publishableKey"> & {
   onEmploymentAccessEnded(access: EmploymentAccessDeniedDecision): void;
 }) {
   const queryClient = useQueryClient();
@@ -1803,7 +1619,7 @@ function LivePortalWorkspace({
 }
 
 function LivePortalOffice(
-  props: Omit<LivePortalOfficeProps, "mode"> & {
+  props: Omit<PortalChatProps, "mode"> & {
     onOfficeDayExpired(): void;
     onEmploymentAccessEnded(access: EmploymentAccessDeniedDecision): void;
   },
@@ -1830,347 +1646,6 @@ function LivePortalOffice(
     <PortalProvider client={portal}>
       <LivePortalWorkspace {...props} />
     </PortalProvider>
-  );
-}
-
-function MockOfficeChannel({
-  visible,
-  channel,
-  identityId,
-  latestActivityAt,
-  onContentVisible,
-  onReact,
-  reactionEvents,
-  reactionsEnabled,
-  officeDay: currentOfficeDay,
-  onOfficeDayExpired,
-}: ReactionProps & {
-  visible: boolean;
-  channel: OfficeChannel;
-  identityId: string;
-  latestActivityAt: number;
-  onContentVisible(channelId: string): void;
-  officeDay: string;
-  onOfficeDayExpired(): void;
-}) {
-  const [messages, setMessages] = useState<unknown[]>([]);
-  const [status, setStatus] = useState<ChannelStatus>("connecting");
-  const [hasPrevious, setHasPrevious] = useState(false);
-  const [isLoadingPrevious, setIsLoadingPrevious] = useState(false);
-  const [readWhenVisible, setReadWhenVisible] = useState(false);
-
-  const loadMockHistory = useCallback(async (): Promise<boolean> => {
-    setStatus("connecting");
-    try {
-      await createPortalTokenSource({
-        expectedOfficeDay: currentOfficeDay,
-        onOfficeDayExpired,
-      })();
-      const historyPage = await fetchMockHistoryPage(channel.slug);
-      setMessages(historyPage.messages);
-      setHasPrevious(historyPage.hasPrevious);
-      setStatus("ready");
-      return true;
-    } catch {
-      setMessages([]);
-      setHasPrevious(false);
-      setStatus("reconnecting");
-      return false;
-    }
-  }, [channel.slug, currentOfficeDay, onOfficeDayExpired]);
-
-  useEffect(() => {
-    if (!visible) {
-      setReadWhenVisible(false);
-      return;
-    }
-    let current = true;
-    const expectedActivityAt = latestActivityAt;
-    setReadWhenVisible(false);
-    void loadMockHistory().then((loaded) => {
-      if (current && loaded && expectedActivityAt === latestActivityAt) {
-        setReadWhenVisible(true);
-      }
-    });
-    return () => {
-      current = false;
-    };
-  }, [latestActivityAt, loadMockHistory, visible]);
-
-  async function loadPrevious(): Promise<void> {
-    const before = firstMessageId(messages);
-    if (!before) return;
-    setIsLoadingPrevious(true);
-    try {
-      const historyPage = await fetchMockHistoryPage(channel.slug, before);
-      setMessages((current) =>
-        prependUniqueMessages(current, historyPage.messages),
-      );
-      setHasPrevious(historyPage.hasPrevious);
-    } finally {
-      setIsLoadingPrevious(false);
-    }
-  }
-
-  async function sendMessage(text: string): Promise<void> {
-    const content = validateChatDraft(text);
-    const temporaryId = `pending-${crypto.randomUUID()}`;
-    const pendingMessage = {
-      id: temporaryId,
-      channelId: channel.id,
-      sender: { id: identityId, anon: false },
-      timestamp: Date.now(),
-      kind: "text",
-      type: "message",
-      ephemeral: false,
-      retracted: false,
-      status: "pending",
-      content,
-    };
-    setMessages((current) => [...current, pendingMessage]);
-
-    try {
-      const response = await fetch(
-        `/api/office/portal/mock-chat?channel=${encodeURIComponent(channel.slug)}`,
-        {
-          method: "POST",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(content),
-        },
-      );
-      const confirmed: unknown = await response.json().catch(() => null);
-      if (!response.ok || !parsePortalChatMessage(confirmed)) {
-        throw new Error("Mock Portal publish unavailable");
-      }
-      setMessages((current) => replaceMessage(current, temporaryId, confirmed));
-    } catch (error) {
-      setMessages((current) =>
-        replaceMessage(current, temporaryId, {
-          ...pendingMessage,
-          status: "failed",
-        }),
-      );
-      throw error;
-    }
-  }
-
-  return (
-    <ChatSurface
-      channel={channel}
-      hasPrevious={hasPrevious}
-      identityId={identityId}
-      isLoadingPrevious={isLoadingPrevious}
-      loadPrevious={loadPrevious}
-      messages={messages}
-      onTyping={() => {}}
-      onContentVisible={() => onContentVisible(channel.id)}
-      onReact={onReact}
-      onRetryConnection={() => {
-        setReadWhenVisible(false);
-        void loadMockHistory().then(setReadWhenVisible);
-      }}
-      onSend={sendMessage}
-      readWhenVisible={readWhenVisible}
-      reactionEvents={reactionEvents}
-      reactionsEnabled={reactionsEnabled}
-      status={status}
-      presence={
-        channel.mode === "broadcast"
-          ? { kind: "aggregate", count: 1, recent: [] }
-          : {
-              kind: "detailed",
-              participants: [{ id: identityId, anon: false }],
-              count: 1,
-            }
-      }
-      visible={visible}
-    />
-  );
-}
-
-function MockPortalOffice(
-  props: Omit<MockPortalOfficeProps, "mode"> & {
-    onOfficeDayExpired(): void;
-    onEmploymentAccessEnded(access: EmploymentAccessDeniedDecision): void;
-  },
-) {
-  const queryClient = useQueryClient();
-  const {
-    channels,
-    identityId,
-    displayName,
-    employeeRecord,
-    eventChannelId,
-    officeDay: currentOfficeDay,
-    isOperator,
-    canSignOut,
-    onOfficeDayExpired,
-    onEmploymentAccessEnded,
-  } = props;
-  const { activeChannelId, setActiveChannelId } = useActiveOfficeChannel(
-    channels,
-    currentOfficeDay,
-  );
-  const navigation = useResponsiveOfficeNavigation();
-  const inbox = useMockOfficeInbox();
-  const inboxRows = useMemo(
-    () =>
-      reconcileOfficeInbox({
-        channels,
-        entries: inbox.entries,
-        identityId,
-        displayName,
-      }),
-    [channels, displayName, identityId, inbox.entries],
-  );
-  const inboxRowsByChannelId = new Map(
-    inboxRows.map((row) => [row.channelId, row]),
-  );
-  const selectChannel = useCallback(
-    (channelId: string) => {
-      setActiveChannelId(channelId);
-      navigation.showConversation();
-    },
-    [navigation.showConversation, setActiveChannelId],
-  );
-  const markInboxRead = useCallback(
-    (channelId: string) => void inbox.markAsRead(channelId),
-    [inbox.markAsRead],
-  );
-  const [reactionEvents, setReactionEvents] = useState<ReactionOfficeEvent[]>(
-    [],
-  );
-  const [reactionStatus, setReactionStatus] =
-    useState<ChannelStatus>("connecting");
-  const seenMockOfficeEventKeys = useRef(new Set<string>());
-
-  useEffect(() => {
-    let cancelled = false;
-    async function loadOfficeEventHistory(): Promise<void> {
-      try {
-        const events = await fetchMockOfficeEvents(eventChannelId);
-        if (!cancelled) {
-          for (const event of events) {
-            if (seenMockOfficeEventKeys.current.has(event.eventKey)) continue;
-            seenMockOfficeEventKeys.current.add(event.eventKey);
-            switch (event.type) {
-              case "reaction.changed":
-                setReactionEvents((current) =>
-                  appendReactionEvent(current, event),
-                );
-                break;
-              case "message-removal.invalidated":
-                void invalidateMessageRemovals(queryClient);
-                break;
-              case "report.invalidated":
-                void invalidateHRReportQueue(queryClient);
-                break;
-              case "profile.invalidated":
-                void invalidateProfileBatches(queryClient, event.profileId);
-                if (event.profileId === identityId) {
-                  recheckEmploymentAccess(
-                    onEmploymentAccessEnded,
-                    ignoreMockEmploymentAccessError,
-                  );
-                }
-                break;
-              case "employment.invalidated":
-                if (event.newHireId === identityId) {
-                  recheckEmploymentAccess(
-                    onEmploymentAccessEnded,
-                    ignoreMockEmploymentAccessError,
-                  );
-                }
-                break;
-            }
-          }
-          setReactionStatus("ready");
-        }
-      } catch {
-        if (!cancelled) {
-          setReactionEvents([]);
-          setReactionStatus("reconnecting");
-          recheckEmploymentAccess(
-            onEmploymentAccessEnded,
-            ignoreMockEmploymentAccessError,
-          );
-        }
-      }
-    }
-    void loadOfficeEventHistory();
-    const interval = window.setInterval(
-      () => void loadOfficeEventHistory(),
-      300,
-    );
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [eventChannelId, identityId, onEmploymentAccessEnded, queryClient]);
-
-  const publishMockReaction = useCallback(
-    async (event: ReactionOfficeEvent): Promise<void> => {
-      const response = await fetch("/api/office/portal/mock-events", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(event),
-      });
-      const message: unknown = await response.json().catch(() => null);
-      const parsed = parseOfficeEventMessage(message, eventChannelId);
-      if (!response.ok || parsed?.event.type !== "reaction.changed") {
-        throw new Error("Mock Portal reaction publish unavailable");
-      }
-      const reactionEvent = parsed.event;
-      setReactionEvents((current) =>
-        appendReactionEvent(current, reactionEvent),
-      );
-    },
-    [eventChannelId],
-  );
-  const updateReaction = useReactionPublisher({
-    identityId,
-    eventChannelId,
-    publish: publishMockReaction,
-  });
-
-  return (
-    <OfficeWorkspace
-      activeChannelId={activeChannelId}
-      canSignOut={canSignOut}
-      channels={channels}
-      displayName={displayName}
-      employeeRecord={employeeRecord}
-      identityId={identityId}
-      inboxRows={inboxRows}
-      inboxStatus={inbox.status}
-      isMobile={navigation.isMobile}
-      isOperator={isOperator}
-      mobileNavigationOpen={navigation.mobileNavigationOpen}
-      onOpenMobileNavigation={navigation.openMobileNavigation}
-      onSelectChannel={selectChannel}
-    >
-      {channels.map((channel) => (
-        <MockOfficeChannel
-          channel={channel}
-          identityId={identityId}
-          key={channel.id}
-          latestActivityAt={
-            inboxRowsByChannelId.get(channel.id)?.preview?.at ?? 0
-          }
-          onContentVisible={markInboxRead}
-          onReact={updateReaction}
-          reactionEvents={reactionEvents}
-          reactionsEnabled={reactionStatus === "ready"}
-          officeDay={currentOfficeDay}
-          onOfficeDayExpired={onOfficeDayExpired}
-          visible={
-            navigation.conversationVisible && channel.id === activeChannelId
-          }
-        />
-      ))}
-    </OfficeWorkspace>
   );
 }
 
@@ -2332,19 +1807,8 @@ function PortalChatWorkspace(props: PortalChatProps): ReactNode {
     return <ShiftEndedDialog onContinue={continueToCurrentOfficeDay} />;
   }
 
-  if (props.mode === "live") {
-    return (
-      <LivePortalOffice
-        {...props}
-        {...workspace}
-        key={workspace.officeDay}
-        onOfficeDayExpired={endOfficeDay}
-        onEmploymentAccessEnded={setEmploymentAccessEnded}
-      />
-    );
-  }
   return (
-    <MockPortalOffice
+    <LivePortalOffice
       {...props}
       {...workspace}
       key={workspace.officeDay}

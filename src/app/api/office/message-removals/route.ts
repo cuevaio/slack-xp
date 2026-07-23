@@ -6,7 +6,6 @@ import { parseMessageRemovalChannelQuery } from "@/lib/message-removals/domain";
 import { listMessageRemovals } from "@/lib/message-removals/service";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 import { officeDay } from "@/lib/portal/office-day";
-import { officeNowForRequest } from "@/lib/portal/request-controls";
 import {
   SAFETY_PROJECTION_TIMEOUT_MS,
   safetyProjectionUnavailableResponse,
@@ -97,10 +96,7 @@ export async function GET(request: Request) {
       { status: 403, headers: PRIVATE_NO_STORE_HEADERS },
     );
   }
-  return handleMessageRemovalQuery(
-    request,
-    adapters.neon,
-    officeNowForRequest(request.headers, configuration),
-    { correlationId },
-  );
+  return handleMessageRemovalQuery(request, adapters.neon, new Date(), {
+    correlationId,
+  });
 }

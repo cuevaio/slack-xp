@@ -31,6 +31,6 @@ export async function GET() {
     fullName: identity.fullName,
     imageUrl: identity.imageUrl,
     isOperator: identity.isOperator,
-    authentication: identity.authentication,
+    authentication: "clerk",
   });
 }

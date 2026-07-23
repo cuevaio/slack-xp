@@ -1,10 +1,11 @@
 # Fork and deploy
 
 This is the complete ordered release path for an ordinary Portal customer.
-Nothing in it requires Portal's private repository, a local realtime stack, or
-live credentials merely to understand or author the setup.
+Nothing in it requires Portal's private repository or a local realtime stack.
+Running or deploying the application does require Clerk, Portal, and Neon.
 
-Run the credential-free rehearsal at any time:
+Run the documentation and packaging rehearsal at any time. This does not run
+the application or replace required service verification:
 
 ```bash
 bun install --frozen-lockfile
@@ -60,13 +61,14 @@ This is the only region decision required by the application.
 3. Create a Neon development database in the selected geographic region and
    copy its pooled connection string.
 4. Create the development Vercel project from your fork. Set `APP_ENV=preview`,
-   `SERVICE_MODE=live`, the exact project origin, and only development service
+   the exact project origin, and only development service
    values from [Environment reference](environment.md).
 5. Generate a distinct `CRON_SECRET` of at least 16 characters. Add desired
    development Operator Clerk IDs to `OPERATOR_CLERK_USER_IDS`.
 
-For local live work, copy `.env.example` to `.env.local` and substitute the
-development values. Keep mock mode for credential-free UI work.
+For local work, copy `.env.example` to `.env.local` and substitute the
+development values. Clerk, Portal, and Neon are required locally; the
+application has no credential-free service mode.
 
 ## 3. Prepare and verify development
 
@@ -112,7 +114,7 @@ credentials:
 3. Create the Neon production database near the committed Vercel Function
    region.
 4. Create or finish the separate production Vercel project. Set
-   `APP_ENV=production`, `SERVICE_MODE=live`, the exact final `APP_ORIGIN`, and
+   `APP_ENV=production`, the exact final `APP_ORIGIN`, and
    production-only values. Generate a new production `CRON_SECRET` and list
    production Operator Clerk IDs.
 
@@ -163,11 +165,11 @@ Then verify manually:
    identity becomes Former Employee. Do not delete a real production identity
    merely to test this.
 6. The Cron route reports success without exposing its bearer secret.
-7. `SERVICE_MODE=mock` is absent and the production page has no mock watermark.
+7. The production setup check passes against Clerk, Portal, and Neon.
 
 Canonical maintainers can additionally run the protected
 [Manual real-service smoke](real-service-smoke.md). Fork owners do not need that
-workflow to deploy or run deterministic acceptance checks.
+workflow to deploy.
 
 ## 7. Operate
 

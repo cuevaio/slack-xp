@@ -13,7 +13,6 @@ import {
   parseTerminationRequest,
 } from "@/lib/employment/domain";
 import { reinstateNewHire, terminateNewHire } from "@/lib/employment/service";
-import { officeNowForRequest } from "@/lib/portal/request-controls";
 
 export const runtime = "nodejs";
 
@@ -154,7 +153,7 @@ async function route(request: Request): Promise<Response> {
     portal: adapters.portal,
     requesterId: identity.id,
     operatorUserIds: process.env.OPERATOR_CLERK_USER_IDS,
-    now: officeNowForRequest(request.headers, configuration),
+    now: new Date(),
   });
 }
 

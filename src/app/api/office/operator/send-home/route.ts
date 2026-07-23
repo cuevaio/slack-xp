@@ -9,7 +9,6 @@ import {
 } from "@/lib/employment/contract";
 import { parseSendHomeRequest } from "@/lib/employment/domain";
 import { sendHomeNewHire } from "@/lib/employment/service";
-import { officeNowForRequest } from "@/lib/portal/request-controls";
 
 export const runtime = "nodejs";
 
@@ -100,6 +99,6 @@ export async function POST(request: Request): Promise<Response> {
     portal: adapters.portal,
     requesterId: identity.id,
     operatorUserIds: process.env.OPERATOR_CLERK_USER_IDS,
-    now: officeNowForRequest(request.headers, configuration),
+    now: new Date(),
   });
 }

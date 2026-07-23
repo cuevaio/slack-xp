@@ -124,10 +124,7 @@ export async function handleClerkProfileWebhook(
 
 export async function POST(request: NextRequest) {
   const configuration = readAppConfiguration();
-  if (
-    configuration.status === "incomplete" ||
-    configuration.serviceMode !== "live"
-  ) {
+  if (configuration.status === "incomplete") {
     return Response.json({ error: "installation_incomplete" }, { status: 503 });
   }
 

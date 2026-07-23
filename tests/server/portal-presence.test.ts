@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createMockPortalAdapter } from "@/lib/portal/mock";
+import { createMockPortalAdapter } from "../support/portal";
 
 const CHANNEL_ID = "general:2026-07-22";
 const ALL_HANDS_ID = "all-hands:2026-07-22";

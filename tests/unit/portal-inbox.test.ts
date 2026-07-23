@@ -111,7 +111,7 @@ describe("Office Channel inbox projection", () => {
     ).toBeNull();
   });
 
-  test("validates the complete mock inbox response at runtime", () => {
+  test("validates the complete inbox response at runtime", () => {
     expect(
       parseOfficeInboxResponse({
         channels: [

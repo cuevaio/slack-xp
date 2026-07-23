@@ -4,11 +4,11 @@ import { NextRequest } from "next/server";
 import { handleProfileBatchRequest } from "@/app/api/office/profiles/route";
 import { handleClerkProfileWebhook } from "@/app/api/webhooks/clerk/route";
 import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
-import { createMockPortalAdapter } from "@/lib/portal/mock";
 import {
   readProfileBatch,
   repairProfileProjection,
 } from "@/lib/profiles/service";
+import { createMockPortalAdapter } from "../support/portal";
 
 const SIGNING_SECRET = `whsec_${Buffer.from(
   "portal-messenger-profile-webhook-test-key",

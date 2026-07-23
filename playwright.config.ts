@@ -26,8 +26,6 @@ export default defineConfig({
     env: {
       APP_ENV: "test",
       NEXT_DIST_DIR: ".next-playwright",
-      SERVICE_MODE: "mock",
-      OPERATOR_CLERK_USER_IDS: "user_mock_operator",
     },
   },
 });

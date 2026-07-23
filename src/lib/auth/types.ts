@@ -7,5 +7,4 @@ export type AuthenticatedNewHire = {
   imageUrl: string | null;
   sourceVersion: number;
   isOperator: boolean;
-  authentication: "clerk" | "mock";
 };

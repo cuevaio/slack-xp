@@ -5,10 +5,9 @@ export const APP_ENVIRONMENTS = [
   "production",
 ] as const;
 
-export const SERVICE_MODES = ["mock", "live"] as const;
 export const MAINTENANCE_CONTROL_VALUES = ["off", "on"] as const;
 
-export const LIVE_ENVIRONMENT_VARIABLES = [
+export const REQUIRED_ENVIRONMENT_VARIABLES = [
   "APP_ORIGIN",
   "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
   "CLERK_SECRET_KEY",
@@ -20,12 +19,12 @@ export const LIVE_ENVIRONMENT_VARIABLES = [
 ] as const;
 
 export type AppEnvironment = (typeof APP_ENVIRONMENTS)[number];
-export type ServiceMode = (typeof SERVICE_MODES)[number];
 export type EnvironmentSource = Record<string, string | undefined>;
-type LiveEnvironmentVariable = (typeof LIVE_ENVIRONMENT_VARIABLES)[number];
+type RequiredEnvironmentVariable =
+  (typeof REQUIRED_ENVIRONMENT_VARIABLES)[number];
 
 const VALUE_PREFIXES: Partial<
-  Record<LiveEnvironmentVariable, readonly string[]>
+  Record<RequiredEnvironmentVariable, readonly string[]>
 > = {
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ["pk_test_", "pk_live_"],
   CLERK_SECRET_KEY: ["sk_test_", "sk_live_"],
@@ -43,13 +42,11 @@ export type AppConfiguration =
   | {
       status: "ready";
       environment: AppEnvironment;
-      serviceMode: ServiceMode;
       values: Readonly<Record<string, string>>;
     }
   | {
       status: "incomplete";
       environment: AppEnvironment;
-      serviceMode: ServiceMode | null;
       issues: readonly ConfigurationIssue[];
     };
 
@@ -77,7 +74,10 @@ export function detectAppEnvironment(env: EnvironmentSource): AppEnvironment {
   return env.NODE_ENV === "test" ? "test" : "local";
 }
 
-function validateValue(name: LiveEnvironmentVariable, value: string): boolean {
+function validateValue(
+  name: RequiredEnvironmentVariable,
+  value: string,
+): boolean {
   if (name === "APP_ORIGIN") {
     try {
       const url = new URL(value);
@@ -117,19 +117,6 @@ export function readAppConfiguration(
     issues.push({ name: "APP_ENV", reason: "invalid" });
   }
 
-  const defaultMode =
-    environment === "local" || environment === "test" ? "mock" : "live";
-  const requestedMode = env.SERVICE_MODE ?? defaultMode;
-  const serviceMode = includes(SERVICE_MODES, requestedMode)
-    ? requestedMode
-    : null;
-
-  if (serviceMode === null) {
-    issues.push({ name: "SERVICE_MODE", reason: "invalid" });
-  } else if (environment === "production" && serviceMode === "mock") {
-    issues.push({ name: "SERVICE_MODE", reason: "forbidden" });
-  }
-
   const values: Record<string, string> = {};
   const maintenanceControl = env.PORTAL_MESSENGER_MAINTENANCE;
   if (
@@ -144,57 +131,46 @@ export function readAppConfiguration(
     values.PORTAL_MESSENGER_MAINTENANCE = maintenanceControl;
   }
 
-  if (serviceMode === "live") {
-    for (const name of LIVE_ENVIRONMENT_VARIABLES) {
-      const value = env[name];
-      if (!value) {
-        issues.push({ name, reason: "missing" });
-      } else if (!validateValue(name, value)) {
-        issues.push({ name, reason: "invalid" });
-      } else {
-        values[name] = value;
-      }
-    }
-
-    const clerkPublishableKey = env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
-    const clerkSecretKey = env.CLERK_SECRET_KEY;
-    if (clerkPublishableKey && clerkSecretKey) {
-      const [publishableKeyPrefix, secretKeyPrefix] =
-        environment === "production"
-          ? ["pk_live_", "sk_live_"]
-          : ["pk_test_", "sk_test_"];
-      if (!clerkPublishableKey.startsWith(publishableKeyPrefix)) {
-        issues.push({
-          name: "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
-          reason: "invalid",
-        });
-      }
-      if (!clerkSecretKey.startsWith(secretKeyPrefix)) {
-        issues.push({ name: "CLERK_SECRET_KEY", reason: "invalid" });
-      }
-    }
-
-    if (
-      environment === "production" &&
-      env.APP_ORIGIN &&
-      !env.APP_ORIGIN.startsWith("https://")
-    ) {
-      issues.push({ name: "APP_ORIGIN", reason: "invalid" });
+  for (const name of REQUIRED_ENVIRONMENT_VARIABLES) {
+    const value = env[name];
+    if (!value) {
+      issues.push({ name, reason: "missing" });
+    } else if (!validateValue(name, value)) {
+      issues.push({ name, reason: "invalid" });
+    } else {
+      values[name] = value;
     }
   }
 
-  if (issues.length > 0 || serviceMode === null) {
-    return { status: "incomplete", environment, serviceMode, issues };
+  const clerkPublishableKey = env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  const clerkSecretKey = env.CLERK_SECRET_KEY;
+  if (clerkPublishableKey && clerkSecretKey) {
+    const [publishableKeyPrefix, secretKeyPrefix] =
+      environment === "production"
+        ? ["pk_live_", "sk_live_"]
+        : ["pk_test_", "sk_test_"];
+    if (!clerkPublishableKey.startsWith(publishableKeyPrefix)) {
+      issues.push({
+        name: "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+        reason: "invalid",
+      });
+    }
+    if (!clerkSecretKey.startsWith(secretKeyPrefix)) {
+      issues.push({ name: "CLERK_SECRET_KEY", reason: "invalid" });
+    }
   }
 
-  return { status: "ready", environment, serviceMode, values };
-}
-
-export function assertProductionSafety(env: EnvironmentSource): void {
-  const environment = detectAppEnvironment(env);
-  if (environment === "production" && env.SERVICE_MODE === "mock") {
-    throw new Error(
-      "Portal Messenger refuses to build or start with SERVICE_MODE=mock in production.",
-    );
+  if (
+    environment === "production" &&
+    env.APP_ORIGIN &&
+    !env.APP_ORIGIN.startsWith("https://")
+  ) {
+    issues.push({ name: "APP_ORIGIN", reason: "invalid" });
   }
+
+  if (issues.length > 0) {
+    return { status: "incomplete", environment, issues };
+  }
+
+  return { status: "ready", environment, values };
 }

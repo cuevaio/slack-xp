@@ -41,7 +41,6 @@ export type NeonAdapter = OnboardingRepository &
   MessageRemovalRepository;
 
 export type ServiceAdapters = {
-  kind: "mock" | "live";
   portal: PortalAdapter;
   neon: NeonAdapter;
 };

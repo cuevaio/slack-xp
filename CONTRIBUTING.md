@@ -24,9 +24,10 @@ cp .env.example .env.local
 bun run dev
 ```
 
-The default local configuration is deterministic mock mode. It needs no Clerk,
-Portal, or Neon credentials and displays a permanent warning watermark. Do not
-remove the production rejection of mock mode.
+Local development requires a Clerk development application, a Portal
+development environment, and a Neon development database. Copy `.env.example`
+to `.env.local`, provide every required value, apply migrations, deploy the
+Portal policy, and run `bun run setup:check` before starting feature work.
 
 Run the checks that apply to the change, then the complete acceptance set:
 

@@ -5,13 +5,13 @@ import {
 } from "@/lib/office-events/contract";
 import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
 import { listOfficeChannels } from "@/lib/portal/channels";
-import { createMockPortalAdapter } from "@/lib/portal/mock";
 import {
   issueOfficePortalSession,
   PortalEligibilityError,
 } from "@/lib/portal/session";
 import { deleteClerkProfile } from "@/lib/profiles/deletion";
 import type { ProfileInvalidationEvent } from "@/lib/profiles/types";
+import { createMockPortalAdapter } from "../support/portal";
 
 const now = new Date("2026-07-23T12:00:00.000Z");
 const profile = {

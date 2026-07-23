@@ -309,16 +309,6 @@ export async function runSetupVerification(
     return createSetupReport(environment, checks);
   }
 
-  if (configuration.serviceMode === "mock") {
-    const checks = [
-      configurationCheck,
-      ...unavailableServiceChecks(
-        "Set SERVICE_MODE=live and provide service credentials to collect live proof.",
-      ),
-    ];
-    return createSetupReport(environment, checks);
-  }
-
   const [neon, clerk, portal] = await Promise.allSettled([
     verifier.verifyNeon(),
     verifier.verifyClerk(),

@@ -16,7 +16,7 @@ export default function RootLayout({
 }>) {
   const configuration = readAppConfiguration();
   const content =
-    configuration.status === "ready" && configuration.serviceMode === "live" ? (
+    configuration.status === "ready" ? (
       <ClerkProvider>{children}</ClerkProvider>
     ) : (
       children

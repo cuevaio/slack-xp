@@ -1,11 +1,10 @@
 import { createServiceAdapters } from "@/lib/adapters";
 import { authenticateOfficeRequest } from "@/lib/auth/server";
 import { readAppConfiguration } from "@/lib/config";
-import { officeNowForRequest } from "@/lib/portal/request-controls";
 
 export const runtime = "nodejs";
 
-export async function GET(request: Request): Promise<Response> {
+export async function GET(): Promise<Response> {
   const configuration = readAppConfiguration();
   if (configuration.status === "incomplete") {
     return Response.json({ error: "installation_incomplete" }, { status: 503 });
@@ -17,7 +16,7 @@ export async function GET(request: Request): Promise<Response> {
   const adapters = createServiceAdapters(configuration);
   const access = await adapters.neon.getEmploymentAccess(
     identity.id,
-    officeNowForRequest(request.headers, configuration),
+    new Date(),
   );
   return Response.json(
     {

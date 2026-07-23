@@ -7,8 +7,8 @@ import { submitProfileHRReport } from "@/lib/hr-reports/service";
 import { officeEventChannelId } from "@/lib/office-events/contract";
 import { createInMemoryNeonRepository } from "@/lib/onboarding/memory";
 import { listOfficeChannels } from "@/lib/portal/channels";
-import { createMockPortalAdapter } from "@/lib/portal/mock";
 import { createPortalControlPlane } from "@/lib/portal/server";
+import { createMockPortalAdapter } from "../support/portal";
 
 const now = new Date("2026-07-22T21:15:00.000Z");
 const targetProfile = {

@@ -18,10 +18,8 @@ const stepNumber = {
 
 export function OnboardingWizard({
   initialOnboarding,
-  isMock,
 }: {
   initialOnboarding: OnboardingSnapshot;
-  isMock: boolean;
 }) {
   const router = useRouter();
   const [onboarding, setOnboarding] = useState(initialOnboarding);
@@ -55,9 +53,6 @@ export function OnboardingWizard({
 
   return (
     <main className="onboarding-shell">
-      {isMock ? (
-        <output className="mock-watermark">Development mode</output>
-      ) : null}
       <section className="setup-window" aria-labelledby="setup-title">
         <header className="window-titlebar">
           <span>New Hire Setup</span>

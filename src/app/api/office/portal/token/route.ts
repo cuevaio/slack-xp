@@ -5,8 +5,6 @@ import { readAppConfiguration } from "@/lib/config";
 import { flushHRReportNotifications } from "@/lib/hr-reports/service";
 import { flushMessageRemovalInvalidations } from "@/lib/message-removals/service";
 import { repairOfficeDayOnEntry } from "@/lib/office-days/cron";
-import { MockPortalUnavailableError } from "@/lib/portal/mock";
-import { officeNowForRequest } from "@/lib/portal/request-controls";
 import { PortalServiceError } from "@/lib/portal/server";
 import {
   issueOfficePortalSession,
@@ -41,7 +39,7 @@ export async function POST(request: Request) {
   const adapters = createServiceAdapters(configuration);
   try {
     await flushProfileInvalidations(adapters.neon, adapters.portal);
-    const now = officeNowForRequest(request.headers, configuration);
+    const now = new Date();
     const employmentAccess = await withSafetyDependencyTimeout(
       adapters.neon.getEmploymentAccess(identity.id, now),
       SAFETY_PROJECTION_TIMEOUT_MS,
@@ -67,10 +65,7 @@ export async function POST(request: Request) {
       await flushHRReportNotifications({
         repository: adapters.neon,
         publisher: adapters.portal,
-        operatorIds:
-          configuration.serviceMode === "mock"
-            ? ["user_mock_operator"]
-            : configuredOperatorUserIds(),
+        operatorIds: configuredOperatorUserIds(),
         appOrigin:
           configuration.values.APP_ORIGIN ?? new URL(request.url).origin,
       });
@@ -106,15 +101,6 @@ export async function POST(request: Request) {
         correlationId,
         authority: "portal",
         status: error.status,
-      });
-      return Response.json({ error: "portal_unavailable" }, { status: 503 });
-    }
-    if (error instanceof MockPortalUnavailableError) {
-      logSafetyEvent({
-        operation: "portal_session",
-        correlationId,
-        authority: "portal",
-        status: "unavailable",
       });
       return Response.json({ error: "portal_unavailable" }, { status: 503 });
     }

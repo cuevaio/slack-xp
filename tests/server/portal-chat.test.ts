@@ -5,7 +5,6 @@ import {
   officeEventChannelId,
   type ReactionOfficeEvent,
 } from "@/lib/office-events/contract";
-import { createMockPortalAdapter } from "@/lib/portal/mock";
 import {
   createPortalControlPlane,
   createPortalProfileInvalidationPublisher,
@@ -14,6 +13,7 @@ import {
   issueOfficePortalSession,
   PortalEligibilityError,
 } from "@/lib/portal/session";
+import { createMockPortalAdapter } from "../support/portal";
 
 const completedNewHire = {
   clerkUserId: "user_portal_test",

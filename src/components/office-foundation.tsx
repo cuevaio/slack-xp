@@ -40,12 +40,9 @@ export async function OfficeFoundation({
 
   return (
     <main className="office-shell">
-      {adapters.kind === "mock" ? (
-        <output className="mock-watermark">Development mode</output>
-      ) : null}
       <OfficeWindow>
         <PortalChat
-          canSignOut={identity.authentication === "mock"}
+          canSignOut={false}
           channels={channels}
           displayName={onboarding.displayName}
           employeeRecord={<EmployeeRecordDialog onboarding={onboarding} />}
@@ -53,13 +50,8 @@ export async function OfficeFoundation({
           officeDay={currentOfficeDay}
           identityId={identity.id}
           isOperator={identity.isOperator}
-          {...(adapters.kind === "mock"
-            ? { mode: "mock" as const }
-            : {
-                mode: "live" as const,
-                publishableKey:
-                  requirePortalPublishableKey(portalPublishableKey),
-              })}
+          mode="live"
+          publishableKey={requirePortalPublishableKey(portalPublishableKey)}
         />
       </OfficeWindow>
     </main>

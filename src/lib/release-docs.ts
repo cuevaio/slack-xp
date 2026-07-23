@@ -1,6 +1,6 @@
 import { access, readdir, readFile } from "node:fs/promises";
 import { dirname, extname, relative, resolve } from "node:path";
-import { LIVE_ENVIRONMENT_VARIABLES } from "@/lib/config";
+import { REQUIRED_ENVIRONMENT_VARIABLES } from "@/lib/config";
 
 export type ReleaseCheck = {
   id: string;
@@ -34,8 +34,7 @@ const RELEASE_DOCUMENTS = [
 
 const DEPLOY_ENVIRONMENT_VARIABLES = [
   "APP_ENV",
-  "SERVICE_MODE",
-  ...LIVE_ENVIRONMENT_VARIABLES,
+  ...REQUIRED_ENVIRONMENT_VARIABLES,
 ] as const;
 
 const OPTIONAL_ENVIRONMENT_VARIABLES = [
@@ -277,14 +276,11 @@ async function checkDeployButton(root: string): Promise<ReleaseCheck> {
     url.searchParams.get("envDefaults") ?? "{}",
   ) as {
     APP_ENV?: string;
-    SERVICE_MODE?: string;
   };
   const targetsPublicRepository =
     url.searchParams.get("repository-url") ===
     "https://github.com/cuevaio/slack-xp";
-  const hasProductionDefaults =
-    environmentDefaults.APP_ENV === "production" &&
-    environmentDefaults.SERVICE_MODE === "live";
+  const hasProductionDefaults = environmentDefaults.APP_ENV === "production";
   const linksToDeploymentGuide =
     url.searchParams.get("envLink")?.endsWith("/docs/deployment.md") === true;
   const isValid =

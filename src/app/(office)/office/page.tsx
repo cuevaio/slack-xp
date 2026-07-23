@@ -7,14 +7,10 @@ import { OnboardingWizard } from "@/components/onboarding-wizard";
 import { SafetyUnavailable } from "@/components/safety-unavailable";
 import { createServiceAdapters } from "@/lib/adapters";
 import { requireOfficeIdentity } from "@/lib/auth/server";
-import { type AppConfiguration, readAppConfiguration } from "@/lib/config";
+import { readAppConfiguration } from "@/lib/config";
 import type { EmploymentAccessDecision } from "@/lib/employment/contract";
 import { profileFromIdentity } from "@/lib/onboarding/profile-authority";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
-import {
-  officeFaultForRequest,
-  officeNowForRequest,
-} from "@/lib/portal/request-controls";
 import { repairProfileProjection } from "@/lib/profiles/service";
 import { SAFETY_PROJECTION_TIMEOUT_MS } from "@/lib/safety/contract";
 import { portalOrNeonAuthority } from "@/lib/safety/failure-authority";
@@ -36,27 +32,13 @@ export default async function OfficePage() {
   }
 
   const requestHeaders = await headers();
-  const controlledFault = officeFaultForRequest(requestHeaders, configuration);
-  if (controlledFault === "installation") {
-    const incompleteConfiguration = {
-      status: "incomplete",
-      environment: configuration.environment,
-      serviceMode: configuration.serviceMode,
-      issues: [{ name: "CONTROLLED_TEST_FAULT", reason: "missing" }],
-    } satisfies AppConfiguration;
-    return <InstallationIncomplete configuration={incompleteConfiguration} />;
-  }
-  if (controlledFault === "authentication") {
-    return <SafetyUnavailable reason="authentication" />;
-  }
-
   const identity = await requireOfficeIdentity(configuration);
-  if (controlledFault === "maintenance" || isMaintenanceActive()) {
+  if (isMaintenanceActive()) {
     return <SafetyUnavailable reason="maintenance" />;
   }
   const adapters = createServiceAdapters(configuration);
   const correlationId = requestCorrelationId(requestHeaders);
-  const now = officeNowForRequest(requestHeaders, configuration);
+  const now = new Date();
 
   try {
     await withSafetyDependencyTimeout(
@@ -109,12 +91,7 @@ export default async function OfficePage() {
   }
 
   if (onboarding.step !== "complete") {
-    return (
-      <OnboardingWizard
-        initialOnboarding={onboarding}
-        isMock={adapters.kind === "mock"}
-      />
-    );
+    return <OnboardingWizard initialOnboarding={onboarding} />;
   }
 
   return (

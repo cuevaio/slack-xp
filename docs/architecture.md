@@ -82,7 +82,7 @@ server state.
 ## Failure boundaries
 
 - Signed-out requests stop at Clerk-backed server authentication.
-- Portal offline state never falls back to browser-local or mock conversation
+- Portal offline state never falls back to browser-local conversation
   data in live mode.
 - If Neon profile or Removed Message safety projections are unavailable, raw
   Portal history stays hidden until fresh projections can be read.

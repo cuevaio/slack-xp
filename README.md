@@ -4,7 +4,7 @@ Portal Messenger is a forkable Next.js example for building a communal realtime
 office with hosted Portal APIs. The application is intentionally safe to run
 before Clerk, Portal, or Neon credentials are available.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/clone?repository-url=https%3A%2F%2Fgithub.com%2Fcuevaio%2Fslack-xp&project-name=portal-messenger&repository-name=portal-messenger&env=APP_ENV,SERVICE_MODE,APP_ORIGIN,NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,CLERK_SECRET_KEY,CLERK_WEBHOOK_SECRET,NEXT_PUBLIC_PORTAL_KEY,PORTAL_SECRET,DATABASE_URL,CRON_SECRET&envDefaults=%7B%22APP_ENV%22%3A%22production%22%2C%22SERVICE_MODE%22%3A%22live%22%7D&envDescription=Use%20separate%20production%20Clerk%2C%20Portal%2C%20and%20Neon%20resources.&envLink=https%3A%2F%2Fgithub.com%2Fcuevaio%2Fslack-xp%2Fblob%2Fmain%2Fdocs%2Fdeployment.md)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/clone?repository-url=https%3A%2F%2Fgithub.com%2Fcuevaio%2Fslack-xp&project-name=portal-messenger&repository-name=portal-messenger&env=APP_ENV,APP_ORIGIN,NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,CLERK_SECRET_KEY,CLERK_WEBHOOK_SECRET,NEXT_PUBLIC_PORTAL_KEY,PORTAL_SECRET,DATABASE_URL,CRON_SECRET&envDefaults=%7B%22APP_ENV%22%3A%22production%22%7D&envDescription=Clerk%2C%20Portal%2C%20and%20Neon%20are%20required.%20Use%20separate%20production%20resources.&envLink=https%3A%2F%2Fgithub.com%2Fcuevaio%2Fslack-xp%2Fblob%2Fmain%2Fdocs%2Fdeployment.md)
 
 > **Public deployment warning:** this is a deploy-ready Portal customer example,
 > not a production-complete workplace platform. Anyone you allow to sign in can
@@ -43,9 +43,9 @@ a prerequisite.
 | Protected end-to-end verification | [Manual real-service smoke](docs/real-service-smoke.md) |
 
 Prerequisites are a GitHub account, Bun `1.3.13`, and accounts for Clerk,
-Portal, Neon, and Vercel. A credential-free mock workflow is enough to evaluate
-the Observer, New Hire, and Operator journeys and run every deterministic test.
-Live setup requires separate development and production resources; follow the
+Portal, Neon, and Vercel. Clerk authentication, Portal realtime services, and
+Neon persistence are required in local, preview, test, and production
+environments. Use separate development and production resources; follow the
 ordered guide rather than reusing credentials across scopes.
 
 At a glance: fork the repository and select one Vercel Function region; create
@@ -66,20 +66,19 @@ cp .env.example .env.local
 bun run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) for the static Observer
-experience. Entering [http://localhost:3000/office](http://localhost:3000/office)
-first presents the deterministic mock sign-in, then opens the authenticated
-office seam. Mock authentication and mock services each display a permanent
-warning watermark. The returning fixture opens the complete daily Office
-Channel directory, where deterministic messages persist across reloads without
-cloud credentials.
+Before starting the app, replace every placeholder in `.env.local`, run
+`bun run db:migrate`, `bun run portal:deploy`, and `bun run setup:check` against
+your development Clerk, Portal, and Neon resources. Open
+[http://localhost:3000](http://localhost:3000) for the Observer experience;
+entering [http://localhost:3000/office](http://localhost:3000/office) uses Clerk
+sign-in and the configured Portal and Neon services.
 
 ## Runtime Configuration
 
 `APP_ENV` explicitly selects `local`, `test`, `preview`, or `production`.
 Vercel's `VERCEL_ENV` selects preview or production when `APP_ENV` is absent.
-Local and test modes default to `SERVICE_MODE=mock`; preview and production
-default to `SERVICE_MODE=live`.
+There is no service-mode selector: every environment requires Clerk, Portal,
+and Neon configuration.
 
 Live mode requires these variables:
 
@@ -95,9 +94,7 @@ Live mode requires these variables:
 `OPERATOR_CLERK_USER_IDS` is an optional comma- or whitespace-separated list of
 exact Clerk user IDs that receive Operator-shaped identity. It is read only on
 the server and re-read for every Operator query and mutation. An empty value or
-any malformed entry makes the entire allowlist grant no Operator access. Mock
-mode uses the same allowlist contract; the browser fixture configures
-`user_mock_operator` explicitly.
+any malformed entry makes the entire allowlist grant no Operator access.
 
 `PORTAL_MESSENGER_MAINTENANCE` is an optional server-only fail-closed control.
 It defaults to `off`; set it to `on` and redeploy to pause the Shared Public
@@ -133,10 +130,9 @@ does not import the adapter boundary and cannot initialize Portal. Its office
 entry links also disable route prefetching, so the office boundary is not
 rendered until an Observer explicitly chooses to enter it.
 
-Production (`APP_ENV=production` or `VERCEL_ENV=production`) refuses to build or
-start when `SERVICE_MODE=mock` is explicit. Missing production credentials are
-allowed through the build so the deployed application can fail closed with the
-Installation Incomplete screen.
+Missing or invalid service credentials fail closed with the Installation
+Incomplete screen. The application never substitutes local authentication,
+conversation data, or persistence when a required service is unavailable.
 
 ## Neon and New Employee Setup
 
@@ -298,12 +294,6 @@ and historical attribution without writing identity snapshots into Portal.
 Clerk rejection, timeout, partial picture failure, and delayed Neon projection
 have distinct recoverable states and never expose provider response details.
 
-Mock mode provides isolated first-time and returning fixtures and exercises the
-same validation and persistence contract without Clerk or Neon credentials. In
-test mode only, `/api/auth/mock-profile` provides deterministic next-request
-rejection, partial-write, and delayed-projection controls for browser coverage;
-the route returns `404` in every non-test environment.
-
 ## Portal Office Channels and Office Events
 
 Portal is the sole authority for live conversation messages and history. Neon
@@ -381,9 +371,8 @@ only after the selected conversation has loaded and its surface is actually
 visible in the active browser tab. Prefetching every Office Channel, selecting
 one behind the mobile directory, or receiving activity elsewhere does not clear
 attention. This state is never copied into Neon or treated as browser-local
-authority. Guarded mock mode implements the same contract with server-owned
-per-fixture watermarks and snapshot polling solely for deterministic browser
-tests; live mode has no polling or application fallback for Portal unread state.
+authority. The application has no polling or local fallback for Portal unread
+state.
 
 Confirmed messages expose an accessible private HR Report dialog with four
 server-validated message categories. Current names and pictures open a canonical
@@ -481,9 +470,7 @@ presence and typing, and they never enter onboarding or HR employment records.
 No generated text or generative AI is used.
 
 Portal connection and publish failures remain visible as offline/retry states.
-Live mode never substitutes mock or browser-local messages. Mock chat uses a
-separate authenticated test-only route and in-memory Portal adapter; that route
-returns 404 outside guarded non-production mock mode.
+The application never substitutes browser-local messages.
 
 Standard Office Channels render Portal's detailed live presence only while the
 channel socket is current. Each non-anonymous participant's stable Clerk user ID
@@ -563,13 +550,11 @@ The subscriber advances the event channel read position, durably mutes its
 Portal inbox entry, and clears that entry's independent inbox watermark. Product
 channel lists also exclude the event channel, so Office Events do not render as
 messages, appear as visible channels, or contribute to user-facing attention.
-Guarded mock mode persists the same event envelopes in its in-memory Portal
-adapter and exposes them through an authenticated test-only route; production
-and live mode continue to publish and replay directly through Portal.
+All environments publish and replay these envelopes directly through Portal.
 
 ## Clerk Authentication
 
-In live mode, Clerk's hosted Account Portal owns sign-in. Configure the desired
+Clerk's hosted Account Portal owns sign-in. Configure the desired
 social connections and email verification-code strategy in the Clerk Dashboard;
 Portal Messenger does not add passwords, invitations, organizations, or a
 parallel account model. The Clerk publishable and secret keys in `.env.local`
@@ -582,12 +567,6 @@ which derives the Clerk user and session IDs from Clerk and fetches the current
 Clerk profile. Browser headers, form values, and client visibility are never
 accepted as identity. Protected pages and route handlers explicitly select the
 Node.js runtime.
-
-In local and test mock mode, `/sign-in` offers two fixed identities: a New Hire
-and an Operator. The selection is mapped server-side to signed, HTTP-only
-session cookies. Arbitrary Clerk IDs and identity headers are ignored. These
-sessions are credential-free fixtures, not a Clerk emulator, and are refused
-when the application environment is production.
 
 ## Checks
 
@@ -619,9 +598,9 @@ prints its body, ID, credentials, connection strings, profile data, or upstream
 response bodies.
 
 Exit codes are stable: `0` means every required check passed, `1` means a check
-failed (or production proof is incomplete), and `2` means non-production live
-proof was unavailable because the checker is in mock mode or credentials are
-missing. Corrective output contains variable names and categories only. Clerk's
+failed (or production proof is incomplete), and `2` means non-production proof
+was unavailable because a configured service could not be reached. Corrective
+output contains variable names and categories only. Clerk's
 API proves that the key pair works and belongs to the expected development or
 production stack; confirm in the Clerk Dashboard that the endpoint
 `<APP_ORIGIN>/api/webhooks/clerk` subscribes to `user.created` and
@@ -641,7 +620,9 @@ development startup, and application startup.
 
 ## Repository Verification
 
-All automated checks run without external credentials:
+Static and isolated domain checks run without external credentials. Running the
+application and end-to-end verification requires the configured development
+Clerk, Portal, and Neon stack:
 
 ```bash
 bun run lint
@@ -649,24 +630,9 @@ bunx tsc --noEmit
 bun run build
 bun run test:unit
 bun run test:server
-bun run test:browser
 bun run docs:check
 bun run deploy:dry-run
 ```
-
-Install Chromium once before running browser tests locally:
-
-```bash
-bunx playwright install chromium
-```
-
-Browser boundary tests control both clocks with Playwright and the
-`x-portal-mock-now` request header. The server honors that header only when
-`APP_ENV=test` and `SERVICE_MODE=mock`; live and production requests always use
-the server clock. The acceptance suite uses `x-portal-mock-fault` under the same
-guard to render deterministic installation, authentication, and maintenance
-failures through the real `/office` boundary. Live and production requests
-ignore that header.
 
 ## Architecture Boundaries
 
@@ -690,17 +656,16 @@ ignore that header.
   senders.
 - `src/proxy.ts` performs an early protection check for office pages and server
   operations. It is not the sole authorization boundary.
-- `src/lib/auth/` owns Clerk verification, mock sessions, and exact Operator
+- `src/lib/auth/` owns Clerk verification and exact Operator
   allowlist matching. Server-derived identity is passed into office rendering.
 - `src/lib/config.ts` owns environment classification and validation.
 - `src/lib/safety/` owns the maintenance gate, dependency timeouts, projection
   freshness policy, correlation IDs, and privacy-safe structured failure logs.
 - `src/lib/adapters/` owns Portal-shaped and Neon-shaped boundaries. It cannot
-  determine or override the authenticated identity. Mock data is deterministic
-  and cannot be selected in production.
+  determine or override the authenticated identity.
 - `src/lib/db/` contains the Drizzle schema and Neon HTTP client boundary.
   `src/lib/onboarding/` owns deterministic assignment, onboarding state, and
-  the live and mock persistence implementations. `src/lib/profiles/` owns
+  Neon persistence. `src/lib/profiles/` owns
   Clerk payload validation, drift repair, the transactional profile outbox,
   and the TanStack Query batch-read contract.
 - `src/lib/office-events/` owns the versioned Office Event runtime contract,
@@ -755,13 +720,6 @@ ignore that header.
   idempotently grants all five daily Office Channel memberships and the hidden
   Office Event membership, and mints a 15-minute Portal user token scoped to all
   six. It never returns the Portal secret.
-- `/api/office/portal/mock-chat` is a guarded non-production adapter route used
-  only by the credential-free UI and browser tests. Live chat goes directly
-  through the published Portal SDK and hosted APIs.
-- `/api/office/portal/mock-inbox` is the guarded deterministic inbox seam. It
-  exposes only server-owned mock conversation rows and advances their mock
-  watermark on visible-read; live inbox state comes directly from Portal's
-  published React hook.
 - Browser-facing configuration uses only publishable `NEXT_PUBLIC_*` keys.
   Secret values remain server-only.
 

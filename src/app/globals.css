@@ -2302,23 +2302,6 @@ a {
   background: #fff8d6;
 }
 
-.mock-watermark {
-  position: fixed;
-  z-index: 30;
-  top: 0.5rem;
-  right: 0.5rem;
-  pointer-events: none;
-  padding: 0.3rem 0.45rem;
-  border: 1px solid #8c6e2a;
-  background: #fff2ad;
-  color: #111;
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.62rem;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
 .system-window {
   width: min(680px, 100%);
 }
@@ -2370,23 +2353,6 @@ a {
   color: #9c271d;
   font-size: 0.8rem;
   text-transform: uppercase;
-}
-
-.mock-sign-in-content {
-  padding: clamp(1.5rem, 6vw, 3.5rem);
-}
-
-.mock-sign-in-content h1 {
-  margin: 0 0 0.8rem;
-  font-family: var(--font-geist-pixel-square), monospace;
-  font-size: clamp(2rem, 5vw, 3.4rem);
-}
-
-.mock-sign-in-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  margin: 1.5rem 0;
 }
 
 .operator-badge {

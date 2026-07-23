@@ -216,6 +216,9 @@
 }
 
 .message-reactions button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
   padding: var(--space-0-5) var(--space-1-5);
   border: var(--border-width-thin) outset var(--color-neutral-200);
   background: var(--silver);

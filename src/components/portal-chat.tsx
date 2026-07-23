@@ -17,11 +17,15 @@ type SendChatMessage = (input: { content: ChatContent }) => Promise<unknown>;
 type Reaction = "like" | "love" | "laugh" | "surprise";
 type ReactionState = Record<string, Partial<Record<Reaction, string[]>>>;
 
-const REACTION_OPTIONS: ReadonlyArray<{ id: Reaction; label: string }> = [
-  { id: "like", label: "Like" },
-  { id: "love", label: "Love" },
-  { id: "laugh", label: "Laugh" },
-  { id: "surprise", label: "Surprise" },
+const REACTION_OPTIONS: ReadonlyArray<{
+  id: Reaction;
+  label: string;
+  emoji: string;
+}> = [
+  { id: "like", label: "Like", emoji: "👍" },
+  { id: "love", label: "Love", emoji: "❤️" },
+  { id: "laugh", label: "Laugh", emoji: "😂" },
+  { id: "surprise", label: "Surprise", emoji: "😮" },
 ];
 
 export function messageText(message: Message<ChatContent>) {
@@ -291,6 +295,7 @@ function LiveChannel({
                       const selected = users.includes(profile.id);
                       return (
                         <button
+                          aria-label={`${reaction.label}${users.length > 0 ? `, ${users.length}` : ""}`}
                           aria-pressed={selected}
                           key={reaction.id}
                           onClick={() => {
@@ -306,8 +311,10 @@ function LiveChannel({
                           title={reaction.label}
                           type="button"
                         >
-                          {reaction.label}{" "}
-                          {users.length > 0 ? users.length : ""}
+                          <span aria-hidden="true">{reaction.emoji}</span>
+                          {users.length > 0 ? (
+                            <span>{users.length}</span>
+                          ) : null}
                         </button>
                       );
                     })}

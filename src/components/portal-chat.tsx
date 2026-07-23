@@ -101,6 +101,7 @@ import {
 } from "@/lib/safety/client";
 
 type PortalPresence = DetailedPresence | AggregatePresence;
+const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 type PortalOfficeBaseProps = {
   channels: readonly OfficeChannel[];
@@ -780,6 +781,7 @@ function MessageHistory({
   channel,
   messages,
   identityId,
+  activeIds,
   reactionEvents,
   reactionsEnabled,
   onReact,
@@ -789,6 +791,7 @@ function MessageHistory({
   channel: OfficeChannel;
   messages: readonly SafeOfficeChannelMessage[];
   identityId: string;
+  activeIds: ReadonlySet<string>;
   profilesById: ReadonlyMap<string, ProfileAttribution>;
   removedMessageIds: ReadonlySet<string>;
 }) {
@@ -820,7 +823,7 @@ function MessageHistory({
       className="message-history"
       aria-label={`${channel.name} message history`}
     >
-      {messages.map((message) => {
+      {messages.map((message, index) => {
         if (removedMessageIds.has(message.id)) {
           return (
             <li
@@ -866,31 +869,49 @@ function MessageHistory({
           );
         }
         const profile = profilesById.get(message.senderId);
+        const previousMessage = messages[index - 1];
+        const groupedWithPrevious =
+          previousMessage !== undefined &&
+          !removedMessageIds.has(previousMessage.id) &&
+          isNewHireMessage(previousMessage) &&
+          previousMessage.senderId === message.senderId &&
+          message.timestamp >= previousMessage.timestamp &&
+          message.timestamp - previousMessage.timestamp <=
+            MESSAGE_GROUP_WINDOW_MS;
         return (
           <li
-            className={`chat-message chat-message-${message.status}${message.mentionedUserIds.includes(identityId) ? " chat-message-mentioned" : ""}`}
+            className={`chat-message chat-message-${message.status}${groupedWithPrevious ? " chat-message-grouped" : ""}${message.mentionedUserIds.includes(identityId) ? " chat-message-mentioned" : ""}`}
             data-message-id={message.id}
             key={message.id}
             tabIndex={-1}
           >
-            <div className="message-meta">
-              <a
-                aria-label={`Open current New Hire Profile for ${profileDisplayName(profile)}`}
-                className="profile-context-trigger"
-                href={`/office?profile=${encodeURIComponent(message.senderId)}`}
-              >
-                <ProfileAvatar
-                  imageClassName="message-avatar"
-                  placeholderClassName="message-avatar-placeholder"
-                  profile={profile}
-                  size={28}
-                />
-                <strong>{profileDisplayName(profile)}</strong>
-                <time dateTime={new Date(message.timestamp).toISOString()}>
-                  {formatOfficeTimestamp(message.timestamp)}
-                </time>
-              </a>
-            </div>
+            {groupedWithPrevious ? null : (
+              <div className="message-meta">
+                <a
+                  aria-label={`Open current New Hire Profile for ${profileDisplayName(profile)}`}
+                  className="profile-context-trigger"
+                  href={`/office?profile=${encodeURIComponent(message.senderId)}`}
+                >
+                  <span className="message-avatar-wrap">
+                    <ProfileAvatar
+                      imageClassName="message-avatar"
+                      placeholderClassName="message-avatar-placeholder"
+                      profile={profile}
+                      size={28}
+                    />
+                    <span
+                      aria-hidden="true"
+                      className="participant-activity-dot"
+                      data-active={activeIds.has(message.senderId)}
+                    />
+                  </span>
+                  <strong>{profileDisplayName(profile)}</strong>
+                  <time dateTime={new Date(message.timestamp).toISOString()}>
+                    {formatOfficeTimestamp(message.timestamp)}
+                  </time>
+                </a>
+              </div>
+            )}
             <p>
               <SafeMessageText
                 content={message.content}
@@ -1072,6 +1093,7 @@ function ChatSurface({
   } else {
     messageHistory = (
       <MessageHistory
+        activeIds={new Set(presentIds)}
         channel={channel}
         identityId={identityId}
         messages={messages}
@@ -1579,7 +1601,7 @@ function OfficeWorkspace({
         </p>
         <aside className="channel-panel" aria-label="Office Channels">
           <p className="eyebrow">Shared Public Office</p>
-          <h1>Welcome, {currentDisplayName}</h1>
+          <h1>Welcome</h1>
           {inboxStatus === "ready" ? null : (
             <output className="inbox-status" aria-live="polite">
               {inboxStatusCopy(inboxStatus)}

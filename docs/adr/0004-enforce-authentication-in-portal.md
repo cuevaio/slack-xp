@@ -1,3 +1,3 @@
-# Enforce authentication in Portal
+# Enforce publish authentication in Portal
 
-Office Channels require `anonymous: false` in the deployed customer `portal.config.ts`; Clerk-gating React controls is not considered an authorization boundary. The repository includes a verification command and production fails closed when authenticated connection, anonymous refusal, origin policy, and persistent history cannot be proven against the configured Portal environment.
+Office Channels allow anonymous connections so Observers can read current messages. Portal `authz` grants `publish: false` to anonymous identities and `publish: true` to authenticated New Hires; hiding React controls is not considered an authorization boundary. Private Office Event and HR Report channels continue to require `anonymous: false`.

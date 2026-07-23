@@ -47,15 +47,15 @@ const RUNTIME_ENVIRONMENT_VARIABLES = [
   ...OPTIONAL_ENVIRONMENT_VARIABLES,
 ] as const;
 
-const PORTAL_CHANNELS = [
+const PUBLIC_PORTAL_CHANNELS = [
   "general:*",
   "watercooler:*",
   "tech-support:*",
   "urgent:*",
   "all-hands:*",
-  "office-events:*",
-  "hr-reports",
 ] as const;
+
+const PRIVATE_PORTAL_CHANNELS = ["office-events:*", "hr-reports"] as const;
 
 const PORTAL_PACKAGE_VERSIONS = {
   "@portalsdk/core": "0.1.4",
@@ -379,6 +379,16 @@ function escapeRegularExpression(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function portalChannelAllowsAnonymousAccess(
+  source: string,
+  channel: string,
+): boolean {
+  const escapedChannel = escapeRegularExpression(channel);
+  return new RegExp(
+    `"${escapedChannel}"\\s*:\\s*(?:publicOfficeChannel|\\{[^}]*(?:anonymous:\\s*true|\\.\\.\\.publicOfficeChannel))`,
+  ).test(source);
+}
+
 function portalChannelRefusesAnonymousAccess(
   source: string,
   channel: string,
@@ -395,27 +405,38 @@ function allHandsUsesBroadcastMode(source: string): boolean {
 
 async function checkPortalConfiguration(root: string): Promise<ReleaseCheck> {
   const source = await readFile(resolve(root, "portal.config.ts"), "utf8");
-  const missing = PORTAL_CHANNELS.filter(
+  const missing = PUBLIC_PORTAL_CHANNELS.filter(
+    (channel) => !portalChannelAllowsAnonymousAccess(source, channel),
+  );
+  const privateChannelsExposed = PRIVATE_PORTAL_CHANNELS.filter(
     (channel) => !portalChannelRefusesAnonymousAccess(source, channel),
   );
-  const isValid = missing.length === 0 && allHandsUsesBroadcastMode(source);
+  const isValid =
+    missing.length === 0 &&
+    privateChannelsExposed.length === 0 &&
+    source.includes("allow({ publish: ctx.claims.anon !== true })") &&
+    allHandsUsesBroadcastMode(source);
 
   if (isValid) {
     return pass(
       "portal-configuration",
       "Portal customer configuration",
-      "Every channel family refuses anonymous access and All Hands uses broadcast mode.",
+      "Office Channels allow anonymous reads, protect publishing with authz, and All Hands uses broadcast mode.",
     );
   }
 
   const missingChannelDetail =
     missing.length > 0
-      ? `; missing anonymous refusal: ${missing.join(", ")}`
+      ? `; missing anonymous read access: ${missing.join(", ")}`
+      : "";
+  const privateChannelDetail =
+    privateChannelsExposed.length > 0
+      ? `; private channels exposed: ${privateChannelsExposed.join(", ")}`
       : "";
   return fail(
     "portal-configuration",
     "Portal customer configuration",
-    `Portal policy is incomplete${missingChannelDetail}.`,
+    `Portal policy is incomplete${missingChannelDetail}${privateChannelDetail}.`,
   );
 }
 

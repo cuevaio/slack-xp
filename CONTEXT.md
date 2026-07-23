@@ -29,7 +29,7 @@ The anonymous public identity shown for the preserved messages of a deleted Cler
 _Avoid_: Deleted user, deactivated profile, unknown user
 
 **Observer**:
-An unauthenticated person viewing a non-live preview of Portal Messenger before entering the Shared Public Office.
+An unauthenticated person viewing live Office Channel messages without permission to send messages.
 _Avoid_: Guest, anonymous Portal user, lurker
 
 **Office Channel**:

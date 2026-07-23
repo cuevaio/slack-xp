@@ -1,6 +1,7 @@
 import { ClerkProvider } from "@clerk/nextjs";
 import { GeistPixelSquare } from "geist/font/pixel";
 import type { Metadata } from "next";
+import { InteractionFeedback } from "@/components/interaction-feedback";
 import { readAppConfiguration } from "@/lib/config";
 import "./globals.css";
 
@@ -24,7 +25,10 @@ export default function RootLayout({
 
   return (
     <html lang="en" className={`${GeistPixelSquare.variable} h-full`}>
-      <body>{content}</body>
+      <body>
+        <InteractionFeedback />
+        {content}
+      </body>
     </html>
   );
 }

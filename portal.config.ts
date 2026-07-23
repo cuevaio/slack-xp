@@ -1,14 +1,18 @@
-import { defineConfig } from "@portalsdk/config";
+import { allow, defineConfig } from "@portalsdk/config";
 
-// Every channel family created by the application must refuse Portal's anonymous
-// credential. Clerk gating alone is not authorization.
+const publicOfficeChannel = {
+  anonymous: true,
+  authz: (ctx: { claims: Record<string, unknown> }) =>
+    allow({ publish: ctx.claims.anon !== true }),
+};
+
 export default defineConfig({
   channels: {
-    "general:*": { anonymous: false },
-    "watercooler:*": { anonymous: false },
-    "tech-support:*": { anonymous: false },
-    "urgent:*": { anonymous: false },
-    "all-hands:*": { anonymous: false, mode: "broadcast" },
+    "general:*": publicOfficeChannel,
+    "watercooler:*": publicOfficeChannel,
+    "tech-support:*": publicOfficeChannel,
+    "urgent:*": publicOfficeChannel,
+    "all-hands:*": { ...publicOfficeChannel, mode: "broadcast" },
     "office-events:*": { anonymous: false },
     "hr-reports": { anonymous: false },
   },

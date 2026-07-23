@@ -53,6 +53,18 @@ export function formatOfficeTimestamp(
   }).format(timestamp);
 }
 
+export function formatOfficeDateTime(
+  timestamp: number,
+  timeZone?: string,
+  locale?: string,
+): string {
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "full",
+    timeStyle: "long",
+    ...(timeZone ? { timeZone } : {}),
+  }).format(timestamp);
+}
+
 export function observeOfficeDayBoundary({
   currentOfficeDay,
   onBoundary,

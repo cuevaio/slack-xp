@@ -4,21 +4,21 @@ import portalConfig from "../../portal.config";
 import vercelConfig from "../../vercel.json";
 
 describe("deployed Portal customer contract", () => {
-  test("refuses anonymous access without content middleware", () => {
+  test("allows anonymous reads but not anonymous publishing", () => {
     for (const channel of [
       "general:*",
       "watercooler:*",
       "tech-support:*",
       "urgent:*",
-      "office-events:*",
-      "hr-reports",
     ]) {
-      expect(portalConfig.channels?.[channel]).toEqual({ anonymous: false });
+      expect(portalConfig.channels?.[channel]?.anonymous).toBe(true);
     }
-    expect(portalConfig.channels?.["all-hands:*"]).toEqual({
+    expect(portalConfig.channels?.["all-hands:*"]?.anonymous).toBe(true);
+    expect(portalConfig.channels?.["all-hands:*"]?.mode).toBe("broadcast");
+    expect(portalConfig.channels?.["office-events:*"]).toEqual({
       anonymous: false,
-      mode: "broadcast",
     });
+    expect(portalConfig.channels?.["hr-reports"]).toEqual({ anonymous: false });
   });
 
   test("pins every direct pre-1.0 Portal package exactly", () => {

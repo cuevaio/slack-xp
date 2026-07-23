@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { ObserverTeaser } from "@/components/observer-teaser";
+import { readAppConfiguration } from "@/lib/config";
 
 export const metadata: Metadata = {
   title: "Portal Messenger: Corporate Edition",
@@ -8,5 +9,11 @@ export const metadata: Metadata = {
 };
 
 export default function ObserverPage() {
-  return <ObserverTeaser />;
+  const configuration = readAppConfiguration();
+  if (configuration.status === "incomplete") return null;
+  return (
+    <ObserverTeaser
+      publishableKey={configuration.values.NEXT_PUBLIC_PORTAL_KEY}
+    />
+  );
 }

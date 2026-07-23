@@ -20,6 +20,7 @@ import {
   PROFILE_HR_REPORT_CATEGORY_LABELS,
 } from "@/lib/hr-reports/domain";
 import type { SafePortalChatMessage } from "@/lib/portal/chat";
+import { formatOfficeDateTime } from "@/lib/portal/office-day";
 
 type HRReportSubmissionResult =
   | "created"
@@ -37,6 +38,7 @@ type HRReportControlsProps<Category extends HRReportCategory> = {
   context: HRReportRequestContext;
   description: string;
   inMoreActionsMenu?: boolean;
+  menuLabel?: string;
   subjectLabel: string;
 };
 
@@ -92,6 +94,7 @@ function HRReportControls<Category extends HRReportCategory>({
   context,
   description,
   inMoreActionsMenu = false,
+  menuLabel,
   subjectLabel,
 }: HRReportControlsProps<Category>) {
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -199,6 +202,9 @@ function HRReportControls<Category extends HRReportCategory>({
           <Menu.Portal>
             <Menu.Positioner align="end" sideOffset={4}>
               <Menu.Popup className="message-actions-menu">
+                {menuLabel ? (
+                  <div className="message-actions-menu-label">{menuLabel}</div>
+                ) : null}
                 <Menu.Item
                   className="message-actions-menu-item"
                   disabled={submitted}
@@ -286,6 +292,7 @@ export function MessageHRReportControls({
       }}
       description="Choose why you want an Operator to review this message. Reporting it does not remove it automatically."
       inMoreActionsMenu
+      menuLabel={formatOfficeDateTime(message.timestamp)}
       subjectLabel="message"
     />
   );

@@ -1,28 +1,5 @@
 import Link from "next/link";
-
-const previewMessages = [
-  {
-    initials: "CL",
-    name: "Clippy from Legal",
-    time: "8:42 AM",
-    message: "Please stop calling the outage a surprise migration.",
-    tone: "gold",
-  },
-  {
-    initials: "PP",
-    name: "Pat Pending",
-    time: "8:47 AM",
-    message: "Does anyone know which printer is the production server?",
-    tone: "mint",
-  },
-  {
-    initials: "IT",
-    name: "Portal Systems IT",
-    time: "9:01 AM",
-    message: "The quarterly synergy has been rebooted successfully.",
-    tone: "blue",
-  },
-] as const;
+import { ObserverLiveChannel } from "@/components/observer-live-channel";
 
 function PortalMark({ compact = false }: { compact?: boolean }) {
   return (
@@ -33,7 +10,7 @@ function PortalMark({ compact = false }: { compact?: boolean }) {
   );
 }
 
-export function ObserverTeaser() {
+export function ObserverTeaser({ publishableKey }: { publishableKey: string }) {
   return (
     <main className="observer-shell">
       <section className="observer-desktop" aria-labelledby="teaser-title">
@@ -61,7 +38,7 @@ export function ObserverTeaser() {
               <span aria-hidden="true"> →</span>
             </Link>
             <p className="privacy-note">
-              Preview only. Sign in to join the live office.
+              Live read-only view. Sign in to send messages.
             </p>
           </div>
 
@@ -71,31 +48,7 @@ export function ObserverTeaser() {
                 <PortalMark compact /># general
               </span>
             </header>
-            <div className="preview-channelbar">
-              <div>
-                <strong># general</strong>
-                <span>The hallway, but with more reply-all.</span>
-              </div>
-            </div>
-            <div className="preview-messages">
-              {previewMessages.map((message) => (
-                <article key={message.name}>
-                  <div
-                    className={`avatar avatar-${message.tone}`}
-                    aria-hidden="true"
-                  >
-                    {message.initials}
-                  </div>
-                  <div>
-                    <div className="message-meta">
-                      <strong>{message.name}</strong>
-                      <time>{message.time}</time>
-                    </div>
-                    <p>{message.message}</p>
-                  </div>
-                </article>
-              ))}
-            </div>
+            <ObserverLiveChannel publishableKey={publishableKey} />
           </section>
         </div>
       </section>

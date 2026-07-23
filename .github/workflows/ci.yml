@@ -11,6 +11,7 @@ jobs:
     timeout-minutes: 20
     env:
       APP_ENV: test
+      NEXT_PUBLIC_PORTAL_KEY: pk_test_ci
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2

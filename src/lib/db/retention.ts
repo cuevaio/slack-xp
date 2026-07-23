@@ -1,4 +1,4 @@
-const DAY_MS = 86_400_000;
+const MILLISECONDS_PER_DAY = 86_400_000;
 
 export const APPLICATION_RETENTION_DAYS = {
   hrReport: 90,
@@ -25,10 +25,12 @@ export type RetentionRecord =
 
 export type RetentionCandidate = Pick<RetentionRecord, "kind" | "id">;
 
-function retentionAge(record: RetentionRecord): {
+type RetentionPolicy = {
   days: number;
   retainedAt: Date;
-} | null {
+};
+
+function retentionPolicyFor(record: RetentionRecord): RetentionPolicy | null {
   switch (record.kind) {
     case "hr-report":
       return {
@@ -50,20 +52,24 @@ function retentionAge(record: RetentionRecord): {
         days: APPLICATION_RETENTION_DAYS.messageRemoval,
         retainedAt: record.retainedAt,
       };
-    case "outbox":
-      return record.complete
-        ? {
-            days: APPLICATION_RETENTION_DAYS.outbox,
-            retainedAt: record.retainedAt,
-          }
-        : null;
-    case "termination":
-      return record.reversedAt
-        ? {
-            days: APPLICATION_RETENTION_DAYS.reversedTermination,
-            retainedAt: record.reversedAt,
-          }
-        : null;
+    case "outbox": {
+      if (!record.complete) {
+        return null;
+      }
+      return {
+        days: APPLICATION_RETENTION_DAYS.outbox,
+        retainedAt: record.retainedAt,
+      };
+    }
+    case "termination": {
+      if (!record.reversedAt) {
+        return null;
+      }
+      return {
+        days: APPLICATION_RETENTION_DAYS.reversedTermination,
+        retainedAt: record.reversedAt,
+      };
+    }
   }
 }
 
@@ -78,16 +84,23 @@ export function selectRetentionCandidates(
     );
   }
 
-  return records.flatMap((record) => {
-    const policy = retentionAge(record);
-    if (!policy) return [];
+  const candidates: RetentionCandidate[] = [];
+  for (const record of records) {
+    const policy = retentionPolicyFor(record);
+    if (!policy) {
+      continue;
+    }
+
     const retainedTimestamp = policy.retainedAt.getTime();
     if (
       !Number.isFinite(retainedTimestamp) ||
-      retainedTimestamp + policy.days * DAY_MS > nowTimestamp
+      retainedTimestamp + policy.days * MILLISECONDS_PER_DAY > nowTimestamp
     ) {
-      return [];
+      continue;
     }
-    return [{ kind: record.kind, id: record.id }];
-  });
+
+    candidates.push({ kind: record.kind, id: record.id });
+  }
+
+  return candidates;
 }

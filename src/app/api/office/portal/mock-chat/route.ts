@@ -6,7 +6,7 @@ import { readAppConfiguration } from "@/lib/config";
 import { isOfficeChannelSlug } from "@/lib/portal/channels";
 import { parseChatContent } from "@/lib/portal/chat";
 import { MockPortalUnavailableError } from "@/lib/portal/mock";
-import { officeNowForRequest } from "@/lib/portal/request-time";
+import { officeNowForRequest } from "@/lib/portal/request-controls";
 import {
   issueOfficePortalSession,
   type OfficePortalSession,

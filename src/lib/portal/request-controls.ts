@@ -3,27 +3,33 @@ import type { ReadyAppConfiguration } from "@/lib/config";
 export const MOCK_OFFICE_NOW_HEADER = "x-portal-mock-now";
 export const MOCK_OFFICE_FAULT_HEADER = "x-portal-mock-fault";
 
-const MOCK_OFFICE_FAULTS = [
-  "installation",
-  "authentication",
-  "maintenance",
-] as const;
+export type MockOfficeFault = "installation" | "authentication" | "maintenance";
 
-export type MockOfficeFault = (typeof MOCK_OFFICE_FAULTS)[number];
+function permitsMockRequestControls(
+  configuration: ReadyAppConfiguration,
+): boolean {
+  return (
+    configuration.environment === "test" && configuration.serviceMode === "mock"
+  );
+}
 
 export function officeFaultForRequest(
   requestHeaders: Pick<Headers, "get">,
   configuration: ReadyAppConfiguration,
 ): MockOfficeFault | null {
-  if (
-    configuration.environment !== "test" ||
-    configuration.serviceMode !== "mock"
-  ) {
+  if (!permitsMockRequestControls(configuration)) {
     return null;
   }
 
   const controlledFault = requestHeaders.get(MOCK_OFFICE_FAULT_HEADER);
-  return MOCK_OFFICE_FAULTS.find((fault) => fault === controlledFault) ?? null;
+  switch (controlledFault) {
+    case "installation":
+    case "authentication":
+    case "maintenance":
+      return controlledFault;
+    default:
+      return null;
+  }
 }
 
 export function officeNowForRequest(
@@ -31,10 +37,7 @@ export function officeNowForRequest(
   configuration: ReadyAppConfiguration,
   fallback: Date = new Date(),
 ): Date {
-  if (
-    configuration.environment !== "test" ||
-    configuration.serviceMode !== "mock"
-  ) {
+  if (!permitsMockRequestControls(configuration)) {
     return fallback;
   }
 

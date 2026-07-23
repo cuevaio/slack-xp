@@ -83,4 +83,23 @@ describe("application-owned retention selection", () => {
       { kind: "termination", id: "termination-expired" },
     ]);
   });
+
+  test("rejects invalid current instants and ignores invalid retention instants", () => {
+    expect(() => selectRetentionCandidates([], new Date(Number.NaN))).toThrow(
+      "Retention selection requires a valid current instant.",
+    );
+
+    expect(
+      selectRetentionCandidates(
+        [
+          {
+            kind: "hr-report",
+            id: "report-with-invalid-date",
+            retainedAt: new Date(Number.NaN),
+          },
+        ],
+        now,
+      ),
+    ).toEqual([]);
+  });
 });

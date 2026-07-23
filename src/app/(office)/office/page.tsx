@@ -14,7 +14,7 @@ import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 import {
   officeFaultForRequest,
   officeNowForRequest,
-} from "@/lib/portal/request-time";
+} from "@/lib/portal/request-controls";
 import { repairProfileProjection } from "@/lib/profiles/service";
 import { SAFETY_PROJECTION_TIMEOUT_MS } from "@/lib/safety/contract";
 import { portalOrNeonAuthority } from "@/lib/safety/failure-authority";
@@ -30,12 +30,12 @@ export const runtime = "nodejs";
 export default async function OfficePage() {
   await connection();
   const configuration = readAppConfiguration();
-  const requestHeaders = await headers();
 
   if (configuration.status === "incomplete") {
     return <InstallationIncomplete configuration={configuration} />;
   }
 
+  const requestHeaders = await headers();
   const controlledFault = officeFaultForRequest(requestHeaders, configuration);
   if (controlledFault === "installation") {
     const incompleteConfiguration = {

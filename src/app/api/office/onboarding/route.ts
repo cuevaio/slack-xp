@@ -4,7 +4,7 @@ import { readAppConfiguration } from "@/lib/config";
 import { OnboardingError } from "@/lib/onboarding/domain";
 import { profileFromIdentity } from "@/lib/onboarding/profile-authority";
 import { acceptNewHireConduct } from "@/lib/onboarding/service";
-import { officeNowForRequest } from "@/lib/portal/request-time";
+import { officeNowForRequest } from "@/lib/portal/request-controls";
 import { handleEmployeeRecordUpdate } from "@/lib/profiles/employee-record-api";
 import { repairProfileProjection } from "@/lib/profiles/service";
 

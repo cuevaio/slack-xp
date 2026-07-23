@@ -1,6 +1,12 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { MOCK_OFFICE_FAULT_HEADER } from "@/lib/portal/request-time";
+import {
+  MOCK_OFFICE_FAULT_HEADER,
+  type MockOfficeFault,
+} from "@/lib/portal/request-controls";
+
+const MINIMUM_TOUCH_TARGET_SIZE = 44;
+const REDUCED_MOTION_MAX_DURATION_SECONDS = 0.000_01;
 
 async function expectNoWcagViolations(page: Page) {
   const results = await new AxeBuilder({ page })
@@ -12,18 +18,22 @@ async function expectNoWcagViolations(page: Page) {
 async function expectVisibleButtonTouchTargets(page: Page) {
   const undersized = await page
     .locator("main button:not(:disabled)")
-    .evaluateAll((buttons) =>
-      buttons
-        .filter((button) => button.checkVisibility())
-        .map((button) => {
-          const bounds = button.getBoundingClientRect();
-          return {
-            name: button.getAttribute("aria-label") ?? button.textContent,
-            width: bounds.width,
-            height: bounds.height,
-          };
-        })
-        .filter(({ width, height }) => width < 44 || height < 44),
+    .evaluateAll(
+      (buttons, minimumSize) =>
+        buttons
+          .filter((button) => button.checkVisibility())
+          .map((button) => {
+            const bounds = button.getBoundingClientRect();
+            return {
+              name: button.getAttribute("aria-label") ?? button.textContent,
+              width: bounds.width,
+              height: bounds.height,
+            };
+          })
+          .filter(
+            ({ width, height }) => width < minimumSize || height < minimumSize,
+          ),
+      MINIMUM_TOUCH_TARGET_SIZE,
     );
   expect(undersized).toEqual([]);
 }
@@ -34,6 +44,15 @@ async function transitionDurationSeconds(locator: Locator): Promise<number> {
     if (value.endsWith("ms")) return Number.parseFloat(value) / 1_000;
     return Number.parseFloat(value);
   });
+}
+
+async function setControlledOfficeFault(
+  page: Page,
+  fault: MockOfficeFault | null,
+): Promise<void> {
+  await page.setExtraHTTPHeaders(
+    fault ? { [MOCK_OFFICE_FAULT_HEADER]: fault } : {},
+  );
 }
 
 async function focusWithKeyboard(
@@ -60,9 +79,7 @@ test.beforeEach(async ({ request }) => {
 test("guarded fault journeys fail closed and recover without external credentials", async ({
   page,
 }) => {
-  await page.setExtraHTTPHeaders({
-    [MOCK_OFFICE_FAULT_HEADER]: "installation",
-  });
+  await setControlledOfficeFault(page, "installation");
   await page.goto("/office");
   await expect(
     page.getByRole("heading", { name: "The office is unavailable" }),
@@ -70,25 +87,21 @@ test("guarded fault journeys fail closed and recover without external credential
   await expect(page.getByLabel(/Message #/)).toHaveCount(0);
   await expect(page.getByText("Development mode")).toHaveCount(0);
 
-  await page.setExtraHTTPHeaders({
-    [MOCK_OFFICE_FAULT_HEADER]: "authentication",
-  });
+  await setControlledOfficeFault(page, "authentication");
   await page.goto("/office");
   await expect(
     page.getByRole("heading", { name: "Sign-in is temporarily unavailable" }),
   ).toBeVisible();
   await expect(page.getByLabel(/Message #/)).toHaveCount(0);
 
-  await page.setExtraHTTPHeaders({});
+  await setControlledOfficeFault(page, null);
   await page.goto("/office");
   await page
     .getByRole("button", { name: "Sign in as Returning New Hire" })
     .click();
   await expect(page.getByText("Welcome, Terry Byte")).toBeVisible();
 
-  await page.setExtraHTTPHeaders({
-    [MOCK_OFFICE_FAULT_HEADER]: "maintenance",
-  });
+  await setControlledOfficeFault(page, "maintenance");
   await page.goto("/office");
   await expect(
     page.getByRole("heading", {
@@ -97,7 +110,7 @@ test("guarded fault journeys fail closed and recover without external credential
   ).toBeVisible();
   await expect(page.getByLabel(/Message #/)).toHaveCount(0);
 
-  await page.setExtraHTTPHeaders({});
+  await setControlledOfficeFault(page, null);
   await page.reload();
   await expect(page.getByText("Welcome, Terry Byte")).toBeVisible();
 });
@@ -112,7 +125,7 @@ test("desktop and mobile journeys preserve WCAG semantics, reduced motion, and t
     name: "Enter the Shared Public Office",
   });
   expect(await transitionDurationSeconds(observerEntry)).toBeLessThanOrEqual(
-    0.000_01,
+    REDUCED_MOTION_MAX_DURATION_SECONDS,
   );
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -149,7 +162,7 @@ test("desktop and mobile journeys preserve WCAG semantics, reduced motion, and t
   await expectVisibleButtonTouchTargets(page);
   expect(
     await transitionDurationSeconds(page.getByRole("button", { name: "Send" })),
-  ).toBeLessThanOrEqual(0.000_01);
+  ).toBeLessThanOrEqual(REDUCED_MOTION_MAX_DURATION_SECONDS);
   await expectNoWcagViolations(page);
 
   await page.setViewportSize({ width: 1280, height: 900 });

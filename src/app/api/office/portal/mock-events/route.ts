@@ -5,7 +5,7 @@ import type { AuthenticatedNewHire } from "@/lib/auth/types";
 import { readAppConfiguration } from "@/lib/config";
 import { parseOfficeEvent } from "@/lib/office-events/contract";
 import { MockPortalUnavailableError } from "@/lib/portal/mock";
-import { officeNowForRequest } from "@/lib/portal/request-time";
+import { officeNowForRequest } from "@/lib/portal/request-controls";
 import {
   issueOfficePortalSession,
   type OfficePortalSession,

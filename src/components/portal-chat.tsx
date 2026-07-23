@@ -1,245 +1,45 @@
 "use client";
 
-import { Popover } from "@base-ui/react/popover";
-import { SignInButton, useAuth } from "@clerk/nextjs";
+import { useAuth, useClerk } from "@clerk/nextjs";
 import {
   type AggregatePresence,
-  type ChannelStatus,
   type DetailedPresence,
-  type InboxStatus,
   type Message,
   Portal,
-  type PortalError,
 } from "@portalsdk/core";
 import { PortalProvider, useChannel, useInbox } from "@portalsdk/react";
-import { skipToken, useQuery, useQueryClient } from "@tanstack/react-query";
-import Image from "next/image";
 import {
-  type FormEvent,
-  type KeyboardEvent,
   type ReactNode,
-  useCallback,
+  startTransition,
   useEffect,
-  useMemo,
+  useEffectEvent,
   useRef,
   useState,
 } from "react";
-import { HRReportReviewQueue } from "@/components/hr-report-review-queue";
-import { MessageHRReportControls } from "@/components/message-hr-report-controls";
-import { MessageRemovalControls } from "@/components/message-removal-controls";
-import { NewHireProfileContext } from "@/components/new-hire-profile-context";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { fetchEmploymentAccess } from "@/lib/employment/client";
-import type {
-  EmploymentAccessDeniedDecision,
-  SafePublicSendHomeSystemEventMessage,
-  SafePublicTerminationSystemEventMessage,
-} from "@/lib/employment/contract";
-import { getEmploymentAccessEndedCopy } from "@/lib/employment/presentation";
-import { invalidateHRReportQueue } from "@/lib/hr-reports/client";
-import { parseHRReportReviewTarget } from "@/lib/hr-reports/domain";
 import {
-  invalidateMessageRemovals,
-  messageRemovalQueryKey,
-  messageRemovalQueryOptions,
-  submitMessageRemoval,
-  useMessageRemovals,
-} from "@/lib/message-removals/client";
-import type { SerializedMessageRemovalProjection } from "@/lib/message-removals/contract";
-import type { SafeScriptedSystemEventMessage } from "@/lib/office-days/contract";
-import { useOfficeEventSubscription } from "@/lib/office-events/client";
-import {
-  createReactionOfficeEvent,
-  createReactionProjection,
-  OFFICE_REACTIONS,
-  type OfficeInvalidationEvent,
-  type OfficeReaction,
-  type ProjectedOfficeReaction,
-  type ReactionOfficeEvent,
-} from "@/lib/office-events/contract";
-import {
-  invalidateOperatorState,
-  OperatorAccessContext,
-  useOperatorState,
-} from "@/lib/operators/client";
-import {
+  listOfficeChannels,
   type OfficeChannel,
-  officeDayFromChannelId,
+  type OfficeChannelSlug,
 } from "@/lib/portal/channels";
-import {
-  CHAT_TEXT_LIMIT,
-  createChatContentWithMentions,
-  linkifyChatText,
-  type PortalChatContent,
-  type SafePortalChatMessage,
-} from "@/lib/portal/chat";
-import {
-  shouldSelectChatComposerMention,
-  shouldSendChatComposerMessage,
-} from "@/lib/portal/chat-composer";
 import { createPortalTokenSource } from "@/lib/portal/client";
-import { type OfficeInboxRow, reconcileOfficeInbox } from "@/lib/portal/inbox";
-import { channelMessageQueryKey } from "@/lib/portal/message-cache";
 import {
-  type MessageHistorySnapshot,
-  selectMessageHistorySnapshot,
-} from "@/lib/portal/message-history-snapshot";
-import {
-  fetchObserverChannelHistory,
-  OBSERVER_HISTORY_REFRESH_MS,
-  type ObserverChannelMessage,
-} from "@/lib/portal/observer";
-import {
-  formatOfficeTimestamp,
-  observeOfficeDayBoundary,
-  officeDay,
-} from "@/lib/portal/office-day";
-import {
-  restoreFailedChatDraft,
-  setOptimisticReactionPending,
-} from "@/lib/portal/optimistic-activity";
-import { connectionStatusCopy } from "@/lib/portal/presence";
-import {
-  isNewHireMessage,
-  isPublicSendHomeSystemEventMessage,
-  isPublicTerminationSystemEventMessage,
-  isScriptedSystemEventMessage,
-  parseOfficeChannelMessages,
-  type SafeOfficeChannelMessage,
-} from "@/lib/portal/visible-messages";
-import {
-  invalidateProfileBatches,
-  profileBatchQueryOptions,
-  useProfileBatch,
-} from "@/lib/profiles/client";
-import { ProfileQueryProvider } from "@/lib/profiles/provider";
-import type { ProfileAttribution } from "@/lib/profiles/types";
-import {
-  useApplicationSafetyControl,
-  useSafetyProjectionStatus,
-} from "@/lib/safety/client";
+  createReactionToggle,
+  projectReactions,
+  REACTION_EVENT_TYPE,
+  type Reaction,
+  type ReactionToggleContent,
+} from "@/lib/portal/reactions";
 
-type PortalPresence = DetailedPresence | AggregatePresence;
-const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
-
-type PortalOfficeBaseProps = {
-  channels: readonly OfficeChannel[];
-  identityId: string;
-  displayName: string;
-  employeeRecord: ReactNode;
-  eventChannelId: string;
-  officeDay: string;
-  isOperator: boolean;
-  canSignOut: boolean;
-};
-
-type LivePortalChatProps = PortalOfficeBaseProps & {
-  mode: "live";
-  publishableKey: string;
-};
-
-type ObserverPortalChatProps = {
-  channels: readonly OfficeChannel[];
-  mode: "observer";
-};
-
-type PortalChatProps = LivePortalChatProps | ObserverPortalChatProps;
-
-type ReactionMutation = Pick<
-  ReactionOfficeEvent,
-  "officeChannelId" | "messageId" | "reaction" | "operation"
->;
-
-type ReactionProps = {
-  reactionEvents: readonly ReactionOfficeEvent[];
-  reactionsEnabled: boolean;
-  onReact(input: ReactionMutation): Promise<void>;
-};
-
-type MessageRemovalProps = {
-  onRemoveMessage(
-    message: SafePortalChatMessage,
-    privateReason: string,
-  ): Promise<void>;
-};
-
-type OfficeDayWorkspace = Pick<
-  PortalOfficeBaseProps,
-  "channels" | "eventChannelId" | "officeDay"
->;
-
-type ChatSurfaceProps = ReactionProps & {
-  activeNewHireIds: readonly string[];
-  visible: boolean;
-  readWhenVisible?: boolean;
-  channel: OfficeChannel;
-  identityId: string;
-  messages: readonly unknown[];
-  status: ChannelStatus;
-  presence?: PortalPresence;
-  onTyping(): void;
-  onSend(
-    content: PortalChatContent,
-    mentions: readonly { userId: string }[],
-  ): Promise<void>;
-  onRetryConnection(): void;
-  loadPrevious?: () => Promise<unknown>;
-  hasPrevious?: boolean;
-  isLoadingPrevious?: boolean;
-  onContentVisible?(): void;
-  mentionMessageId?: string;
-  onMentionVisible?(): void;
-  channelError?: string | null;
-};
-
-type OfficeWorkspaceProps = Pick<
-  PortalOfficeBaseProps,
-  | "channels"
-  | "identityId"
-  | "displayName"
-  | "employeeRecord"
-  | "isOperator"
-  | "canSignOut"
-> & {
-  authenticated: boolean;
-  activeChannelId: string;
-  inboxRows: readonly OfficeInboxRow[];
-  inboxStatus: InboxStatus;
-  isMobile: boolean | null;
-  mobileNavigationOpen: boolean;
-  onOpenMobileNavigation(): void;
-  onSelectChannel(channelId: string): void;
-  mentionedChannelIds: ReadonlySet<string>;
-  mentionAnnouncement: string;
-  children: ReactNode;
-};
-
-type ProfileResolution = {
-  status: "loading" | "ready" | "error";
-  profiles: readonly ProfileAttribution[];
-};
-
-type LiveActivityProps = {
-  active: boolean;
-  activeNewHireIds: readonly string[];
-  channel: OfficeChannel;
-  participantIds: readonly string[];
-  presence?: PortalPresence;
-};
-
-type ResponsiveOfficeNavigation = {
-  isMobile: boolean | null;
-  mobileNavigationOpen: boolean;
-  conversationVisible: boolean;
-  openMobileNavigation(): void;
-  showConversation(): void;
-};
-
-type DraftMention = {
-  userId: string;
-  label: string;
-};
+type MentionRange = { userId: string; start: number; length: number };
+type ChatContent = { text: string; mentionRanges?: MentionRange[] };
+type Profile = { id: string; name: string; imageUrl: string | null };
+type DraftMention = { userId: string; label: string };
+type SendChatMessage = (input: {
+  content: ChatContent;
+  mentions?: { userId: string }[];
+}) => Promise<unknown>;
+type PortalContent = ChatContent | ReactionToggleContent;
+type ChannelPresence = DetailedPresence | AggregatePresence | undefined;
 
 function DraftMentionOverlay({
   text,
@@ -268,832 +68,308 @@ function DraftMentionOverlay({
     cursor = range.start + range.label.length;
   }
   content.push(text.slice(cursor));
-
-  return <>{content}</>;
+  return content;
 }
 
-const REACTION_NAMES: Record<OfficeReaction, string> = {
-  "👍": "Thumbs up",
-  "❤️": "Heart",
-  "😂": "Laughing",
-  "😮": "Surprised",
-  "😢": "Sad",
-  "🎉": "Celebrate",
-};
+const REACTION_OPTIONS: ReadonlyArray<{
+  id: Reaction;
+  label: string;
+  emoji: string;
+}> = [
+  { id: "like", label: "Like", emoji: "👍" },
+  { id: "love", label: "Love", emoji: "❤️" },
+  { id: "laugh", label: "Laugh", emoji: "😂" },
+  { id: "surprise", label: "Surprise", emoji: "😮" },
+];
+const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
+const CHANNEL_HISTORY_SIZE = 50;
 
-const FALLBACK_PROFILE_NAME = "New Hire";
-const LATEST_MESSAGE_THRESHOLD = 24;
-
-function inboxStatusCopy(status: InboxStatus): string {
-  switch (status) {
-    case "ready":
-      return "";
-    case "reconnecting":
-      return "Reconnecting…";
-    case "idle":
-    case "connecting":
-      return "Connecting…";
-  }
-}
-
-function useResponsiveOfficeNavigation(): ResponsiveOfficeNavigation {
-  const [isMobile, setIsMobile] = useState<boolean | null>(null);
-  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(true);
-  const openMobileNavigation = useCallback(
-    () => setMobileNavigationOpen(true),
-    [],
-  );
-  const showConversation = useCallback(
-    () => setMobileNavigationOpen(false),
-    [],
-  );
-
-  useEffect(() => {
-    const query = window.matchMedia("(max-width: 850px)");
-    const update = () => {
-      setIsMobile(query.matches);
-      if (query.matches) {
-        setMobileNavigationOpen(true);
-      }
-    };
-    update();
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
-
-  return {
-    isMobile,
-    mobileNavigationOpen,
-    conversationVisible:
-      isMobile === false || (isMobile === true && !mobileNavigationOpen),
-    openMobileNavigation,
-    showConversation,
-  };
-}
-
-function appendReactionEvent(
-  events: readonly ReactionOfficeEvent[],
-  event: ReactionOfficeEvent,
-): ReactionOfficeEvent[] {
-  if (events.some(({ eventKey }) => eventKey === event.eventKey)) {
-    return [...events];
-  }
-  return [...events, event];
-}
-
-function useResolvedNewHireProfiles(
-  profileIds: readonly string[],
-  enabled: boolean,
-): ProfileResolution {
-  const query = useProfileBatch(enabled ? profileIds : []);
-  const safetyStatus = useSafetyProjectionStatus(query);
-  if (safetyStatus === "unavailable") {
-    return { status: "error", profiles: [] };
-  }
-  if (safetyStatus === "loading") {
-    return { status: "loading", profiles: [] };
-  }
-  return { status: "ready", profiles: query.data ?? [] };
-}
-
-function ParticipantList({
-  channel,
-  activeIds,
-  participantIds,
-  profilesById,
-  resolutionStatus,
-}: {
-  channel: OfficeChannel;
-  activeIds: ReadonlySet<string>;
-  participantIds: readonly string[];
-  profilesById: ReadonlyMap<string, ProfileAttribution>;
-  resolutionStatus: ProfileResolution["status"];
-}) {
-  if (resolutionStatus === "loading") {
-    return <span aria-live="polite">Loading New Hires…</span>;
-  }
-
-  if (resolutionStatus === "error") {
-    return <span role="alert">New Hires are temporarily unavailable.</span>;
-  }
-
-  if (participantIds.length === 0) {
-    return <span>No one is here yet.</span>;
-  }
-
-  const sortedParticipantIds = participantIds.toSorted((left, right) => {
-    const activityDifference =
-      Number(activeIds.has(right)) - Number(activeIds.has(left));
-    if (activityDifference !== 0) return activityDifference;
-    return profileDisplayName(profilesById.get(left)).localeCompare(
-      profileDisplayName(profilesById.get(right)),
-    );
-  });
-
+export function shouldGroupMessages(
+  previous: Message<ChatContent> | undefined,
+  current: Message<ChatContent>,
+) {
   return (
-    <ul aria-label={`${channel.name} participants`}>
-      {sortedParticipantIds.map((userId) => {
-        const profile = profilesById.get(userId);
-        const isActive = activeIds.has(userId);
-        return (
-          <li data-new-hire-id={userId} key={userId}>
-            <a
-              aria-label={`${profileDisplayName(profile)}, ${isActive ? "active" : "inactive"}. Open current New Hire Profile`}
-              className="profile-context-trigger"
-              href={`/office?profile=${encodeURIComponent(userId)}`}
-            >
-              <span className="participant-avatar-wrap">
-                <ProfileAvatar
-                  imageClassName="participant-avatar"
-                  placeholderClassName="participant-avatar participant-avatar-placeholder"
-                  profile={profile}
-                  size={36}
-                />
-                <span
-                  aria-hidden="true"
-                  className="participant-activity-dot"
-                  data-active={isActive}
-                />
-              </span>
-              <span>
-                <strong>{profileDisplayName(profile)}</strong>
-                {profile?.status === "unavailable" ? (
-                  <small>Profile unavailable</small>
-                ) : null}
-              </span>
-            </a>
-          </li>
-        );
-      })}
-    </ul>
+    previous !== undefined &&
+    messageText(previous) !== null &&
+    previous.sender.id === current.sender.id &&
+    current.timestamp >= previous.timestamp &&
+    current.timestamp - previous.timestamp <= MESSAGE_GROUP_WINDOW_MS
   );
 }
 
-function LiveActivity({
-  active,
-  activeNewHireIds,
-  channel,
-  participantIds,
-  presence,
-}: LiveActivityProps) {
-  const profileIds = [...new Set([...activeNewHireIds, ...participantIds])];
-  const resolution = useResolvedNewHireProfiles(
-    profileIds,
-    active && channel.mode === "standard",
-  );
-  const profilesById = new Map(
-    resolution.profiles.map((profile) => [profile.clerkUserId, profile]),
-  );
-
-  if (channel.mode === "broadcast") {
-    return (
-      <aside className="live-activity-panel aggregate-presence">
-        {presence?.kind === "aggregate" ? (
-          <span>
-            {presence.count.toLocaleString()} New Hire
-            {presence.count === 1 ? "" : "s"} here
-          </span>
-        ) : (
-          <span>Checking who&apos;s here…</span>
-        )}
-      </aside>
-    );
-  }
-
-  return (
-    <aside className="live-activity-panel detailed-presence">
-      <strong className="participants-heading">Participants</strong>
-      <ParticipantList
-        activeIds={new Set(activeNewHireIds)}
-        channel={channel}
-        participantIds={profileIds}
-        profilesById={profilesById}
-        resolutionStatus={resolution.status}
-      />
-    </aside>
-  );
+export function messageText(
+  message: Pick<Message<unknown>, "content" | "retracted">,
+) {
+  const content = message.content;
+  return !message.retracted &&
+    typeof content === "object" &&
+    content !== null &&
+    "text" in content &&
+    typeof content.text === "string"
+    ? content.text
+    : null;
 }
 
-function SafeMessageText({
-  content,
-  identityId,
-  profilesById,
-}: {
-  content: PortalChatContent;
-  identityId?: string;
-  profilesById?: ReadonlyMap<string, ProfileAttribution>;
-}) {
-  const ranges = content.mentionRanges ?? [];
-  let characterOffset = 0;
-  const renderText = (text: string) =>
-    linkifyChatText(text).map((part) => {
-      const key = `${part.kind}-${characterOffset}-${part.value}`;
-      characterOffset += part.value.length;
-      return part.kind === "link" ? (
-        <a
-          href={part.value}
-          key={key}
-          rel="noopener noreferrer"
-          target="_blank"
-        >
-          {part.value}
-        </a>
-      ) : (
-        <span key={key}>{part.value}</span>
-      );
+export function isVisibleChatMessage(
+  message: Message<unknown>,
+): message is Message<ChatContent> {
+  return message.type !== REACTION_EVENT_TYPE && messageText(message) !== null;
+}
+
+export function canReactToMessage(message: Pick<Message<unknown>, "status">) {
+  return message.status === "sent";
+}
+
+export function createMentionedContent(
+  draft: string,
+  mentions: readonly DraftMention[],
+) {
+  const text = draft.trim();
+  const mentionRanges: MentionRange[] = [];
+  for (const mention of mentions) {
+    const start = text.indexOf(mention.label);
+    if (start === -1) continue;
+    mentionRanges.push({
+      userId: mention.userId,
+      start,
+      length: mention.label.length,
     });
-  if (ranges.length === 0) return renderText(content.text);
+  }
+  mentionRanges.sort((left, right) => left.start - right.start);
+  return mentionRanges.length > 0 ? { text, mentionRanges } : { text };
+}
 
+export async function sendChatMessage(
+  send: SendChatMessage,
+  draft: string,
+  mentions: readonly DraftMention[] = [],
+) {
+  const content = createMentionedContent(draft, mentions);
+  if (!content.text) return false;
+  const mentionedUserIds = [
+    ...new Set(content.mentionRanges?.map(({ userId }) => userId) ?? []),
+  ];
+  await send({
+    content,
+    ...(mentionedUserIds.length > 0
+      ? { mentions: mentionedUserIds.map((userId) => ({ userId })) }
+      : {}),
+  });
+  return true;
+}
+
+export function scrollToLatestSentMessage(input: {
+  currentUserId: string;
+  latestSenderId: string | undefined;
+  pending: boolean;
+  scrollRegion: { scrollHeight: number; scrollTop: number };
+}) {
+  if (!input.pending || input.latestSenderId !== input.currentUserId)
+    return false;
+  input.scrollRegion.scrollTop = input.scrollRegion.scrollHeight;
+  return true;
+}
+
+export function readChannel(
+  markChannelRead: () => void,
+  inboxEntry: { markAsRead(): void } | undefined,
+) {
+  markChannelRead();
+  inboxEntry?.markAsRead();
+}
+
+export function shouldMarkVisibleMessagesRead(input: {
+  active: boolean;
+  channelUnread: number;
+  documentVisible: boolean;
+  hasVisibleMessage: boolean;
+  inboxAvailable: boolean;
+  inboxUnread: number | undefined;
+}) {
+  const { active, documentVisible, hasVisibleMessage, inboxAvailable } = input;
+  // Channel and inbox snapshots are delivered independently, so their counts
+  // must be reconciled when either side still reports unread state.
+  return (
+    active &&
+    documentVisible &&
+    hasVisibleMessage &&
+    inboxAvailable &&
+    (input.channelUnread > 0 || (input.inboxUnread ?? 0) > 0)
+  );
+}
+
+export function typingStatus(
+  typing: readonly string[],
+  profiles: ReadonlyMap<string, Pick<Profile, "name">>,
+  currentUserId: string,
+) {
+  const names = typing
+    .filter((id) => id !== currentUserId)
+    .map((id) => profiles.get(id)?.name ?? "New Hire");
+  if (names.length === 0) return null;
+  if (names.length === 1) return `${names[0]} is typing...`;
+  if (names.length === 2) return `${names[0]} and ${names[1]} are typing...`;
+  return `${names.slice(0, -1).join(", ")}, and ${names.at(-1)} are typing...`;
+}
+
+export function updateOfficeProfiles(
+  current: ReadonlyMap<string, Profile>,
+  profile: Profile,
+  presence: ChannelPresence,
+) {
+  if (presence?.kind !== "detailed") return current;
+
+  const profiles = new Map<string, Profile>([[profile.id, profile]]);
+  for (const participant of presence.participants) {
+    profiles.set(participant.id, {
+      id: participant.id,
+      name:
+        participant.username ??
+        (typeof participant.metadata?.username === "string"
+          ? participant.metadata.username
+          : "New Hire"),
+      imageUrl:
+        typeof participant.metadata?.avatar === "string"
+          ? participant.metadata.avatar
+          : null,
+    });
+  }
+  return profiles;
+}
+
+function MessageText({
+  content,
+  currentUserId,
+}: {
+  content: ChatContent;
+  currentUserId: string;
+}) {
   const rendered: ReactNode[] = [];
   let cursor = 0;
-  for (const range of ranges) {
-    rendered.push(...renderText(content.text.slice(cursor, range.start)));
-    const label = content.text.slice(range.start, range.start + range.length);
+  for (const range of content.mentionRanges ?? []) {
+    const end = range.start + range.length;
+    if (
+      !Number.isInteger(range.start) ||
+      !Number.isInteger(range.length) ||
+      range.start < cursor ||
+      range.length < 1 ||
+      end > content.text.length
+    ) {
+      continue;
+    }
+    rendered.push(content.text.slice(cursor, range.start));
     rendered.push(
-      <a
+      <span
         className="message-mention"
-        data-current-new-hire={range.userId === identityId}
-        href={`/office?profile=${encodeURIComponent(range.userId)}`}
-        key={`mention-${range.start}-${range.userId}`}
+        data-current-new-hire={range.userId === currentUserId}
+        key={`${range.userId}-${range.start}`}
       >
-        {profilesById?.has(range.userId) ? label : "@New Hire"}
-      </a>,
+        {content.text.slice(range.start, end)}
+      </span>,
     );
-    characterOffset += range.length;
-    cursor = range.start + range.length;
+    cursor = end;
   }
-  rendered.push(...renderText(content.text.slice(cursor)));
+  rendered.push(content.text.slice(cursor));
   return rendered;
 }
 
-function ReactionControls({
-  message,
-  reactions,
-  identityId,
-  enabled,
-  onReact,
-  children,
-}: {
-  message: SafePortalChatMessage;
-  reactions: readonly ProjectedOfficeReaction[];
-  identityId: string;
-  enabled: boolean;
-  onReact(input: ReactionMutation): Promise<void>;
-  children: ReactNode;
-}) {
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const firstReactionRef = useRef<HTMLButtonElement>(null);
-
-  function operationFor(reaction: OfficeReaction): "add" | "remove" {
-    return reactions
-      .find((entry) => entry.reaction === reaction)
-      ?.actorIds.includes(identityId)
-      ? "remove"
-      : "add";
-  }
-
-  async function updateReaction(reaction: OfficeReaction): Promise<void> {
-    setError(null);
-    setPickerOpen(false);
-    try {
-      await onReact({
-        officeChannelId: message.channelId,
-        messageId: message.id,
-        reaction,
-        operation: operationFor(reaction),
-      });
-    } catch {
-      setError("Reaction not saved. Choose it again to retry.");
-    }
-  }
-
-  function handlePickerKeyDown(
-    event: KeyboardEvent<HTMLFieldSetElement>,
-  ): void {
-    if (
-      ![
-        "ArrowLeft",
-        "ArrowRight",
-        "ArrowUp",
-        "ArrowDown",
-        "Home",
-        "End",
-      ].includes(event.key)
-    ) {
-      return;
-    }
-
-    event.preventDefault();
-    const options = [
-      ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
-        "button:not(:disabled)",
-      ),
-    ];
-    const currentIndex = options.indexOf(
-      document.activeElement as HTMLButtonElement,
-    );
-    const nextIndex =
-      event.key === "Home"
-        ? 0
-        : event.key === "End"
-          ? options.length - 1
-          : (currentIndex +
-              (event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1) +
-              options.length) %
-            options.length;
-    options[nextIndex]?.focus();
-  }
-
-  return (
-    <div
-      className="reaction-controls"
-      data-has-reactions={reactions.length > 0}
-      data-picker-open={pickerOpen}
-    >
-      <fieldset className="reaction-summary">
-        <legend className="sr-only">Message reactions</legend>
-        {reactions.map(({ reaction, actorIds }) => {
-          const ownReaction = actorIds.includes(identityId);
-          return (
-            <button
-              aria-label={`${REACTION_NAMES[reaction]}: ${actorIds.length} reaction${actorIds.length === 1 ? "" : "s"}. ${ownReaction ? "Remove your reaction" : "Add your reaction"}.`}
-              aria-pressed={ownReaction}
-              className="reaction-count-button"
-              disabled={!enabled}
-              key={reaction}
-              onClick={() => void updateReaction(reaction)}
-              type="button"
-            >
-              <span aria-hidden="true">{reaction}</span>
-              <span>{actorIds.length}</span>
-            </button>
-          );
-        })}
-      </fieldset>
-      <div className="message-action-toolbar">
-        <Popover.Root onOpenChange={setPickerOpen} open={pickerOpen}>
-          <Popover.Trigger
-            aria-label="Add or remove a reaction"
-            className="message-action-button reaction-picker-trigger"
-            disabled={!enabled}
-          >
-            <span aria-hidden="true">☺+</span>
-          </Popover.Trigger>
-          <Popover.Portal>
-            <Popover.Positioner
-              align="end"
-              className="reaction-picker-positioner"
-              side="bottom"
-              sideOffset={4}
-            >
-              <Popover.Popup
-                className="reaction-picker"
-                initialFocus={firstReactionRef}
-              >
-                <Popover.Title className="sr-only">
-                  Choose a reaction
-                </Popover.Title>
-                <fieldset
-                  className="reaction-picker-options"
-                  onKeyDown={handlePickerKeyDown}
-                >
-                  <legend className="sr-only">Choose a reaction</legend>
-                  {OFFICE_REACTIONS.map((reaction, index) => {
-                    const operation = operationFor(reaction);
-                    return (
-                      <button
-                        aria-label={`${REACTION_NAMES[reaction]} (${reaction}), ${operation} reaction`}
-                        aria-pressed={operation === "remove"}
-                        key={reaction}
-                        onClick={() => void updateReaction(reaction)}
-                        ref={index === 0 ? firstReactionRef : undefined}
-                        type="button"
-                      >
-                        <span aria-hidden="true">{reaction}</span>
-                      </button>
-                    );
-                  })}
-                </fieldset>
-              </Popover.Popup>
-            </Popover.Positioner>
-          </Popover.Portal>
-        </Popover.Root>
-        {children}
-      </div>
-      {error ? (
-        <small className="reaction-error" role="alert">
-          {error}
-        </small>
-      ) : null}
-    </div>
-  );
-}
-
-function MessageActions({
-  message,
-  reactions,
-  identityId,
-  enabled,
-  onReact,
-  onRemoveMessage,
-}: {
-  message: SafePortalChatMessage;
-  reactions: readonly ProjectedOfficeReaction[];
-  identityId: string;
-  enabled: boolean;
-  onReact(input: ReactionMutation): Promise<void>;
-  onRemoveMessage(privateReason: string): Promise<void>;
-}) {
-  const overflowTriggerRef = useRef<HTMLButtonElement>(null);
-
-  return (
-    <ReactionControls
-      enabled={enabled}
-      identityId={identityId}
-      message={message}
-      onReact={onReact}
-      reactions={reactions}
-    >
-      <MessageRemovalControls
-        onRemove={onRemoveMessage}
-        returnFocusRef={overflowTriggerRef}
-      >
-        {(removalMenuItem) => (
-          <MessageHRReportControls
-            message={message}
-            triggerRef={overflowTriggerRef}
-          >
-            {removalMenuItem}
-          </MessageHRReportControls>
-        )}
-      </MessageRemovalControls>
-    </ReactionControls>
-  );
-}
-
-function profileDisplayName(profile: ProfileAttribution | undefined): string {
-  return profile?.displayName ?? FALLBACK_PROFILE_NAME;
-}
-
-function ProfileAvatar({
+function Avatar({
   profile,
-  size,
-  imageClassName,
-  placeholderClassName,
+  active = false,
 }: {
-  profile: ProfileAttribution | undefined;
-  size: number;
-  imageClassName?: string;
-  placeholderClassName: string;
+  profile: Profile;
+  active?: boolean;
 }) {
-  if (profile?.imageUrl) {
-    return (
-      <Image
-        alt=""
-        className={imageClassName}
-        height={size}
-        src={profile.imageUrl}
-        unoptimized
-        width={size}
-      />
-    );
-  }
-
   return (
-    <span aria-hidden="true" className={placeholderClassName}>
-      {profileDisplayName(profile).slice(0, 1)}
+    <span className="message-avatar-wrap">
+      {profile.imageUrl ? (
+        // Clerk controls this authenticated profile URL.
+        // biome-ignore lint/performance/noImgElement: arbitrary Clerk image hosts are expected.
+        <img alt="" className="message-avatar" src={profile.imageUrl} />
+      ) : (
+        <span className="message-avatar-placeholder">
+          {profile.name.slice(0, 1)}
+        </span>
+      )}
+      <span
+        aria-hidden="true"
+        className="participant-activity-dot"
+        data-active={active}
+      />
     </span>
   );
 }
 
-function ScriptedSystemEventListItem({
-  message,
-}: {
-  message: SafeScriptedSystemEventMessage;
-}) {
+function AccountMenu({ profile }: { profile: Profile }) {
+  const [open, setOpen] = useState(false);
+  const { openUserProfile, signOut } = useClerk();
   return (
-    <li
-      className="chat-message system-event-message"
-      data-event-key={message.eventKey}
-      data-message-id={message.id}
-    >
-      <div className="message-meta system-event-meta">
-        <span aria-hidden="true" className="system-event-icon">
-          !
-        </span>
-        <strong>{message.character.name}</strong>
-        <span className="office-character-badge">
-          Office Character · Fictional
-        </span>
-        <time dateTime={new Date(message.timestamp).toISOString()}>
-          {formatOfficeTimestamp(message.timestamp)}
-        </time>
-      </div>
-      <small>{message.character.role}</small>
-      <p>
-        <SafeMessageText content={message.content} />
-      </p>
-    </li>
-  );
-}
-
-function SendHomeSystemEventListItem({
-  message,
-  profilesById,
-}: {
-  message: SafePublicSendHomeSystemEventMessage;
-  profilesById: ReadonlyMap<string, ProfileAttribution>;
-}) {
-  const operatorName = profileDisplayName(profilesById.get(message.operatorId));
-  const targetName = profileDisplayName(
-    profilesById.get(message.targetNewHireId),
-  );
-
-  return (
-    <li
-      className="chat-message system-event-message"
-      data-event-key={message.eventKey}
-      data-message-id={message.id}
-    >
-      <div className="message-meta system-event-meta">
-        <span aria-hidden="true" className="system-event-icon">
-          !
-        </span>
-        <strong>Portal Systems Operations</strong>
-        <time dateTime={new Date(message.timestamp).toISOString()}>
-          {formatOfficeTimestamp(message.timestamp)}
-        </time>
-      </div>
-      <p>
-        {operatorName} sent {targetName} home for the rest of this Office Day.
-      </p>
-    </li>
-  );
-}
-
-function TerminationSystemEventListItem({
-  message,
-  profilesById,
-}: {
-  message: SafePublicTerminationSystemEventMessage;
-  profilesById: ReadonlyMap<string, ProfileAttribution>;
-}) {
-  const operatorName = profileDisplayName(profilesById.get(message.operatorId));
-  const targetName = profileDisplayName(
-    profilesById.get(message.targetNewHireId),
-  );
-
-  return (
-    <li
-      className="chat-message system-event-message"
-      data-event-key={message.eventKey}
-      data-message-id={message.id}
-    >
-      <div className="message-meta system-event-meta">
-        <span aria-hidden="true" className="system-event-icon">
-          !
-        </span>
-        <strong>Portal Systems Operations</strong>
-        <time dateTime={new Date(message.timestamp).toISOString()}>
-          {formatOfficeTimestamp(message.timestamp)}
-        </time>
-      </div>
-      <p>
-        {operatorName}{" "}
-        {message.action === "terminated" ? "terminated" : "reinstated"}{" "}
-        {targetName}.
-      </p>
-    </li>
-  );
-}
-
-function MessageHistory({
-  channel,
-  messages,
-  identityId,
-  activeIds,
-  reactionEvents,
-  reactionsEnabled,
-  onReact,
-  onRemoveMessage,
-  profilesById,
-  removedMessageIds,
-}: ReactionProps &
-  MessageRemovalProps & {
-    channel: OfficeChannel;
-    messages: readonly SafeOfficeChannelMessage[];
-    identityId: string;
-    activeIds: ReadonlySet<string>;
-    profilesById: ReadonlyMap<string, ProfileAttribution>;
-    removedMessageIds: ReadonlySet<string>;
-  }) {
-  if (messages.length === 0) {
-    return (
-      <div className="empty-chat">
-        <strong>No messages yet.</strong>
-      </div>
-    );
-  }
-
-  const visibleMessageIds = new Set(
-    messages
-      .filter(isNewHireMessage)
-      .filter(({ status }) => status === "sent")
-      .filter(({ id }) => !removedMessageIds.has(id))
-      .map(({ id }) => id),
-  );
-  const projection = createReactionProjection({
-    isValidTarget: (officeChannelId, messageId) =>
-      officeChannelId === channel.id && visibleMessageIds.has(messageId),
-  });
-  for (const event of reactionEvents) {
-    projection.apply(event);
-  }
-
-  return (
-    <ol
-      className="message-history"
-      aria-label={`${channel.name} message history`}
-    >
-      {messages.map((message, index) => {
-        if (removedMessageIds.has(message.id)) {
-          return (
-            <li
-              className="chat-message removed-message"
-              data-message-id={message.id}
-              key={message.id}
-              tabIndex={-1}
-            >
-              <div className="message-meta removed-message-meta">
-                <strong>Removed Message</strong>
-                <time dateTime={new Date(message.timestamp).toISOString()}>
-                  {formatOfficeTimestamp(message.timestamp)}
-                </time>
-              </div>
-              <p>
-                An Operator removed this message from Portal Messenger. Its
-                place in the conversation is preserved.
-              </p>
-            </li>
-          );
-        }
-        if (isPublicTerminationSystemEventMessage(message)) {
-          return (
-            <TerminationSystemEventListItem
-              key={message.id}
-              message={message}
-              profilesById={profilesById}
-            />
-          );
-        }
-        if (isPublicSendHomeSystemEventMessage(message)) {
-          return (
-            <SendHomeSystemEventListItem
-              key={message.id}
-              message={message}
-              profilesById={profilesById}
-            />
-          );
-        }
-        if (isScriptedSystemEventMessage(message)) {
-          return (
-            <ScriptedSystemEventListItem key={message.id} message={message} />
-          );
-        }
-        const profile = profilesById.get(message.senderId);
-        const previousMessage = messages[index - 1];
-        const groupedWithPrevious =
-          previousMessage !== undefined &&
-          !removedMessageIds.has(previousMessage.id) &&
-          isNewHireMessage(previousMessage) &&
-          previousMessage.senderId === message.senderId &&
-          message.timestamp >= previousMessage.timestamp &&
-          message.timestamp - previousMessage.timestamp <=
-            MESSAGE_GROUP_WINDOW_MS;
-        return (
-          <li
-            className={`chat-message chat-message-${message.status}${groupedWithPrevious ? " chat-message-grouped" : ""}${message.mentionedUserIds.includes(identityId) ? " chat-message-mentioned" : ""}`}
-            data-message-id={message.id}
-            key={message.id}
-            tabIndex={-1}
+    <div className="employee-record-control">
+      {open ? (
+        <div className="employee-record-menu" role="menu">
+          <button
+            onClick={() => {
+              setOpen(false);
+              openUserProfile();
+            }}
+            role="menuitem"
+            type="button"
           >
-            {groupedWithPrevious ? null : (
-              <div className="message-meta">
-                <a
-                  aria-label={`Open current New Hire Profile for ${profileDisplayName(profile)}`}
-                  className="profile-context-trigger"
-                  href={`/office?profile=${encodeURIComponent(message.senderId)}`}
-                >
-                  <span className="message-avatar-wrap">
-                    <ProfileAvatar
-                      imageClassName="message-avatar"
-                      placeholderClassName="message-avatar-placeholder"
-                      profile={profile}
-                      size={28}
-                    />
-                    <span
-                      aria-hidden="true"
-                      className="participant-activity-dot"
-                      data-active={activeIds.has(message.senderId)}
-                    />
-                  </span>
-                  <strong>{profileDisplayName(profile)}</strong>
-                  <time dateTime={new Date(message.timestamp).toISOString()}>
-                    {formatOfficeTimestamp(message.timestamp)}
-                  </time>
-                </a>
-              </div>
-            )}
-            <p>
-              <SafeMessageText
-                content={message.content}
-                identityId={identityId}
-                profilesById={profilesById}
-              />
-            </p>
-            {message.status === "failed" ? (
-              <small role="alert">
-                Not delivered. Retry from the composer.
-              </small>
-            ) : null}
-            {message.status === "sent" ? (
-              <MessageActions
-                enabled={reactionsEnabled}
-                identityId={identityId}
-                message={message}
-                onReact={onReact}
-                onRemoveMessage={(privateReason) =>
-                  onRemoveMessage(message, privateReason)
-                }
-                reactions={projection.read(channel.id, message.id)}
-              />
-            ) : null}
-          </li>
-        );
-      })}
-    </ol>
+            <span aria-hidden="true">[edit]</span> Edit profile
+          </button>
+          <hr />
+          <button
+            onClick={() => void signOut({ redirectUrl: "/" })}
+            role="menuitem"
+            type="button"
+          >
+            <span aria-hidden="true">[exit]</span> Log out
+          </button>
+        </div>
+      ) : null}
+      <button
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className="employee-record-trigger"
+        onClick={() => setOpen((current) => !current)}
+        type="button"
+      >
+        {profile.imageUrl ? (
+          // biome-ignore lint/performance/noImgElement: arbitrary Clerk image hosts are expected.
+          <img
+            alt=""
+            className="employee-record-avatar"
+            src={profile.imageUrl}
+          />
+        ) : (
+          <span className="employee-record-avatar-fallback">
+            {profile.name.slice(0, 1)}
+          </span>
+        )}
+        <span className="employee-record-name">{profile.name}</span>
+        <span aria-hidden="true">^</span>
+      </button>
+    </div>
   );
 }
 
-function isChatContentReady(status: ChannelStatus): boolean {
-  return (
-    status === "ready" || status === "degraded" || status === "degraded-http"
-  );
-}
-
-function hasRenderedLatestMessage(
-  surface: HTMLElement,
-  messageCount: number,
-  latestMessageId: string | null,
-): boolean {
-  const renderedLatestMessageId =
-    surface
-      .querySelector(".message-history")
-      ?.lastElementChild?.getAttribute("data-message-id") ?? null;
-
-  return (
-    surface.querySelectorAll(".chat-message").length === messageCount &&
-    renderedLatestMessageId === latestMessageId
-  );
-}
-
-function isElementInViewport(element: HTMLElement): boolean {
-  const bounds = element.getBoundingClientRect();
-  return (
-    bounds.width > 0 &&
-    bounds.height > 0 &&
-    bounds.bottom > 0 &&
-    bounds.right > 0 &&
-    bounds.top < window.innerHeight &&
-    bounds.left < window.innerWidth
-  );
-}
-
-function ChatSurface({
-  activeNewHireIds,
-  visible,
-  readWhenVisible = true,
+function LiveChannel({
+  active,
   channel,
-  identityId,
-  messages: rawMessages,
-  status,
-  presence,
-  onTyping,
-  reactionEvents,
-  reactionsEnabled,
-  onReact,
-  onSend,
-  onRetryConnection,
-  loadPrevious,
-  hasPrevious = false,
-  isLoadingPrevious = false,
-  onContentVisible,
-  mentionMessageId,
-  onMentionVisible,
-  channelError,
-}: ChatSurfaceProps) {
-  const queryClient = useQueryClient();
+  officeProfiles,
+  onPresenceChange,
+  onMention,
+  onReady,
+  profile,
+}: {
+  active: boolean;
+  channel: OfficeChannel;
+  officeProfiles: ReadonlyMap<string, Profile>;
+  onPresenceChange: (presence: ChannelPresence) => void;
+  onMention: (channelId: OfficeChannelSlug) => void;
+  onReady: (channelId: OfficeChannelSlug) => void;
+  profile: Profile;
+}) {
   const [draft, setDraft] = useState("");
   const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
   const [mentionSearch, setMentionSearch] = useState<{
@@ -1102,350 +378,133 @@ function ChatSurface({
     query: string;
   } | null>(null);
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
-  const [sendError, setSendError] = useState<string | null>(null);
-  const [optimisticRemovedMessageIds, setOptimisticRemovedMessageIds] =
-    useState<ReadonlySet<string>>(() => new Set());
-  const [removalError, setRemovalError] = useState<string | null>(null);
-  const draftRef = useRef("");
-  const scrollRegionRef = useRef<HTMLDivElement>(null);
+  const [error, setError] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composerOverlayRef = useRef<HTMLDivElement>(null);
-  const followingLatestMessage = useRef(true);
-  const surfaceRef = useRef<HTMLElement>(null);
-  const latestOnContentVisible = useRef(onContentVisible);
-  const parsedMessages = useMemo(
-    () => parseOfficeChannelMessages(rawMessages, channel.id),
-    [channel.id, rawMessages],
-  );
-  const messages = parsedMessages.messages;
-  const latestMessageId = messages.at(-1)?.id ?? null;
-  const removalQuery = useMessageRemovals(channel.id);
-  const removalSafetyStatus = useSafetyProjectionStatus(removalQuery);
-  const removedMessageIds = useMemo(() => {
-    const messageIds = new Set(
-      (removalQuery.data ?? []).map(({ messageId }) => messageId),
-    );
-    for (const messageId of optimisticRemovedMessageIds) {
-      messageIds.add(messageId);
-    }
-    return messageIds;
-  }, [optimisticRemovedMessageIds, removalQuery.data]);
-  const participantIds = useMemo(
-    () => [
-      ...new Set([
-        identityId,
-        ...activeNewHireIds,
-        ...messages.filter(isNewHireMessage).map(({ senderId }) => senderId),
-      ]),
-    ],
-    [activeNewHireIds, identityId, messages],
-  );
-  const profileIds = useMemo(() => participantIds, [participantIds]);
-  const profileQuery = useProfileBatch(profileIds);
-  const profileSafetyStatus = useSafetyProjectionStatus(profileQuery);
-  const messageHistoryReady =
-    removalSafetyStatus === "ready" && profileSafetyStatus === "ready";
-  const profilesById = useMemo(
-    () =>
-      new Map(
-        (profileQuery.data ?? []).map((profile) => [
-          profile.clerkUserId,
-          profile,
-        ]),
-      ),
-    [profileQuery.data],
-  );
-  const currentMessageHistorySnapshot = useMemo<
-    MessageHistorySnapshot<SafeOfficeChannelMessage, ProfileAttribution>
-  >(
-    () => ({ messages, profileIds, profilesById }),
-    [messages, profileIds, profilesById],
-  );
-  const [lastVerifiedMessageHistory, setLastVerifiedMessageHistory] =
-    useState<MessageHistorySnapshot<
-      SafeOfficeChannelMessage,
-      ProfileAttribution
-    > | null>(null);
-  const previousProfileQuery = useProfileBatch(
-    lastVerifiedMessageHistory?.profileIds ?? [],
-  );
-  const previousProfileSafetyStatus =
-    useSafetyProjectionStatus(previousProfileQuery);
-  const previousProfilesById = useMemo(
-    () =>
-      new Map(
-        (previousProfileQuery.data ?? []).map((profile) => [
-          profile.clerkUserId,
-          profile,
-        ]),
-      ),
-    [previousProfileQuery.data],
-  );
-  const previousMessageHistory = useMemo(
-    () =>
-      lastVerifiedMessageHistory
-        ? {
-            ...lastVerifiedMessageHistory,
-            profilesById: previousProfilesById,
-          }
-        : null,
-    [lastVerifiedMessageHistory, previousProfilesById],
-  );
-  const selectedMessageHistory = selectMessageHistorySnapshot({
-    current: currentMessageHistorySnapshot,
-    previous: previousMessageHistory,
-    previousProfileSafetyStatus,
-    profileSafetyStatus,
-    removalSafetyStatus,
+  const scrollRegionRef = useRef<HTMLDivElement>(null);
+  const scrollAfterSendRef = useRef(false);
+  const inbox = useInbox();
+  const live = useChannel<PortalContent>({
+    channelId: channel.id,
+    history: CHANNEL_HISTORY_SIZE,
+    readOn: "manual",
+    metadata: { username: profile.name, avatar: profile.imageUrl },
+    onMention: () => onMention(channel.id),
+    onError: () => setError("Connection lost. Portal will keep retrying."),
   });
+  const reportReady = useEffectEvent(onReady);
+  const reportPresence = useEffectEvent(onPresenceChange);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
+  useEffect(() => {
+    if (live.status === "ready") reportReady(channel.id);
+  }, [channel.id, live.status]);
+  // The standard channel supplies the detailed office roster. Broadcast presence is aggregate-only.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
+  useEffect(() => {
+    if (channel.mode === "standard") reportPresence(live.presence);
+  }, [channel.mode, live.presence]);
+  const reactions = projectReactions(live.messages);
+  const visibleMessages = live.messages.filter(isVisibleChatMessage);
   const mentionCandidates = mentionSearch
-    ? [...profilesById.values()]
-        .filter(({ clerkUserId }) => clerkUserId !== identityId)
-        .filter(({ displayName }) =>
-          displayName
+    ? [...officeProfiles.values()]
+        .filter(({ id }) => id !== profile.id)
+        .filter(({ name }) =>
+          name
             .toLocaleLowerCase()
             .includes(mentionSearch.query.toLocaleLowerCase()),
         )
-        .toSorted((left, right) =>
-          left.displayName.localeCompare(right.displayName),
-        )
+        .toSorted((left, right) => left.name.localeCompare(right.name))
         .slice(0, 6)
     : [];
   const activeMention = mentionCandidates[activeMentionIndex];
-  let messageHistory: ReactNode;
-  if (selectedMessageHistory) {
-    messageHistory = (
-      <MessageHistory
-        activeIds={new Set(activeNewHireIds)}
-        channel={channel}
-        identityId={identityId}
-        messages={selectedMessageHistory.messages}
-        onReact={onReact}
-        onRemoveMessage={removeMessage}
-        profilesById={selectedMessageHistory.profilesById}
-        reactionEvents={reactionEvents}
-        reactionsEnabled={reactionsEnabled}
-        removedMessageIds={removedMessageIds}
-      />
-    );
-  } else if (
-    removalSafetyStatus === "unavailable" ||
-    profileSafetyStatus === "unavailable"
-  ) {
-    messageHistory = (
-      <div className="safety-outage" role="alert">
-        <strong>Message safety checks are unavailable.</strong>
-        <span className="outage-detail">
-          No conversation content is shown until New Hire Profiles and Removed
-          Messages can be verified.
-        </span>
-      </div>
-    );
-  } else {
-    messageHistory = (
-      <p className="profile-status">Verifying message safety…</p>
-    );
-  }
+  const visibleMessageIds = visibleMessages.map(({ id }) => id).join("\0");
+  const latestVisibleMessageId = visibleMessages.at(-1)?.id;
+  const latestVisibleSenderId = visibleMessages.at(-1)?.sender.id;
+  const inboxUnread = inbox.channels.get(channel.id)?.unread;
+  const markVisibleMessagesRead = useEffectEvent(
+    (hasVisibleMessage: boolean) => {
+      const inboxEntry = inbox.channels.get(channel.id);
+      if (
+        !shouldMarkVisibleMessagesRead({
+          active,
+          channelUnread: live.unread,
+          documentVisible: document.visibilityState === "visible",
+          hasVisibleMessage,
+          inboxAvailable: Boolean(inboxEntry),
+          inboxUnread: inboxEntry?.unread,
+        }) ||
+        !inboxEntry
+      )
+        return;
+      readChannel(live.markAsRead, inboxEntry);
+    },
+  );
 
+  // Portal keeps channel and inbox read positions independently. A visible chat
+  // reconciles both whenever either source still reports unread state.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
   useEffect(() => {
-    if (!messageHistoryReady) return;
-    setLastVerifiedMessageHistory(currentMessageHistorySnapshot);
-  }, [currentMessageHistorySnapshot, messageHistoryReady]);
-
-  useEffect(() => {
-    latestOnContentVisible.current = onContentVisible;
-  }, [onContentVisible]);
-
-  useEffect(() => {
-    if (
-      !visible ||
-      !messageHistoryReady ||
-      !isChatContentReady(status) ||
-      messages.length === 0 ||
-      !latestMessageId
-    ) {
+    const root = scrollRegionRef.current;
+    if (!active || live.status !== "ready" || !visibleMessageIds || !root)
       return;
-    }
-    const target = parseHRReportReviewTarget(window.location.search);
-    if (
-      !target ||
-      target.subjectType !== "message" ||
-      target.officeChannelId !== channel.id
-    )
-      return;
-    const element = [
-      ...document.querySelectorAll<HTMLElement>(".chat-message"),
-    ].find(
-      (candidate) =>
-        candidate.getAttribute("data-message-id") === target.messageId,
-    );
-    if (!element) return;
-    followingLatestMessage.current = false;
-    element.scrollIntoView({ block: "center" });
-    element.focus({ preventScroll: true });
-  }, [
-    channel.id,
-    latestMessageId,
-    messages.length,
-    messageHistoryReady,
-    status,
-    visible,
-  ]);
+    const observedRoot = root;
 
-  useEffect(() => {
-    if (!visible || !messageHistoryReady || !mentionMessageId) return;
-    const element = surfaceRef.current?.querySelector<HTMLElement>(
-      `[data-message-id="${CSS.escape(mentionMessageId)}"]`,
-    );
-    if (!element) return;
-    followingLatestMessage.current = false;
-    element.scrollIntoView({ block: "center" });
-    element.focus({ preventScroll: true });
-    onMentionVisible?.();
-  }, [mentionMessageId, messageHistoryReady, onMentionVisible, visible]);
-
-  useEffect(() => {
-    if (
-      !visible ||
-      !messageHistoryReady ||
-      !isChatContentReady(status) ||
-      !latestMessageId ||
-      !followingLatestMessage.current
-    ) {
-      return;
-    }
-
-    const region = scrollRegionRef.current;
-    if (region) {
-      region.scrollTop = region.scrollHeight;
-    }
-  }, [latestMessageId, messageHistoryReady, status, visible]);
-
-  useEffect(() => {
-    if (
-      !visible ||
-      !readWhenVisible ||
-      !messageHistoryReady ||
-      !isChatContentReady(status)
-    ) {
-      return;
-    }
-
-    const surface = surfaceRef.current;
-    if (!surface) return;
-    let animationFrame = 0;
-    const reportIfVisible = () => {
-      cancelAnimationFrame(animationFrame);
-      animationFrame = requestAnimationFrame(() => {
-        if (
-          !document.hidden &&
-          !surface.hidden &&
-          hasRenderedLatestMessage(surface, messages.length, latestMessageId) &&
-          isElementInViewport(surface)
-        ) {
-          latestOnContentVisible.current?.();
-        }
+    let frame = 0;
+    function checkVisibility() {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const rootRect = observedRoot.getBoundingClientRect();
+        const hasVisibleMessage = [
+          ...observedRoot.querySelectorAll<HTMLElement>(".chat-message"),
+        ].some((message) => {
+          const messageRect = message.getBoundingClientRect();
+          return (
+            messageRect.right > rootRect.left &&
+            messageRect.left < rootRect.right &&
+            messageRect.bottom > rootRect.top &&
+            messageRect.top < rootRect.bottom
+          );
+        });
+        markVisibleMessagesRead(hasVisibleMessage);
       });
-    };
-    const observer = new IntersectionObserver(reportIfVisible, {
-      threshold: 0.01,
-    });
-    observer.observe(surface);
-    document.addEventListener("visibilitychange", reportIfVisible);
-    window.addEventListener("resize", reportIfVisible);
-    reportIfVisible();
+    }
+    const resizeObserver = new ResizeObserver(checkVisibility);
+    resizeObserver.observe(observedRoot);
+    observedRoot.addEventListener("scroll", checkVisibility, { passive: true });
+    window.addEventListener("resize", checkVisibility);
+    document.addEventListener("visibilitychange", checkVisibility);
+    checkVisibility();
+
     return () => {
-      cancelAnimationFrame(animationFrame);
-      observer.disconnect();
-      document.removeEventListener("visibilitychange", reportIfVisible);
-      window.removeEventListener("resize", reportIfVisible);
+      cancelAnimationFrame(frame);
+      resizeObserver.disconnect();
+      observedRoot.removeEventListener("scroll", checkVisibility);
+      window.removeEventListener("resize", checkVisibility);
+      document.removeEventListener("visibilitychange", checkVisibility);
     };
-  }, [
-    latestMessageId,
-    messages.length,
-    messageHistoryReady,
-    readWhenVisible,
-    status,
-    visible,
-  ]);
+  }, [active, inboxUnread, live.status, visibleMessageIds]);
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const submittedDraft = draftRef.current;
-    if (submittedDraft.trim().length === 0) return;
-    setSendError(null);
-    let content: PortalChatContent;
-    try {
-      content = createChatContentWithMentions(submittedDraft, draftMentions);
-    } catch (error) {
-      setSendError(error instanceof Error ? error.message : "Invalid message.");
-      return;
+  useEffect(() => {
+    const root = scrollRegionRef.current;
+    if (
+      latestVisibleMessageId &&
+      root &&
+      scrollToLatestSentMessage({
+        currentUserId: profile.id,
+        latestSenderId: latestVisibleSenderId,
+        pending: scrollAfterSendRef.current,
+        scrollRegion: root,
+      })
+    ) {
+      scrollAfterSendRef.current = false;
     }
-
-    const submittedMentions = draftMentions;
-    draftRef.current = "";
-    setDraft("");
-    setDraftMentions([]);
-    setMentionSearch(null);
-    try {
-      await onSend(
-        content,
-        [
-          ...new Set(content.mentionRanges?.map(({ userId }) => userId) ?? []),
-        ].map((userId) => ({ userId })),
-      );
-    } catch {
-      const currentDraft = draftRef.current;
-      const restoredDraft = restoreFailedChatDraft(content.text, currentDraft);
-      draftRef.current = restoredDraft;
-      setDraft(restoredDraft);
-      setDraftMentions(currentDraft ? [] : submittedMentions);
-      setSendError("Message not delivered. Your text is ready to retry.");
-    }
-  }
-
-  async function removeMessage(
-    message: SafePortalChatMessage,
-    privateReason: string,
-  ): Promise<void> {
-    setRemovalError(null);
-    setOptimisticRemovedMessageIds((current) => {
-      const next = new Set(current);
-      next.add(message.id);
-      return next;
-    });
-    try {
-      const removal = await submitMessageRemoval({
-        officeChannelId: message.channelId,
-        messageId: message.id,
-        privateReason,
-      });
-      queryClient.setQueryData<SerializedMessageRemovalProjection[]>(
-        messageRemovalQueryKey(message.channelId),
-        (current = []) =>
-          current.some(({ messageId }) => messageId === removal.messageId)
-            ? current
-            : [...current, removal],
-      );
-      void invalidateHRReportQueue(queryClient);
-    } catch {
-      setRemovalError(
-        "The message could not be removed. Its original content has been restored.",
-      );
-    } finally {
-      setOptimisticRemovedMessageIds((current) => {
-        const next = new Set(current);
-        next.delete(message.id);
-        return next;
-      });
-    }
-  }
+  }, [latestVisibleMessageId, latestVisibleSenderId, profile.id]);
 
   function updateMentionSearch(
     text: string,
     cursor: number,
     previousText: string,
-  ): void {
+  ) {
     if (!mentionSearch) {
       const typedAt =
         text.length === previousText.length + 1 && text[cursor - 1] === "@";
@@ -1475,16 +534,15 @@ function ChatSurface({
     setActiveMentionIndex(0);
   }
 
-  function selectMention(profile: ProfileAttribution): void {
+  function selectMention(selectedProfile: Profile) {
     if (!mentionSearch) return;
-    const label = `@${profile.displayName}`;
+    const label = `@${selectedProfile.name}`;
     const nextDraft = `${draft.slice(0, mentionSearch.start)}${label} ${draft.slice(mentionSearch.end)}`;
     const cursor = mentionSearch.start + label.length + 1;
-    draftRef.current = nextDraft;
     setDraft(nextDraft);
     setDraftMentions((current) => [
-      ...current.filter(({ userId }) => userId !== profile.clerkUserId),
-      { userId: profile.clerkUserId, label },
+      ...current.filter(({ userId }) => userId !== selectedProfile.id),
+      { userId: selectedProfile.id, label },
     ]);
     setMentionSearch(null);
     requestAnimationFrame(() => {
@@ -1493,112 +551,193 @@ function ChatSurface({
     });
   }
 
-  async function loadEarlier() {
-    if (!loadPrevious) return;
-    const region = scrollRegionRef.current;
-    const previousHeight = region?.scrollHeight ?? 0;
-    const previousTop = region?.scrollTop ?? 0;
-    await loadPrevious();
-    if (!region) return;
-    let remainingFrames = 60;
-    const restoreScrollPosition = () => {
-      const nextHeight = region.scrollHeight;
-      if (nextHeight <= previousHeight) {
-        if (remainingFrames > 0) {
-          remainingFrames -= 1;
-          requestAnimationFrame(restoreScrollPosition);
-        }
-        return;
-      }
-      region.scrollTop = previousTop + nextHeight - previousHeight;
-    };
-    requestAnimationFrame(restoreScrollPosition);
+  async function send() {
+    const text = draft.trim();
+    if (!text) return;
+    setDraft("");
+    const submittedMentions = draftMentions;
+    setDraftMentions([]);
+    setMentionSearch(null);
+    setError(null);
+    scrollAfterSendRef.current = true;
+    try {
+      await sendChatMessage(live.send, text, submittedMentions);
+    } catch {
+      scrollAfterSendRef.current = false;
+      setDraft(text);
+      setDraftMentions(submittedMentions);
+      setError("Message not sent. Try again.");
+    }
   }
 
-  const canPublish = isChatContentReady(status) && messageHistoryReady;
-  const headingId = `office-channel-heading-${channel.slug}`;
-  if (!visible) return null;
+  async function toggleReaction(messageId: string, reaction: Reaction) {
+    setError(null);
+    try {
+      await live.send(createReactionToggle(messageId, reaction));
+    } catch {
+      setError("Reaction not sent. Try again.");
+    }
+  }
 
   return (
     <section
-      aria-labelledby={headingId}
       className={`general-chat ${channel.mode === "broadcast" ? "broadcast-chat" : ""}`}
-      hidden={!visible}
-      id={`office-channel-${channel.slug}`}
-      ref={surfaceRef}
+      hidden={!active}
     >
       <header className="conversation-heading">
         <div>
           <span
-            className={`presence-dot connection-${status}`}
             aria-hidden="true"
+            className={`presence-dot connection-${live.status}`}
           />
-          <strong id={headingId}># {channel.slug}</strong>
+          <strong># {channel.name}</strong>
           <span className="channel-purpose">{channel.purpose}</span>
         </div>
-        {status === "ready" ? null : (
-          <output className="connection-status" aria-live="polite">
-            {connectionStatusCopy(status)}
-          </output>
-        )}
+        <span className="connection-status">
+          {live.status === "ready"
+            ? `${officeProfiles.size} online`
+            : live.status}
+        </span>
       </header>
 
       <div className="conversation-content">
-        <LiveActivity
-          active={visible}
-          activeNewHireIds={activeNewHireIds}
-          channel={channel}
-          participantIds={participantIds}
-          presence={presence}
-        />
-        <div
-          className="chat-scroll-region"
-          onScroll={(event) => {
-            if (!visible || !messageHistoryReady || !isChatContentReady(status))
-              return;
-            const region = event.currentTarget;
-            followingLatestMessage.current =
-              region.scrollHeight - region.scrollTop - region.clientHeight <=
-              LATEST_MESSAGE_THRESHOLD;
-          }}
-          ref={scrollRegionRef}
+        <aside
+          className="live-activity-panel detailed-presence"
+          aria-label="New Hires online"
         >
-          {hasPrevious && loadPrevious ? (
-            <Button
+          <strong>Online now</strong>
+          {officeProfiles.size > 0 ? (
+            <ul>
+              {[...officeProfiles.values()].map((participant) => (
+                <li key={participant.id}>
+                  <Avatar active profile={participant} />
+                  <span>{participant.name}</span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <small>No one else is online.</small>
+          )}
+        </aside>
+        <div className="chat-scroll-region" ref={scrollRegionRef}>
+          {live.hasPrevious ? (
+            <button
               className="load-history-button"
-              disabled={isLoadingPrevious}
-              onClick={() => void loadEarlier()}
+              disabled={live.isLoadingPrevious}
+              onClick={live.loadPrevious}
               type="button"
             >
-              {isLoadingPrevious ? "Loading…" : "Load earlier messages"}
-            </Button>
+              Load earlier messages
+            </button>
           ) : null}
-          {status === "blocked" ? (
-            <div className="portal-outage" aria-live="polite">
-              <strong>This Office Channel is unavailable.</strong>
-              <span className="outage-detail">
-                Cached conversation history remains available below.
-              </span>
-              <Button onClick={onRetryConnection} type="button">
-                Retry
-              </Button>
-            </div>
-          ) : null}
-          {channelError && status === "blocked" ? (
-            <p className="chat-error" role="alert">
-              {channelError}
+          <ol
+            className="message-history"
+            aria-label={`${channel.name} message history`}
+          >
+            {visibleMessages.map((message, index) => {
+              const text = messageText(message);
+              if (text === null) return null;
+              const previousMessage = visibleMessages[index - 1];
+              const groupedWithPrevious = shouldGroupMessages(
+                previousMessage,
+                message,
+              );
+              const sender =
+                officeProfiles.get(message.sender.id) ??
+                ({
+                  id: message.sender.id,
+                  name: message.sender.username ?? "New Hire",
+                  imageUrl: null,
+                } satisfies Profile);
+              return (
+                <li
+                  className={`chat-message chat-message-${message.status}${groupedWithPrevious ? " chat-message-grouped" : ""}${message.mentions?.some(({ userId }) => userId === profile.id) ? " chat-message-mentioned" : ""}`}
+                  key={message.id}
+                >
+                  {groupedWithPrevious ? null : (
+                    <div className="message-meta">
+                      <span className="profile-context-trigger">
+                        <Avatar
+                          active={officeProfiles.has(sender.id)}
+                          profile={sender}
+                        />
+                        <strong>{sender.name}</strong>
+                        <time
+                          dateTime={new Date(message.timestamp).toISOString()}
+                        >
+                          {new Date(message.timestamp).toLocaleTimeString([], {
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </time>
+                      </span>
+                    </div>
+                  )}
+                  <p>
+                    <MessageText
+                      content={message.content}
+                      currentUserId={profile.id}
+                    />
+                  </p>
+                  <div className="message-reaction-summary">
+                    {REACTION_OPTIONS.flatMap((reaction) => {
+                      const users = reactions[message.id]?.[reaction.id] ?? [];
+                      if (users.length === 0) return [];
+                      const selected = users.includes(profile.id);
+                      return [
+                        <button
+                          aria-label={`${reaction.label}, ${users.length}`}
+                          aria-pressed={selected}
+                          disabled={!canReactToMessage(message)}
+                          key={reaction.id}
+                          onClick={() => {
+                            void toggleReaction(message.id, reaction.id);
+                          }}
+                          title={reaction.label}
+                          type="button"
+                        >
+                          <span aria-hidden="true">{reaction.emoji}</span>
+                          <span>{users.length}</span>
+                        </button>,
+                      ];
+                    })}
+                  </div>
+                  <fieldset className="message-reaction-picker">
+                    <legend className="sr-only">Add a reaction</legend>
+                    {REACTION_OPTIONS.map((reaction) => (
+                      <button
+                        aria-label={reaction.label}
+                        disabled={!canReactToMessage(message)}
+                        key={reaction.id}
+                        onClick={() => {
+                          void toggleReaction(message.id, reaction.id);
+                        }}
+                        title={reaction.label}
+                        type="button"
+                      >
+                        <span aria-hidden="true">{reaction.emoji}</span>
+                      </button>
+                    ))}
+                  </fieldset>
+                </li>
+              );
+            })}
+          </ol>
+          {typingStatus(live.typing, officeProfiles, profile.id) ? (
+            <p className="typing-status">
+              {typingStatus(live.typing, officeProfiles, profile.id)}
             </p>
           ) : null}
-          {removalError ? (
-            <p className="chat-error" role="alert">
-              {removalError}
-            </p>
-          ) : null}
-          {messageHistory}
         </div>
       </div>
 
-      <form className="chat-composer" onSubmit={submit}>
+      <form
+        className="chat-composer"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void send();
+        }}
+      >
         <div className="composer-input-shell">
           <div
             aria-hidden="true"
@@ -1608,68 +747,62 @@ function ChatSurface({
             <DraftMentionOverlay mentions={draftMentions} text={draft} />
             {draft.endsWith("\n") ? "\n " : null}
           </div>
-          <Textarea
-            aria-label={`Message # ${channel.name}`}
-            disabled={!canPublish}
-            id={`message-${channel.id}`}
-            maxLength={CHAT_TEXT_LIMIT}
+          <textarea
+            aria-label={`Message #${channel.name}`}
+            disabled={live.status !== "ready"}
+            maxLength={1000}
             onChange={(event) => {
               const nextDraft = event.target.value;
-              draftRef.current = nextDraft;
               setDraft(nextDraft);
+              setDraftMentions((current) =>
+                current.filter(({ label }) => nextDraft.includes(label)),
+              );
               updateMentionSearch(
                 nextDraft,
                 event.target.selectionStart ?? nextDraft.length,
                 draft,
               );
-              if (
-                visible &&
-                canPublish &&
-                channel.mode === "standard" &&
-                nextDraft.trim().length > 0
-              ) {
-                onTyping();
-              }
+              if (channel.mode === "standard" && nextDraft.trim())
+                live.sendTyping();
             }}
             onKeyDown={(event) => {
-              const keyDown = {
-                key: event.key,
-                shiftKey: event.shiftKey,
-                isComposing: event.nativeEvent.isComposing,
-              };
+              if (mentionSearch) {
+                if (event.key === "ArrowDown" && mentionCandidates.length > 0) {
+                  event.preventDefault();
+                  setActiveMentionIndex(
+                    (current) => (current + 1) % mentionCandidates.length,
+                  );
+                  return;
+                }
+                if (event.key === "ArrowUp" && mentionCandidates.length > 0) {
+                  event.preventDefault();
+                  setActiveMentionIndex(
+                    (current) =>
+                      (current - 1 + mentionCandidates.length) %
+                      mentionCandidates.length,
+                  );
+                  return;
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setMentionSearch(null);
+                  return;
+                }
+                if (
+                  (event.key === "Enter" || event.key === "Tab") &&
+                  activeMention
+                ) {
+                  event.preventDefault();
+                  selectMention(activeMention);
+                  return;
+                }
+              }
               if (
-                mentionSearch &&
-                event.key === "ArrowDown" &&
-                mentionCandidates.length > 0
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing
               ) {
                 event.preventDefault();
-                setActiveMentionIndex(
-                  (current) => (current + 1) % mentionCandidates.length,
-                );
-              } else if (
-                mentionSearch &&
-                event.key === "ArrowUp" &&
-                mentionCandidates.length > 0
-              ) {
-                event.preventDefault();
-                setActiveMentionIndex(
-                  (current) =>
-                    (current - 1 + mentionCandidates.length) %
-                    mentionCandidates.length,
-                );
-              } else if (mentionSearch && event.key === "Escape") {
-                event.preventDefault();
-                setMentionSearch(null);
-              } else if (
-                mentionSearch &&
-                shouldSelectChatComposerMention(keyDown) &&
-                activeMention
-              ) {
-                event.preventDefault();
-                selectMention(activeMention);
-              } else if (shouldSendChatComposerMessage(keyDown)) {
-                event.preventDefault();
-                if (!canPublish || draftRef.current.trim().length === 0) return;
                 event.currentTarget.form?.requestSubmit();
               }
             }}
@@ -1680,13 +813,15 @@ function ChatSurface({
               composerOverlayRef.current.scrollLeft =
                 event.currentTarget.scrollLeft;
             }}
-            placeholder={canPublish ? "Type a message…" : "Reconnecting…"}
+            placeholder={
+              live.status === "ready" ? "Type a message..." : "Reconnecting..."
+            }
             ref={composerRef}
             role="combobox"
             rows={2}
             aria-activedescendant={
               mentionSearch && activeMention
-                ? `mention-option-${activeMention.clerkUserId}`
+                ? `mention-option-${activeMention.id}`
                 : undefined
             }
             aria-autocomplete="list"
@@ -1697,17 +832,14 @@ function ChatSurface({
             value={draft}
           />
           <div className="composer-actions">
-            <span className="character-count">
-              {draft.length.toLocaleString()} / 1,000
-            </span>
-            <Button
+            <span className="character-count">{draft.length} / 1,000</span>
+            <button
               className="send-message-button"
-              disabled={!canPublish || draft.trim().length === 0}
-              size="xs"
+              disabled={live.status !== "ready" || !draft.trim()}
               type="submit"
             >
-              {sendError ? "Retry send" : "Send"}
-            </Button>
+              {error ? "Retry send" : "Send"}
+            </button>
           </div>
         </div>
         {mentionSearch ? (
@@ -1717,24 +849,19 @@ function ChatSurface({
             </strong>
             {mentionCandidates.length > 0 ? (
               <div id={`mention-list-${channel.id}`} role="listbox">
-                {mentionCandidates.map((profile, index) => (
+                {mentionCandidates.map((candidate, index) => (
                   <button
                     aria-selected={index === activeMentionIndex}
-                    id={`mention-option-${profile.clerkUserId}`}
-                    key={profile.clerkUserId}
-                    onClick={() => selectMention(profile)}
+                    id={`mention-option-${candidate.id}`}
+                    key={candidate.id}
+                    onClick={() => selectMention(candidate)}
                     onMouseDown={(event) => event.preventDefault()}
                     onMouseMove={() => setActiveMentionIndex(index)}
                     role="option"
-                    tabIndex={-1}
                     type="button"
                   >
-                    <ProfileAvatar
-                      placeholderClassName="mention-avatar-placeholder"
-                      profile={profile}
-                      size={24}
-                    />
-                    {profile.displayName}
+                    <Avatar profile={candidate} />
+                    {candidate.name}
                   </button>
                 ))}
               </div>
@@ -1745,9 +872,9 @@ function ChatSurface({
             )}
           </div>
         ) : null}
-        {sendError ? (
+        {error ? (
           <p className="chat-error" role="alert">
-            {sendError}
+            {error}
           </p>
         ) : null}
       </form>
@@ -1755,944 +882,156 @@ function ChatSurface({
   );
 }
 
-function OfficeWorkspace({
-  authenticated,
-  channels,
-  employeeRecord,
-  isOperator,
-  canSignOut,
-  activeChannelId,
-  inboxRows,
-  inboxStatus,
-  isMobile,
-  mobileNavigationOpen,
-  onOpenMobileNavigation,
-  onSelectChannel,
-  mentionedChannelIds,
-  mentionAnnouncement,
-  children,
-}: OfficeWorkspaceProps) {
-  const operatorState = useOperatorState(authenticated && isOperator);
-  const hasOperatorAccess =
-    !operatorState.isError && operatorState.data?.isOperator === true;
-  const directoryButtons = useRef(new Map<string, HTMLButtonElement>());
-  const mobileDirectoryTrigger = useRef<HTMLButtonElement>(null);
-  const inboxRowsByChannelId = new Map(
-    inboxRows.map((row) => [row.channelId, row]),
-  );
-  useEffect(() => {
-    if (isMobile !== true) return;
-    if (mobileNavigationOpen) {
-      directoryButtons.current.get(activeChannelId)?.focus();
-    } else {
-      mobileDirectoryTrigger.current?.focus();
-    }
-  }, [activeChannelId, isMobile, mobileNavigationOpen]);
+function Messenger({ profile }: { profile: Profile }) {
+  const [activeId, setActiveId] = useState<OfficeChannelSlug>("general");
+  const [officeProfiles, setOfficeProfiles] = useState<
+    ReadonlyMap<string, Profile>
+  >(() => new Map([[profile.id, profile]]));
+  const [warmedChannelIds, setWarmedChannelIds] = useState<
+    ReadonlySet<OfficeChannelSlug>
+  >(() => new Set(["general"]));
+  const [mentionedChannelIds, setMentionedChannelIds] = useState<
+    ReadonlySet<OfficeChannelSlug>
+  >(() => new Set());
+  const [mentionAnnouncement, setMentionAnnouncement] = useState("");
+  const requestedChannel = useRef<OfficeChannelSlug>("general");
+  const readyChannelIds = useRef(new Set<OfficeChannelSlug>());
+  const inbox = useInbox();
+  const channels = listOfficeChannels();
 
-  return (
-    <OperatorAccessContext.Provider value={hasOperatorAccess}>
-      <div
-        className="office-body"
-        data-mobile-view={mobileNavigationOpen ? "directory" : "conversation"}
-      >
-        <p className="sr-only" aria-live="polite">
-          {mentionAnnouncement}
-        </p>
-        <aside className="channel-panel" aria-label="Office Channels">
-          <p className="eyebrow">Shared Public Office</p>
-          <h1>Welcome</h1>
-          {inboxStatus === "ready" ? null : (
-            <output className="inbox-status" aria-live="polite">
-              {inboxStatusCopy(inboxStatus)}
-            </output>
-          )}
-          <nav aria-label="Office Channel directory">
-            {channels.map((channel) => {
-              const row = inboxRowsByChannelId.get(channel.id);
-              const unreadCount = row?.unread ?? 0;
-              return (
-                <button
-                  aria-controls={`office-channel-${channel.slug}`}
-                  aria-current={
-                    channel.id === activeChannelId ? "page" : undefined
-                  }
-                  className="channel-button"
-                  key={channel.id}
-                  onClick={() => onSelectChannel(channel.id)}
-                  ref={(element) => {
-                    if (element) {
-                      directoryButtons.current.set(channel.id, element);
-                    } else {
-                      directoryButtons.current.delete(channel.id);
-                    }
-                  }}
-                  type="button"
-                >
-                  <span className="channel-button-copy">
-                    <strong># {channel.slug}</strong>
-                    <small className="channel-preview">
-                      {row?.preview
-                        ? "New conversation activity"
-                        : "No messages yet"}
-                    </small>
-                  </span>
-                  {unreadCount > 0 ? (
-                    <b>
-                      <span className="sr-only">{unreadCount} unread</span>
-                      <span aria-hidden="true">{unreadCount}</span>
-                    </b>
-                  ) : null}
-                  {mentionedChannelIds.has(channel.id) ? (
-                    <span className="mention-badge">
-                      <span className="sr-only">Mentioned you</span>
-                      <span aria-hidden="true">@</span>
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </nav>
-          <HRReportReviewQueue enabled={hasOperatorAccess} />
-          {employeeRecord}
-          {canSignOut ? (
-            <form action="/api/auth/sign-out" method="post">
-              <Button className="sign-out-button" type="submit">
-                Sign out
-              </Button>
-            </form>
-          ) : null}
-        </aside>
-        <section className="conversation-panel">
-          <button
-            aria-label="Open Office Channel directory"
-            className="mobile-directory-trigger"
-            onClick={onOpenMobileNavigation}
-            ref={mobileDirectoryTrigger}
-            type="button"
-          >
-            ‹ Office Channels
-          </button>
-          {children}
-        </section>
-      </div>
-      {authenticated ? (
-        <NewHireProfileContext canSendHome={hasOperatorAccess} />
-      ) : null}
-    </OperatorAccessContext.Provider>
-  );
-}
-
-type ObserverHistoryStatus = "connecting" | "ready" | "unavailable";
-
-function observerHistoryQueryOptions(channel: OfficeChannel, refresh: boolean) {
-  const refetchInterval: number | false = refresh
-    ? OBSERVER_HISTORY_REFRESH_MS
-    : false;
-  return {
-    queryKey: ["observer-channel-history", channel.slug] as const,
-    queryFn: ({ signal }: { signal: AbortSignal }) =>
-      fetchObserverChannelHistory(channel.slug, fetch, signal),
-    refetchInterval,
-    retry: false,
-    staleTime: 0,
-  };
-}
-
-export function ObserverMessageHistory({
-  channel,
-  messages,
-}: {
-  channel: OfficeChannel;
-  messages: readonly ObserverChannelMessage[];
-}) {
-  if (messages.length === 0) {
-    return (
-      <div className="empty-chat">
-        <strong>No messages yet.</strong>
-      </div>
-    );
+  function warmChannel(channelId: OfficeChannelSlug) {
+    setWarmedChannelIds((current) => {
+      if (current.has(channelId)) return current;
+      return new Set(current).add(channelId);
+    });
   }
 
-  return (
-    <ol
-      aria-label={`${channel.name} message history`}
-      className="message-history"
-    >
-      {messages.map((message) => (
-        <li
-          className={`chat-message chat-message-sent${message.groupedWithPrevious ? " chat-message-grouped" : ""}`}
-          data-message-id={message.id}
-          key={message.id}
-          tabIndex={-1}
-        >
-          {message.groupedWithPrevious ? null : (
-            <div className="message-meta">
-              <span className="profile-context-trigger">
-                <span className="message-avatar-wrap">
-                  <span
-                    aria-hidden="true"
-                    className="message-avatar-placeholder"
-                  >
-                    {message.sender.slice(0, 1)}
-                  </span>
-                  <span
-                    aria-hidden="true"
-                    className="participant-activity-dot"
-                    data-active="false"
-                  />
-                </span>
-                <strong>{message.sender}</strong>
-                <time dateTime={new Date(message.timestamp).toISOString()}>
-                  {formatOfficeTimestamp(message.timestamp)}
-                </time>
-              </span>
-            </div>
-          )}
-          <p>
-            <SafeMessageText content={{ text: message.text }} />
-          </p>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-function ObserverOfficeChannel({
-  channel,
-  visible,
-}: {
-  channel: OfficeChannel;
-  visible: boolean;
-}) {
-  const history = useQuery(observerHistoryQueryOptions(channel, visible));
-  const scrollRegionRef = useRef<HTMLDivElement>(null);
-  const messages = history.data ?? [];
-  const status: ObserverHistoryStatus =
-    history.data !== undefined
-      ? "ready"
-      : history.isError
-        ? "unavailable"
-        : "connecting";
-  const channelStatus: ChannelStatus =
-    status === "ready"
-      ? "ready"
-      : status === "unavailable"
-        ? "blocked"
-        : "connecting";
-  const latestMessageId = messages.at(-1)?.id;
-  const headingId = `office-channel-heading-${channel.slug}`;
-
-  useEffect(() => {
-    if (!visible || !latestMessageId) return;
-    const region = scrollRegionRef.current;
-    if (region) region.scrollTop = region.scrollHeight;
-  }, [latestMessageId, visible]);
-
-  return (
-    <section
-      aria-labelledby={headingId}
-      className={`general-chat ${channel.mode === "broadcast" ? "broadcast-chat" : ""}`}
-      hidden={!visible}
-      id={`office-channel-${channel.slug}`}
-    >
-      <header className="conversation-heading">
-        <div>
-          <span
-            aria-hidden="true"
-            className={`presence-dot connection-${channelStatus}`}
-          />
-          <strong id={headingId}># {channel.slug}</strong>
-          <span className="channel-purpose">{channel.purpose}</span>
-        </div>
-        {status === "ready" ? null : (
-          <output aria-live="polite" className="connection-status">
-            {connectionStatusCopy(channelStatus)}
-          </output>
-        )}
-      </header>
-
-      <div className="conversation-content">
-        <LiveActivity
-          active={false}
-          activeNewHireIds={[]}
-          channel={channel}
-          participantIds={[]}
-        />
-        <div className="chat-scroll-region" ref={scrollRegionRef}>
-          {status === "unavailable" ? (
-            <div className="portal-outage" aria-live="polite">
-              <strong>Connection lost. Portal is offline.</strong>
-              <span className="outage-detail">
-                Live conversation service is temporarily unavailable.
-              </span>
-              <Button onClick={() => void history.refetch()} type="button">
-                Retry
-              </Button>
-            </div>
-          ) : null}
-          {status === "connecting" ? (
-            <p className="profile-status">Verifying message safety…</p>
-          ) : (
-            <ObserverMessageHistory channel={channel} messages={messages} />
-          )}
-        </div>
-      </div>
-
-      <form
-        className="chat-composer"
-        onSubmit={(event) => event.preventDefault()}
-      >
-        <div className="composer-input-shell">
-          <div aria-hidden="true" className="composer-highlight-layer" />
-          <Textarea
-            aria-label={`Message # ${channel.name}`}
-            disabled
-            id={`message-${channel.id}`}
-            maxLength={CHAT_TEXT_LIMIT}
-            placeholder="Sign in to send a message…"
-            rows={2}
-            value=""
-          />
-          <div className="composer-actions">
-            <span className="character-count">0 / 1,000</span>
-            <Button
-              className="send-message-button"
-              disabled
-              size="xs"
-              type="submit"
-            >
-              Send
-            </Button>
-          </div>
-        </div>
-      </form>
-    </section>
-  );
-}
-
-function ObserverSignInControl() {
-  return (
-    <SignInButton forceRedirectUrl="/">
-      <button className="employee-record-trigger" type="button">
-        <span aria-hidden="true" className="employee-record-avatar-fallback">
-          ?
-        </span>
-        <span className="employee-record-name">Sign in</span>
-      </button>
-    </SignInButton>
-  );
-}
-
-function ObserverPortalWorkspace({
-  channels,
-}: Pick<ObserverPortalChatProps, "channels">) {
-  const currentOfficeDay =
-    (channels[0] ? officeDayFromChannelId(channels[0].id) : null) ??
-    officeDay();
-  const { activeChannelId, setActiveChannelId } = useActiveOfficeChannel(
-    channels,
-    currentOfficeDay,
-  );
-  const navigation = useResponsiveOfficeNavigation();
-  const selectChannel = useCallback(
-    (channelId: string) => {
-      setActiveChannelId(channelId);
-      navigation.showConversation();
-    },
-    [navigation.showConversation, setActiveChannelId],
-  );
-  const inboxRows: OfficeInboxRow[] = channels.map((channel) => ({
-    channelId: channel.id,
-    preview: null,
-    unread: 0,
-  }));
-
-  return (
-    <OfficeWorkspace
-      activeChannelId={activeChannelId}
-      authenticated={false}
-      canSignOut={false}
-      channels={channels}
-      displayName="Observer"
-      employeeRecord={<ObserverSignInControl />}
-      identityId=""
-      inboxRows={inboxRows}
-      inboxStatus="ready"
-      isMobile={navigation.isMobile}
-      isOperator={false}
-      mobileNavigationOpen={navigation.mobileNavigationOpen}
-      mentionedChannelIds={new Set()}
-      mentionAnnouncement=""
-      onOpenMobileNavigation={navigation.openMobileNavigation}
-      onSelectChannel={selectChannel}
-    >
-      {channels.map((channel) => (
-        <ObserverOfficeChannel
-          channel={channel}
-          key={channel.id}
-          visible={
-            navigation.conversationVisible && channel.id === activeChannelId
-          }
-        />
-      ))}
-    </OfficeWorkspace>
-  );
-}
-
-function LiveOfficeChannel({
-  visible,
-  activeNewHireIds,
-  channel: officeChannel,
-  identityId,
-  onInboxRead,
-  onReact,
-  reactionEvents,
-  reactionsEnabled,
-  mentionMessageId,
-  onMention,
-  onMentionVisible,
-}: ReactionProps & {
-  visible: boolean;
-  activeNewHireIds: readonly string[];
-  channel: OfficeChannel;
-  identityId: string;
-  onInboxRead(channelId: string): void;
-  mentionMessageId?: string;
-  onMention(channel: OfficeChannel, message: Message<{ text: string }>): void;
-  onMentionVisible(channelId: string): void;
-}) {
-  const [channelError, setChannelError] = useState<string | null>(null);
-  const queryClient = useQueryClient();
-  const cachedMessages = useQuery<readonly unknown[]>({
-    queryKey: channelMessageQueryKey(officeChannel.id),
-    queryFn: skipToken,
-  });
-  const channel = useChannel<{ text: string }>({
-    channelId: officeChannel.id,
-    history: 50,
-    readOn: "manual",
-    onMention: (message) => onMention(officeChannel, message),
-    onError: (_error: PortalError) => {
-      setChannelError(
-        "This Office Channel hit a connection problem. Retry if updates do not resume.",
-      );
-    },
-  });
-  const prefetchedProfileIds = useMemo(() => {
-    const { messages } = parseOfficeChannelMessages(
-      channel.messages,
-      officeChannel.id,
-    );
-    return [
-      ...new Set([
-        identityId,
-        ...activeNewHireIds,
-        ...messages.filter(isNewHireMessage).map(({ senderId }) => senderId),
-      ]),
-    ];
-  }, [activeNewHireIds, channel.messages, identityId, officeChannel.id]);
-  useEffect(() => {
-    void queryClient.prefetchQuery(
-      messageRemovalQueryOptions(officeChannel.id),
-    );
-  }, [officeChannel.id, queryClient]);
-  useEffect(() => {
-    if (!isChatContentReady(channel.status)) return;
-    void queryClient.prefetchQuery(
-      profileBatchQueryOptions(prefetchedProfileIds),
-    );
-  }, [channel.status, prefetchedProfileIds, queryClient]);
-  useEffect(() => {
-    if (channel.status === "ready") setChannelError(null);
-  }, [channel.status]);
-  useEffect(() => {
-    if (!isChatContentReady(channel.status)) return;
-    queryClient.setQueryData(
-      channelMessageQueryKey(officeChannel.id),
-      channel.messages,
-    );
-  }, [channel.messages, channel.status, officeChannel.id, queryClient]);
-  const markVisibleContentRead = useCallback(() => {
-    channel.markAsRead();
-    onInboxRead(officeChannel.id);
-  }, [channel.markAsRead, officeChannel.id, onInboxRead]);
-
-  return (
-    <ChatSurface
-      activeNewHireIds={activeNewHireIds}
-      channel={officeChannel}
-      hasPrevious={channel.hasPrevious}
-      identityId={identityId}
-      isLoadingPrevious={channel.isLoadingPrevious}
-      loadPrevious={channel.loadPrevious}
-      messages={
-        isChatContentReady(channel.status)
-          ? channel.messages
-          : (cachedMessages.data ?? [])
+  function selectChannel(channel: OfficeChannel) {
+    for (const item of inbox.items) {
+      if (
+        item.type === "mention" &&
+        item.channelId === channel.id &&
+        !item.read
+      ) {
+        item.markAsRead();
       }
-      mentionMessageId={mentionMessageId}
-      onMentionVisible={() => onMentionVisible(officeChannel.id)}
-      onTyping={channel.sendTyping}
-      onReact={onReact}
-      onRetryConnection={() => window.location.reload()}
-      onContentVisible={markVisibleContentRead}
-      onSend={async (content, mentions) => {
-        await channel.send({
-          content,
-          ...(mentions.length > 0 ? { mentions: [...mentions] } : {}),
-        });
-      }}
-      reactionEvents={reactionEvents}
-      reactionsEnabled={reactionsEnabled}
-      status={channel.status}
-      presence={channel.presence}
-      channelError={channelError}
-      visible={visible}
-    />
-  );
-}
-
-function useReactionPublisher({
-  identityId,
-  eventChannelId,
-  publish,
-  onOptimisticChange,
-}: {
-  identityId: string;
-  eventChannelId: string;
-  publish(event: ReactionOfficeEvent): Promise<void>;
-  onOptimisticChange(event: ReactionOfficeEvent, pending: boolean): void;
-}): (input: ReactionMutation) => Promise<void> {
-  const lastTimestamp = useRef(0);
-  const retryEvents = useRef(new Map<string, ReactionOfficeEvent>());
-
-  return useCallback(
-    async (input: ReactionMutation) => {
-      const retryPrefix = [
-        input.officeChannelId,
-        input.messageId,
-        input.reaction,
-      ].join("\u0000");
-      const retryKey = `${retryPrefix}\u0000${input.operation}`;
-      const oppositeOperation = input.operation === "add" ? "remove" : "add";
-      retryEvents.current.delete(`${retryPrefix}\u0000${oppositeOperation}`);
-      let event = retryEvents.current.get(retryKey);
-      if (!event) {
-        const timestamp = Math.max(Date.now(), lastTimestamp.current + 1);
-        lastTimestamp.current = timestamp;
-        event = createReactionOfficeEvent({
-          ...input,
-          mutationId: crypto.randomUUID(),
-          occurredAt: new Date(timestamp).toISOString(),
-          officeDay: officeDayFromChannelId(eventChannelId) ?? "",
-          actorId: identityId,
-        });
-        retryEvents.current.set(retryKey, event);
-      }
-      onOptimisticChange(event, true);
-      try {
-        await publish(event);
-        retryEvents.current.delete(retryKey);
-      } finally {
-        onOptimisticChange(event, false);
-      }
-    },
-    [eventChannelId, identityId, onOptimisticChange, publish],
-  );
-}
-
-function useActiveOfficeChannel(
-  channels: readonly OfficeChannel[],
-  currentOfficeDay: string,
-) {
-  const [activeChannelId, setActiveChannelId] = useState(channels[0]?.id ?? "");
-
-  useEffect(() => {
-    const target = parseHRReportReviewTarget(window.location.search);
-    if (
-      !target ||
-      target.subjectType !== "message" ||
-      target.officeDay !== currentOfficeDay
-    ) {
-      return;
     }
-    const targetsKnownChannel = channels.some(
-      ({ id }) => id === target.officeChannelId,
-    );
-    if (!targetsKnownChannel) return;
-
-    setActiveChannelId(target.officeChannelId);
-  }, [channels, currentOfficeDay]);
-
-  return { activeChannelId, setActiveChannelId };
-}
-
-function recheckEmploymentAccess(
-  onEmploymentAccessEnded: (access: EmploymentAccessDeniedDecision) => void,
-  onError: () => void,
-): void {
-  void fetchEmploymentAccess()
-    .then((access) => {
-      if (!access.eligible) {
-        onEmploymentAccessEnded(access);
-      }
-    })
-    .catch(onError);
-}
-
-function LivePortalWorkspace({
-  channels,
-  identityId,
-  displayName,
-  employeeRecord,
-  eventChannelId,
-  officeDay: currentOfficeDay,
-  isOperator,
-  canSignOut,
-  onEmploymentAccessEnded,
-}: Omit<LivePortalChatProps, "mode" | "publishableKey"> & {
-  onEmploymentAccessEnded(access: EmploymentAccessDeniedDecision): void;
-}) {
-  const queryClient = useQueryClient();
-  const [reactionEvents, setReactionEvents] = useState<ReactionOfficeEvent[]>(
-    [],
-  );
-  const [optimisticReactionEvents, setOptimisticReactionEvents] = useState<
-    ReactionOfficeEvent[]
-  >([]);
-  const [mentionsByChannelId, setMentionsByChannelId] = useState(
-    new Map<string, string>(),
-  );
-  const [mentionAnnouncement, setMentionAnnouncement] = useState("");
-  const handleInvalidation = useCallback(
-    (event: OfficeInvalidationEvent) => {
-      switch (event.type) {
-        case "profile.invalidated":
-          void invalidateProfileBatches(queryClient, event.profileId);
-          if (event.profileId === identityId) {
-            recheckEmploymentAccess(onEmploymentAccessEnded, () =>
-              window.location.reload(),
-            );
-          }
-          break;
-        case "report.invalidated":
-          void invalidateHRReportQueue(queryClient);
-          break;
-        case "message-removal.invalidated":
-          void invalidateMessageRemovals(queryClient);
-          break;
-        case "employment.invalidated":
-          if (event.newHireId === identityId) {
-            recheckEmploymentAccess(onEmploymentAccessEnded, () =>
-              window.location.reload(),
-            );
-          }
-          break;
-        case "operator.invalidated":
-          if (event.operatorId === identityId) {
-            void invalidateOperatorState(queryClient);
-          }
-          break;
-      }
-    },
-    [identityId, onEmploymentAccessEnded, queryClient],
-  );
-  const {
-    activeNewHireIds,
-    status: eventStatus,
-    publishReaction,
-  } = useOfficeEventSubscription({
-    channelId: eventChannelId,
-    onReaction: (event) => {
-      setReactionEvents((current) => appendReactionEvent(current, event));
-    },
-    onInvalidation: handleInvalidation,
-  });
-  const { activeChannelId, setActiveChannelId } = useActiveOfficeChannel(
-    channels,
-    currentOfficeDay,
-  );
-  const navigation = useResponsiveOfficeNavigation();
-  const inbox = useInbox();
-  const inboxRows = useMemo(
-    () =>
-      reconcileOfficeInbox({
-        channels,
-        entries: inbox.channels,
-        identityId,
-        displayName,
-      }),
-    [channels, displayName, identityId, inbox.channels],
-  );
-  const markInboxRead = useCallback(
-    (channelId: string) => {
-      const entry = inbox.channels.get(channelId);
-      if (entry && entry.unread > 0) {
-        entry.markAsRead();
-      }
-    },
-    [inbox.channels],
-  );
-  const selectChannel = useCallback(
-    (channelId: string) => {
-      setActiveChannelId(channelId);
-      navigation.showConversation();
-    },
-    [navigation.showConversation, setActiveChannelId],
-  );
-  const updateOptimisticReaction = useCallback(
-    (event: ReactionOfficeEvent, pending: boolean) => {
-      setOptimisticReactionEvents((current) =>
-        setOptimisticReactionPending(current, event, pending),
-      );
-    },
-    [],
-  );
-  const updateReaction = useReactionPublisher({
-    identityId,
-    eventChannelId,
-    publish: publishReaction,
-    onOptimisticChange: updateOptimisticReaction,
-  });
-  const visibleReactionEvents = useMemo(
-    () => [...reactionEvents, ...optimisticReactionEvents],
-    [optimisticReactionEvents, reactionEvents],
-  );
-  const reactionsEnabled =
-    eventStatus === "ready" ||
-    eventStatus === "degraded" ||
-    eventStatus === "degraded-http";
-  const handleMention = useCallback(
-    (channel: OfficeChannel, message: Message<{ text: string }>) => {
-      setMentionsByChannelId((current) => {
-        if (current.has(channel.id)) return current;
-        const next = new Map(current);
-        next.set(channel.id, message.id);
-        return next;
-      });
-      setMentionAnnouncement(`You were mentioned in ${channel.name}.`);
-    },
-    [],
-  );
-  const clearMention = useCallback((channelId: string) => {
-    setMentionsByChannelId((current) => {
-      if (!current.has(channelId)) return current;
-      const next = new Map(current);
-      next.delete(channelId);
+    setMentionedChannelIds((current) => {
+      if (!current.has(channel.id)) return current;
+      const next = new Set(current);
+      next.delete(channel.id);
       return next;
     });
-  }, []);
-
-  return (
-    <OfficeWorkspace
-      activeChannelId={activeChannelId}
-      authenticated
-      canSignOut={canSignOut}
-      channels={channels}
-      displayName={displayName}
-      employeeRecord={employeeRecord}
-      identityId={identityId}
-      inboxRows={inboxRows}
-      inboxStatus={inbox.status}
-      isMobile={navigation.isMobile}
-      isOperator={isOperator}
-      mobileNavigationOpen={navigation.mobileNavigationOpen}
-      mentionedChannelIds={new Set(mentionsByChannelId.keys())}
-      mentionAnnouncement={mentionAnnouncement}
-      onOpenMobileNavigation={navigation.openMobileNavigation}
-      onSelectChannel={selectChannel}
-    >
-      {/* Channel controllers stay mounted so Portal and safety data prefetch once. */}
-      {channels.map((channel) => (
-        <LiveOfficeChannel
-          activeNewHireIds={activeNewHireIds}
-          channel={channel}
-          identityId={identityId}
-          key={channel.id}
-          mentionMessageId={mentionsByChannelId.get(channel.id)}
-          onMention={handleMention}
-          onMentionVisible={clearMention}
-          onInboxRead={markInboxRead}
-          onReact={updateReaction}
-          reactionEvents={visibleReactionEvents}
-          reactionsEnabled={reactionsEnabled}
-          visible={
-            navigation.conversationVisible && channel.id === activeChannelId
-          }
-        />
-      ))}
-    </OfficeWorkspace>
-  );
-}
-
-function LivePortalOffice(
-  props: Omit<LivePortalChatProps, "mode"> & {
-    onOfficeDayExpired(): void;
-    onEmploymentAccessEnded(access: EmploymentAccessDeniedDecision): void;
-  },
-) {
-  const { getToken } = useAuth();
-  const {
-    officeDay: currentOfficeDay,
-    publishableKey,
-    onOfficeDayExpired,
-  } = props;
-  const [portal] = useState(
-    () =>
-      new Portal({
-        apiKey: publishableKey,
-        token: createPortalTokenSource({
-          expectedOfficeDay: currentOfficeDay,
-          getAuthorizationToken: getToken,
-          onOfficeDayExpired,
-        }),
-      }),
-  );
-
-  return (
-    <PortalProvider client={portal}>
-      <LivePortalWorkspace {...props} />
-    </PortalProvider>
-  );
-}
-
-function ShiftEndedDialog({ onContinue }: { onContinue(): void }) {
-  const continueButtonRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => {
-    continueButtonRef.current?.focus();
-  }, []);
-
-  return (
-    <div className="shift-ended-backdrop">
-      <section
-        aria-describedby="shift-ended-description"
-        aria-labelledby="shift-ended-title"
-        aria-modal="true"
-        className="shift-ended-dialog"
-        role="dialog"
-      >
-        <header className="window-titlebar">
-          <span>Portal Messenger</span>
-        </header>
-        <div className="shift-ended-content">
-          <h2 id="shift-ended-title">A new Office Day is ready</h2>
-          <p id="shift-ended-description">
-            Continue to today&apos;s fresh channels and conversations.
-          </p>
-          <Button
-            onClick={onContinue}
-            ref={continueButtonRef}
-            type="button"
-            variant="primary"
-          >
-            Continue to the new Office Day
-          </Button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function EmploymentAccessEndedDialog({
-  access,
-}: {
-  access: EmploymentAccessDeniedDecision;
-}) {
-  const copy = getEmploymentAccessEndedCopy(access.reason);
-  return (
-    <div className="shift-ended-backdrop">
-      <section
-        aria-labelledby="sent-home-title"
-        aria-modal="true"
-        className="shift-ended-dialog"
-        role="dialog"
-      >
-        <header className="window-titlebar">
-          <span>Portal Messenger</span>
-        </header>
-        <div className="shift-ended-content">
-          <h2 id="sent-home-title">{copy.title}</h2>
-          <p>{copy.description}</p>
-          {access.until ? (
-            <time dateTime={access.until.toISOString()}>
-              {access.until.toLocaleString(undefined, {
-                dateStyle: "medium",
-                timeStyle: "short",
-              })}
-            </time>
-          ) : null}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function PortalChatWorkspace(props: LivePortalChatProps): ReactNode {
-  const applicationSafety = useApplicationSafetyControl();
-  const workspace: OfficeDayWorkspace = {
-    channels: props.channels,
-    eventChannelId: props.eventChannelId,
-    officeDay: props.officeDay,
-  };
-  const [endedOfficeDay, setEndedOfficeDay] = useState<string | null>(null);
-  const [employmentAccessEnded, setEmploymentAccessEnded] =
-    useState<EmploymentAccessDeniedDecision | null>(null);
-
-  const endOfficeDay = useCallback(() => {
-    setEndedOfficeDay((current) => current ?? workspace.officeDay);
-  }, [workspace.officeDay]);
-
-  useEffect(() => {
-    if (endedOfficeDay) return;
-    return observeOfficeDayBoundary({
-      currentOfficeDay: workspace.officeDay,
-      onBoundary: endOfficeDay,
-    });
-  }, [endedOfficeDay, endOfficeDay, workspace.officeDay]);
-
-  function continueToCurrentOfficeDay(): void {
-    window.location.reload();
+    requestedChannel.current = channel.id;
+    warmChannel(channel.id);
+    if (channel.id === activeId) return;
+    if (readyChannelIds.current.has(channel.id)) {
+      startTransition(() => setActiveId(channel.id));
+    }
   }
 
-  if (applicationSafety === "unavailable") {
-    return (
-      <div className="safety-outage application-safety-outage" role="alert">
-        <strong>Portal Messenger safety control is unavailable.</strong>
-        <span className="outage-detail">
-          Active chat and publishing are paused. Please try again later.
-        </span>
-      </div>
+  function channelReady(channelId: OfficeChannelSlug) {
+    readyChannelIds.current.add(channelId);
+    if (requestedChannel.current === channelId) {
+      startTransition(() => setActiveId(channelId));
+    }
+  }
+
+  function presenceChanged(presence: ChannelPresence) {
+    setOfficeProfiles((current) =>
+      updateOfficeProfiles(current, profile, presence),
     );
   }
 
-  if (employmentAccessEnded) {
-    return <EmploymentAccessEndedDialog access={employmentAccessEnded} />;
-  }
-
-  if (endedOfficeDay) {
-    return <ShiftEndedDialog onContinue={continueToCurrentOfficeDay} />;
+  function mentioned(channelId: OfficeChannelSlug) {
+    setMentionedChannelIds((current) => new Set(current).add(channelId));
+    const channel = channels.find(({ id }) => id === channelId);
+    setMentionAnnouncement(
+      `You were mentioned in ${channel?.name ?? channelId}.`,
+    );
   }
 
   return (
-    <LivePortalOffice
-      {...props}
-      {...workspace}
-      key={`${workspace.officeDay}:${workspace.eventChannelId}:${workspace.channels.map(({ id }) => id).join(",")}`}
-      onOfficeDayExpired={endOfficeDay}
-      onEmploymentAccessEnded={setEmploymentAccessEnded}
-    />
+    <div className="office-body">
+      <p className="sr-only" aria-live="polite">
+        {mentionAnnouncement}
+      </p>
+      <aside className="channel-panel">
+        <h1>Portal Messenger</h1>
+        <span className="job-title">Signed in as {profile.name}</span>
+        <nav aria-label="Office Channels">
+          {channels.map((channel) => {
+            const unread = inbox.channels.get(channel.id)?.unread ?? 0;
+            const mentioned =
+              mentionedChannelIds.has(channel.id) ||
+              inbox.items.some(
+                (item) =>
+                  item.type === "mention" &&
+                  item.channelId === channel.id &&
+                  !item.read,
+              );
+            return (
+              <button
+                aria-current={channel.id === activeId ? "page" : undefined}
+                className="channel-button"
+                key={channel.id}
+                onClick={() => selectChannel(channel)}
+                onFocus={() => warmChannel(channel.id)}
+                onPointerEnter={() => warmChannel(channel.id)}
+                type="button"
+              >
+                <span className="channel-button-copy">
+                  <strong># {channel.name}</strong>
+                  <small>{channel.purpose}</small>
+                </span>
+                {unread > 0 ? <b>{unread}</b> : null}
+                {mentioned ? (
+                  <span className="mention-badge">
+                    <span className="sr-only">Mentioned you</span>
+                    <span aria-hidden="true">@</span>
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </nav>
+        <AccountMenu profile={profile} />
+      </aside>
+      <div className="conversation-panel">
+        {channels.map((channel) =>
+          warmedChannelIds.has(channel.id) ? (
+            <LiveChannel
+              active={channel.id === activeId}
+              channel={channel}
+              key={channel.id}
+              officeProfiles={officeProfiles}
+              onMention={mentioned}
+              onPresenceChange={presenceChanged}
+              onReady={channelReady}
+              profile={profile}
+            />
+          ) : null,
+        )}
+      </div>
+    </div>
   );
 }
 
-export function PortalChat(props: PortalChatProps): ReactNode {
+export function PortalChat({
+  profile,
+  publishableKey,
+}: {
+  profile: Profile;
+  publishableKey: string;
+}) {
+  const { getToken } = useAuth();
+  const [portal] = useState(() => new Portal({ apiKey: publishableKey }));
+  const [token] = useState(() =>
+    createPortalTokenSource({ getAuthorizationToken: () => getToken() }),
+  );
   return (
-    <ProfileQueryProvider>
-      {props.mode === "observer" ? (
-        <ObserverPortalWorkspace channels={props.channels} />
-      ) : (
-        <PortalChatWorkspace {...props} />
-      )}
-    </ProfileQueryProvider>
+    <PortalProvider client={portal} token={token}>
+      <Messenger profile={profile} />
+    </PortalProvider>
   );
 }

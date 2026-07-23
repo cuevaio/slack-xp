@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 
 type WindowState = "open" | "minimized" | "closed" | "loading";
@@ -77,7 +78,13 @@ export function OfficeWindow({ children }: { children: ReactNode }) {
           aria-hidden="true"
           className="desktop-app-icon-art portal-link-art"
         >
-          <span className="portal-shortcut-mark">P</span>
+          <Image
+            alt=""
+            className="portal-link-logo"
+            height={34}
+            src="/logo-portal.svg"
+            width={34}
+          />
         </span>
         <span>Portal</span>
       </a>

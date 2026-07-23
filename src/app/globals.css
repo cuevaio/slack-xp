@@ -1494,18 +1494,9 @@ a {
   background: var(--color-neutral-900);
 }
 
-.portal-shortcut-mark {
-  display: grid;
+.portal-link-logo {
   width: 34px;
   height: 34px;
-  place-items: center;
-  border: var(--border-width-medium) solid var(--color-lime-400);
-  border-radius: 50% 50% 50% 8px;
-  color: var(--color-lime-400);
-  font-size: 1.25rem;
-  font-style: italic;
-  font-weight: 900;
-  transform: rotate(-4deg);
 }
 
 .portal-docs-art {

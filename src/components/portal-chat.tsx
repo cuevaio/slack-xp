@@ -4,13 +4,12 @@ import { useAuth, useClerk } from "@clerk/nextjs";
 import { type Message, Portal } from "@portalsdk/core";
 import { PortalProvider, useChannel, useInbox } from "@portalsdk/react";
 import {
-  QueryClient,
-  QueryClientProvider,
-  queryOptions,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
-import { startTransition, useEffect, useRef, useState } from "react";
+  startTransition,
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+} from "react";
 import {
   listOfficeChannels,
   type OfficeChannel,
@@ -36,86 +35,6 @@ const REACTION_OPTIONS: ReadonlyArray<{
 ];
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
 const CHANNEL_HISTORY_SIZE = 50;
-const CHANNEL_PREFETCH_STALE_MS = 5_000;
-const CHANNEL_PREFETCH_TIMEOUT_MS = 8_000;
-
-type ChannelMessageCache = {
-  messages: readonly Message<ChatContent>[];
-};
-
-function channelMessagesQueryKey(profileId: string, channelId: string) {
-  return ["office", profileId, "channel", channelId, "messages"] as const;
-}
-
-function channelMessagesQuery(
-  portal: Portal,
-  channel: OfficeChannel,
-  profile: Profile,
-) {
-  return queryOptions({
-    queryKey: channelMessagesQueryKey(profile.id, channel.id),
-    queryFn: ({ signal }) =>
-      acquireChannelMessages(portal, channel, profile, signal),
-    staleTime: CHANNEL_PREFETCH_STALE_MS,
-    gcTime: Number.POSITIVE_INFINITY,
-    retry: false,
-  });
-}
-
-async function acquireChannelMessages(
-  portal: Portal,
-  channel: OfficeChannel,
-  profile: Profile,
-  signal: AbortSignal,
-): Promise<ChannelMessageCache> {
-  const handle = portal.channel<ChatContent>(channel.id, {
-    history: CHANNEL_HISTORY_SIZE,
-    metadata: { username: profile.name, avatar: profile.imageUrl },
-  });
-  handle.acquire();
-
-  try {
-    return await new Promise<ChannelMessageCache>((resolve, reject) => {
-      let settled = false;
-      let unsubscribe: () => void = () => {};
-      let stopListeningForErrors: () => void = () => {};
-      const timeout = window.setTimeout(() => {
-        finish(() => reject(new Error(`Could not open #${channel.name}.`)));
-      }, CHANNEL_PREFETCH_TIMEOUT_MS);
-
-      const finish = (settle: () => void) => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        unsubscribe();
-        stopListeningForErrors();
-        signal.removeEventListener("abort", abort);
-        settle();
-      };
-      const readReadySnapshot = () => {
-        const snapshot = handle.getSnapshot();
-        if (snapshot.status === "ready") {
-          finish(() => resolve({ messages: snapshot.messages }));
-        }
-      };
-      const abort = () => {
-        finish(() =>
-          reject(signal.reason ?? new Error("Channel prefetch aborted.")),
-        );
-      };
-
-      unsubscribe = handle.subscribe(readReadySnapshot);
-      stopListeningForErrors = handle.on("status", (_status, error) => {
-        if (error) finish(() => reject(error));
-      });
-      signal.addEventListener("abort", abort, { once: true });
-      if (signal.aborted) abort();
-      else readReadySnapshot();
-    });
-  } finally {
-    handle.release();
-  }
-}
 
 export function shouldGroupMessages(
   previous: Message<ChatContent> | undefined,
@@ -134,16 +53,6 @@ export function messageText(message: Message<ChatContent>) {
   return !message.retracted && typeof message.content?.text === "string"
     ? message.content.text
     : null;
-}
-
-export function visibleChannelMessages<M>(
-  status: string,
-  liveMessages: readonly M[],
-  cachedMessages: readonly M[] = [],
-) {
-  return status === "ready" || liveMessages.length > 0
-    ? liveMessages
-    : cachedMessages;
 }
 
 export async function sendChatMessage(send: SendChatMessage, draft: string) {
@@ -265,20 +174,20 @@ function AccountMenu({ profile }: { profile: Profile }) {
 }
 
 function LiveChannel({
+  active,
   channel,
-  portal,
+  onReady,
   profile,
 }: {
+  active: boolean;
   channel: OfficeChannel;
-  portal: Portal;
+  onReady: (channelId: OfficeChannelSlug) => void;
   profile: Profile;
 }) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [reactions, setReactions] = useState<ReactionState>({});
   const inbox = useInbox();
-  const queryClient = useQueryClient();
-  const cached = useQuery(channelMessagesQuery(portal, channel, profile));
   const live = useChannel<ChatContent>({
     channelId: channel.id,
     history: CHANNEL_HISTORY_SIZE,
@@ -289,18 +198,11 @@ function LiveChannel({
     },
     onError: () => setError("Connection lost. Portal will keep retrying."),
   });
-  const messages = visibleChannelMessages(
-    live.status,
-    live.messages,
-    cached.data?.messages,
-  );
+  const reportReady = useEffectEvent(onReady);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
   useEffect(() => {
-    if (live.status !== "ready" && live.messages.length === 0) return;
-    queryClient.setQueryData<ChannelMessageCache>(
-      channelMessagesQueryKey(profile.id, channel.id),
-      { messages: live.messages },
-    );
-  }, [channel.id, live.messages, live.status, profile.id, queryClient]);
+    if (live.status === "ready") reportReady(channel.id);
+  }, [channel.id, live.status]);
   useEffect(() => {
     const snapshot = live.ext?.reactions as
       | { reactions?: ReactionState }
@@ -342,6 +244,7 @@ function LiveChannel({
   return (
     <section
       className={`general-chat ${channel.mode === "broadcast" ? "broadcast-chat" : ""}`}
+      hidden={!active}
     >
       <header className="conversation-heading">
         <div>
@@ -388,10 +291,10 @@ function LiveChannel({
             className="message-history"
             aria-label={`${channel.name} message history`}
           >
-            {messages.map((message, index) => {
+            {live.messages.map((message, index) => {
               const text = messageText(message);
               if (!text) return null;
-              const previousMessage = messages[index - 1];
+              const previousMessage = live.messages[index - 1];
               const groupedWithPrevious = shouldGroupMessages(
                 previousMessage,
                 message,
@@ -554,41 +457,36 @@ function LiveChannel({
   );
 }
 
-function Messenger({ portal, profile }: { portal: Portal; profile: Profile }) {
+function Messenger({ profile }: { profile: Profile }) {
   const [activeId, setActiveId] = useState<OfficeChannelSlug>("general");
-  const [switchError, setSwitchError] = useState<string | null>(null);
+  const [warmedChannelIds, setWarmedChannelIds] = useState<
+    ReadonlySet<OfficeChannelSlug>
+  >(() => new Set(["general"]));
   const requestedChannel = useRef<OfficeChannelSlug>("general");
-  const queryClient = useQueryClient();
+  const readyChannelIds = useRef(new Set<OfficeChannelSlug>());
   const inbox = useInbox();
   const channels = listOfficeChannels();
-  const active = channels.find(({ id }) => id === activeId) ?? channels[0];
 
-  function prefetchChannel(channel: OfficeChannel) {
-    void queryClient.prefetchQuery(
-      channelMessagesQuery(portal, channel, profile),
-    );
+  function warmChannel(channelId: OfficeChannelSlug) {
+    setWarmedChannelIds((current) => {
+      if (current.has(channelId)) return current;
+      return new Set(current).add(channelId);
+    });
   }
 
-  async function selectChannel(channel: OfficeChannel) {
+  function selectChannel(channel: OfficeChannel) {
     requestedChannel.current = channel.id;
-    setSwitchError(null);
+    warmChannel(channel.id);
     if (channel.id === activeId) return;
-
-    const query = channelMessagesQuery(portal, channel, profile);
-    if (queryClient.getQueryData(query.queryKey)) {
-      prefetchChannel(channel);
+    if (readyChannelIds.current.has(channel.id)) {
       startTransition(() => setActiveId(channel.id));
-      return;
     }
+  }
 
-    try {
-      await queryClient.fetchQuery(query);
-      if (requestedChannel.current !== channel.id) return;
-      startTransition(() => setActiveId(channel.id));
-    } catch {
-      if (requestedChannel.current === channel.id) {
-        setSwitchError(`Could not open #${channel.name}. Try again.`);
-      }
+  function channelReady(channelId: OfficeChannelSlug) {
+    readyChannelIds.current.add(channelId);
+    if (requestedChannel.current === channelId) {
+      startTransition(() => setActiveId(channelId));
     }
   }
 
@@ -605,9 +503,9 @@ function Messenger({ portal, profile }: { portal: Portal; profile: Profile }) {
                 aria-current={channel.id === activeId ? "page" : undefined}
                 className="channel-button"
                 key={channel.id}
-                onClick={() => void selectChannel(channel)}
-                onFocus={() => prefetchChannel(channel)}
-                onPointerEnter={() => prefetchChannel(channel)}
+                onClick={() => selectChannel(channel)}
+                onFocus={() => warmChannel(channel.id)}
+                onPointerEnter={() => warmChannel(channel.id)}
                 type="button"
               >
                 <span className="channel-button-copy">
@@ -619,20 +517,20 @@ function Messenger({ portal, profile }: { portal: Portal; profile: Profile }) {
             );
           })}
         </nav>
-        {switchError ? (
-          <p className="chat-error" role="alert">
-            {switchError}
-          </p>
-        ) : null}
         <AccountMenu profile={profile} />
       </aside>
       <div className="conversation-panel">
-        <LiveChannel
-          channel={active}
-          key={active.id}
-          portal={portal}
-          profile={profile}
-        />
+        {channels.map((channel) =>
+          warmedChannelIds.has(channel.id) ? (
+            <LiveChannel
+              active={channel.id === activeId}
+              channel={channel}
+              key={channel.id}
+              onReady={channelReady}
+              profile={profile}
+            />
+          ) : null,
+        )}
       </div>
     </div>
   );
@@ -647,15 +545,12 @@ export function PortalChat({
 }) {
   const { getToken } = useAuth();
   const [portal] = useState(() => new Portal({ apiKey: publishableKey }));
-  const [queryClient] = useState(() => new QueryClient());
   const [token] = useState(() =>
     createPortalTokenSource({ getAuthorizationToken: () => getToken() }),
   );
   return (
-    <QueryClientProvider client={queryClient}>
-      <PortalProvider client={portal} token={token}>
-        <Messenger portal={portal} profile={profile} />
-      </PortalProvider>
-    </QueryClientProvider>
+    <PortalProvider client={portal} token={token}>
+      <Messenger profile={profile} />
+    </PortalProvider>
   );
 }

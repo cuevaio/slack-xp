@@ -9,7 +9,6 @@ import {
   readChannel,
   sendChatMessage,
   shouldGroupMessages,
-  visibleChannelMessages,
 } from "../src/components/portal-chat";
 import { listOfficeChannels } from "../src/lib/portal/channels";
 import { createPortalTokenSource } from "../src/lib/portal/client";
@@ -60,13 +59,6 @@ describe("Portal teaching baseline", () => {
         timestamp: 301_001,
       }),
     ).toBe(false);
-  });
-
-  test("keeps cached messages visible until a channel is ready", () => {
-    const cached = [{ id: "cached" }];
-    expect(visibleChannelMessages("connecting", [], cached)).toBe(cached);
-    expect(visibleChannelMessages("reconnecting", [], cached)).toBe(cached);
-    expect(visibleChannelMessages("ready", [], cached)).toEqual([]);
   });
 
   test("requests a fresh Clerk credential for each Portal token", async () => {

@@ -375,11 +375,19 @@ function ParticipantList({
               className="profile-context-trigger"
               href={`/office?profile=${encodeURIComponent(userId)}`}
             >
-              <span
-                aria-hidden="true"
-                className="participant-activity-dot"
-                data-active={isActive}
-              />
+              <span className="participant-avatar-wrap">
+                <ProfileAvatar
+                  imageClassName="participant-avatar"
+                  placeholderClassName="participant-avatar participant-avatar-placeholder"
+                  profile={profile}
+                  size={36}
+                />
+                <span
+                  aria-hidden="true"
+                  className="participant-activity-dot"
+                  data-active={isActive}
+                />
+              </span>
               <span>
                 <strong>{profileDisplayName(profile)}</strong>
                 {profile?.status === "unavailable" ? (
@@ -878,10 +886,10 @@ function MessageHistory({
                   size={28}
                 />
                 <strong>{profileDisplayName(profile)}</strong>
+                <time dateTime={new Date(message.timestamp).toISOString()}>
+                  {formatOfficeTimestamp(message.timestamp)}
+                </time>
               </a>
-              <time dateTime={new Date(message.timestamp).toISOString()}>
-                {formatOfficeTimestamp(message.timestamp)}
-              </time>
             </div>
             <p>
               <SafeMessageText
@@ -1376,9 +1384,6 @@ function ChatSurface({
       </div>
 
       <form className="chat-composer" onSubmit={submit}>
-        <label htmlFor={`message-${channel.id}`}>
-          Message # {channel.name}
-        </label>
         <div className="composer-input-shell">
           <div
             aria-hidden="true"
@@ -1389,6 +1394,7 @@ function ChatSurface({
             {draft.endsWith("\n") ? "\n " : null}
           </div>
           <Textarea
+            aria-label={`Message # ${channel.name}`}
             disabled={!canPublish}
             id={`message-${channel.id}`}
             maxLength={CHAT_TEXT_LIMIT}
@@ -1447,7 +1453,7 @@ function ChatSurface({
             placeholder={canPublish ? "Type a message…" : "Reconnecting…"}
             ref={composerRef}
             role="combobox"
-            rows={3}
+            rows={2}
             aria-activedescendant={
               mentionSearch && activeMention
                 ? `mention-option-${activeMention.clerkUserId}`
@@ -1460,6 +1466,19 @@ function ChatSurface({
             aria-expanded={Boolean(mentionSearch)}
             value={draft}
           />
+          <div className="composer-actions">
+            <span className="character-count">
+              {draft.length.toLocaleString()} / 1,000
+            </span>
+            <Button
+              className="send-message-button"
+              disabled={!canPublish || isSending || draft.trim().length === 0}
+              size="xs"
+              type="submit"
+            >
+              {sendButtonCopy(isSending, sendError !== null)}
+            </Button>
+          </div>
         </div>
         {mentionSearch ? (
           <div className="mention-autocomplete">
@@ -1496,18 +1515,6 @@ function ChatSurface({
             )}
           </div>
         ) : null}
-        <div className="composer-actions">
-          <span className="character-count">
-            {draft.length.toLocaleString()} / 1,000
-          </span>
-          <Button
-            className="send-message-button"
-            disabled={!canPublish || isSending || draft.trim().length === 0}
-            type="submit"
-          >
-            {sendButtonCopy(isSending, sendError !== null)}
-          </Button>
-        </div>
         {sendError ? (
           <p className="chat-error" role="alert">
             {sendError}

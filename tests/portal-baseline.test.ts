@@ -15,6 +15,11 @@ import {
   updateMemberProfiles,
   updateOfficeProfiles,
 } from "../src/components/portal-chat";
+import {
+  findEmojiTrigger,
+  replaceEmojiShortcodes,
+  searchEmojis,
+} from "../src/lib/emoji";
 import { listOfficeChannels } from "../src/lib/portal/channels";
 import { createPortalTokenSource } from "../src/lib/portal/client";
 import {
@@ -148,6 +153,23 @@ describe("Portal teaching baseline", () => {
         mentionRanges: [{ userId: "user_2", start: 6, length: 6 }],
       },
       mentions: [{ userId: "user_2" }],
+    });
+  });
+
+  test("finds and replaces Slack-style emoji shortcodes", () => {
+    expect(findEmojiTrigger("Hello :smi", 10)).toEqual({
+      start: 6,
+      end: 10,
+      query: "smi",
+    });
+    expect(findEmojiTrigger("https://portal.test", 19)).toBeNull();
+    expect(searchEmojis("smile")[0]).toMatchObject({
+      shortcode: "smile",
+      unicode: "😄",
+    });
+    expect(replaceEmojiShortcodes("Hi :smile: :not_real:")).toEqual({
+      text: "Hi 😄 :not_real:",
+      cursor: 16,
     });
   });
 

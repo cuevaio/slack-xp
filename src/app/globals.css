@@ -3480,7 +3480,8 @@ a {
   color: var(--color-neutral-500);
 }
 
-.mention-autocomplete {
+.mention-autocomplete,
+.emoji-autocomplete {
   padding: var(--space-2);
   border: var(--border-width-medium) outset var(--color-white);
   background: var(--color-neutral-100);
@@ -3490,12 +3491,15 @@ a {
 }
 
 .mention-autocomplete-heading,
-.mention-autocomplete-empty {
+.mention-autocomplete-empty,
+.emoji-autocomplete-heading,
+.emoji-autocomplete-empty {
   display: block;
   padding: var(--space-1-5) var(--space-2);
 }
 
-.mention-autocomplete [role="listbox"] {
+.mention-autocomplete [role="listbox"],
+.emoji-autocomplete [role="listbox"] {
   display: grid;
   gap: var(--space-0-5);
   margin: 0;
@@ -3503,7 +3507,8 @@ a {
   list-style: none;
 }
 
-.mention-autocomplete button {
+.mention-autocomplete button,
+.emoji-autocomplete button {
   display: flex;
   width: 100%;
   align-items: center;
@@ -3520,10 +3525,43 @@ a {
 
 .mention-autocomplete button:hover,
 .mention-autocomplete button:focus-visible,
-.mention-autocomplete button[aria-selected="true"] {
+.mention-autocomplete button[aria-selected="true"],
+.emoji-autocomplete button:hover,
+.emoji-autocomplete button:focus-visible,
+.emoji-autocomplete button[aria-selected="true"] {
   background: var(--navy);
   color: var(--color-white);
   outline: none;
+}
+
+.emoji-autocomplete-glyph {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: var(--border-width-thin) solid var(--color-neutral-400);
+  background: var(--color-white);
+  font-size: 1.35rem;
+}
+
+.emoji-autocomplete-name {
+  flex: 0 0 auto;
+  font-family: var(--font-geist-mono), monospace;
+}
+
+.emoji-autocomplete-label {
+  overflow: hidden;
+  color: var(--color-neutral-600);
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.emoji-autocomplete button:hover .emoji-autocomplete-label,
+.emoji-autocomplete button:focus-visible .emoji-autocomplete-label,
+.emoji-autocomplete button[aria-selected="true"] .emoji-autocomplete-label {
+  color: var(--color-blue-100);
 }
 
 .mention-autocomplete img,

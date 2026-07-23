@@ -18,6 +18,13 @@ import {
   useState,
 } from "react";
 import {
+  type EmojiSuggestion,
+  type EmojiTrigger,
+  findEmojiTrigger,
+  replaceEmojiShortcodes,
+  searchEmojis,
+} from "@/lib/emoji";
+import {
   listOfficeChannels,
   type OfficeChannel,
   type OfficeChannelSlug,
@@ -405,6 +412,8 @@ function LiveChannel({
     query: string;
   } | null>(null);
   const [activeMentionIndex, setActiveMentionIndex] = useState(0);
+  const [emojiSearch, setEmojiSearch] = useState<EmojiTrigger | null>(null);
+  const [activeEmojiIndex, setActiveEmojiIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const composerOverlayRef = useRef<HTMLDivElement>(null);
@@ -457,6 +466,8 @@ function LiveChannel({
         .slice(0, 6)
     : [];
   const activeMention = mentionCandidates[activeMentionIndex];
+  const emojiCandidates = emojiSearch ? searchEmojis(emojiSearch.query) : [];
+  const activeEmoji = emojiCandidates[activeEmojiIndex];
   const visibleMessageIds = visibleMessages.map(({ id }) => id).join("\0");
   const latestVisibleMessageId = visibleMessages.at(-1)?.id;
   const latestVisibleSenderId = visibleMessages.at(-1)?.sender.id;
@@ -591,6 +602,25 @@ function LiveChannel({
     });
   }
 
+  function updateEmojiSearch(text: string, cursor: number) {
+    const nextSearch = findEmojiTrigger(text, cursor);
+    setEmojiSearch(nextSearch);
+    setActiveEmojiIndex(0);
+    if (nextSearch) setMentionSearch(null);
+  }
+
+  function selectEmoji(emoji: EmojiSuggestion) {
+    if (!emojiSearch) return;
+    const nextDraft = `${draft.slice(0, emojiSearch.start)}${emoji.unicode} ${draft.slice(emojiSearch.end)}`;
+    const cursor = emojiSearch.start + emoji.unicode.length + 1;
+    setDraft(nextDraft);
+    setEmojiSearch(null);
+    requestAnimationFrame(() => {
+      composerRef.current?.focus();
+      composerRef.current?.setSelectionRange(cursor, cursor);
+    });
+  }
+
   async function send() {
     const text = draft.trim();
     if (!text) return;
@@ -598,6 +628,7 @@ function LiveChannel({
     const submittedMentions = draftMentions;
     setDraftMentions([]);
     setMentionSearch(null);
+    setEmojiSearch(null);
     setError(null);
     scrollAfterSendRef.current = true;
     try {
@@ -794,20 +825,60 @@ function LiveChannel({
             disabled={live.status !== "ready"}
             maxLength={1000}
             onChange={(event) => {
-              const nextDraft = event.target.value;
+              const replacement = replaceEmojiShortcodes(
+                event.target.value,
+                event.target.selectionStart ?? event.target.value.length,
+              );
+              const nextDraft = replacement.text;
               setDraft(nextDraft);
               setDraftMentions((current) =>
                 current.filter(({ label }) => nextDraft.includes(label)),
               );
-              updateMentionSearch(
-                nextDraft,
-                event.target.selectionStart ?? nextDraft.length,
-                draft,
-              );
+              updateMentionSearch(nextDraft, replacement.cursor, draft);
+              updateEmojiSearch(nextDraft, replacement.cursor);
+              if (nextDraft !== event.target.value) {
+                requestAnimationFrame(() => {
+                  composerRef.current?.setSelectionRange(
+                    replacement.cursor,
+                    replacement.cursor,
+                  );
+                });
+              }
               if (channel.mode === "standard" && nextDraft.trim())
                 live.sendTyping();
             }}
             onKeyDown={(event) => {
+              if (emojiSearch) {
+                if (event.key === "ArrowDown" && emojiCandidates.length > 0) {
+                  event.preventDefault();
+                  setActiveEmojiIndex(
+                    (current) => (current + 1) % emojiCandidates.length,
+                  );
+                  return;
+                }
+                if (event.key === "ArrowUp" && emojiCandidates.length > 0) {
+                  event.preventDefault();
+                  setActiveEmojiIndex(
+                    (current) =>
+                      (current - 1 + emojiCandidates.length) %
+                      emojiCandidates.length,
+                  );
+                  return;
+                }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setEmojiSearch(null);
+                  return;
+                }
+                if (
+                  (event.key === "Enter" || event.key === "Tab") &&
+                  activeEmoji
+                ) {
+                  event.preventDefault();
+                  selectEmoji(activeEmoji);
+                  return;
+                }
+              }
               if (mentionSearch) {
                 if (event.key === "ArrowDown" && mentionCandidates.length > 0) {
                   event.preventDefault();
@@ -862,15 +933,21 @@ function LiveChannel({
             role="combobox"
             rows={2}
             aria-activedescendant={
-              mentionSearch && activeMention
-                ? `mention-option-${activeMention.id}`
-                : undefined
+              emojiSearch && activeEmoji
+                ? `emoji-option-${channel.id}-${activeEmoji.hexcode}`
+                : mentionSearch && activeMention
+                  ? `mention-option-${activeMention.id}`
+                  : undefined
             }
             aria-autocomplete="list"
             aria-controls={
-              mentionSearch ? `mention-list-${channel.id}` : undefined
+              emojiSearch
+                ? `emoji-list-${channel.id}`
+                : mentionSearch
+                  ? `mention-list-${channel.id}`
+                  : undefined
             }
-            aria-expanded={Boolean(mentionSearch)}
+            aria-expanded={Boolean(mentionSearch || emojiSearch)}
             value={draft}
           />
           <div className="composer-actions">
@@ -910,6 +987,47 @@ function LiveChannel({
             ) : (
               <span className="mention-autocomplete-empty">
                 No matching New Hires
+              </span>
+            )}
+          </div>
+        ) : null}
+        {emojiSearch ? (
+          <div className="emoji-autocomplete">
+            <strong className="emoji-autocomplete-heading">
+              Choose an emoji
+            </strong>
+            {emojiCandidates.length > 0 ? (
+              <div id={`emoji-list-${channel.id}`} role="listbox">
+                {emojiCandidates.map((emoji, index) => (
+                  <button
+                    aria-label={`${emoji.label}, :${emoji.shortcode}:`}
+                    aria-selected={index === activeEmojiIndex}
+                    id={`emoji-option-${channel.id}-${emoji.hexcode}`}
+                    key={emoji.hexcode}
+                    onClick={() => selectEmoji(emoji)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseMove={() => setActiveEmojiIndex(index)}
+                    role="option"
+                    type="button"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="emoji-autocomplete-glyph"
+                    >
+                      {emoji.unicode}
+                    </span>
+                    <span className="emoji-autocomplete-name">
+                      :{emoji.shortcode}:
+                    </span>
+                    <span className="emoji-autocomplete-label">
+                      {emoji.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <span className="emoji-autocomplete-empty">
+                No matching emoji
               </span>
             )}
           </div>

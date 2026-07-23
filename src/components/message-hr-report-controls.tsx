@@ -1,15 +1,24 @@
 "use client";
 
-import { Menu } from "@base-ui/react/menu";
 import {
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
+  type RefObject,
   useEffect,
   useId,
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   HR_REPORT_CATEGORIES,
   type HRReportCategory,
@@ -40,6 +49,8 @@ type HRReportControlsProps<Category extends HRReportCategory> = {
   inMoreActionsMenu?: boolean;
   menuLabel?: string;
   subjectLabel: string;
+  children?: ReactNode;
+  triggerRef?: RefObject<HTMLButtonElement | null>;
 };
 
 function parseSubmissionResult(
@@ -96,12 +107,15 @@ function HRReportControls<Category extends HRReportCategory>({
   inMoreActionsMenu = false,
   menuLabel,
   subjectLabel,
+  children,
+  triggerRef: suppliedTriggerRef,
 }: HRReportControlsProps<Category>) {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [category, setCategory] = useState<Category>(categories[0]);
   const [result, setResult] = useState<HRReportSubmissionResult | null>(null);
   const submissionPending = useRef(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const localTriggerRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = suppliedTriggerRef ?? localTriggerRef;
   const firstCategoryRef = useRef<HTMLInputElement>(null);
   const instanceId = useId();
   const titleId = `hr-report-title-${instanceId}`;
@@ -193,35 +207,28 @@ function HRReportControls<Category extends HRReportCategory>({
   return (
     <div className="hr-report-controls">
       {inMoreActionsMenu ? (
-        <Menu.Root>
-          <Menu.Trigger
+        <DropdownMenu>
+          <DropdownMenuTrigger
             aria-label="More actions"
             className="message-action-button more-actions-trigger"
             ref={triggerRef}
           >
             <span aria-hidden="true">•••</span>
-          </Menu.Trigger>
-          <Menu.Portal>
-            <Menu.Positioner
-              align="end"
-              className="message-actions-menu-positioner"
-              sideOffset={4}
-            >
-              <Menu.Popup className="message-actions-menu">
-                {menuLabel ? (
-                  <div className="message-actions-menu-label">{menuLabel}</div>
-                ) : null}
-                <Menu.Item
-                  className="message-actions-menu-item"
-                  disabled={submitted}
-                  onClick={openDialog}
-                >
-                  {submitted ? "Reported to HR" : "Report to HR"}
-                </Menu.Item>
-              </Menu.Popup>
-            </Menu.Positioner>
-          </Menu.Portal>
-        </Menu.Root>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            className="message-actions-menu min-w-44"
+            sideOffset={4}
+          >
+            {menuLabel ? (
+              <DropdownMenuLabel>{menuLabel}</DropdownMenuLabel>
+            ) : null}
+            <DropdownMenuItem disabled={submitted} onClick={openDialog}>
+              {submitted ? "Reported to HR" : "Report to HR"}
+            </DropdownMenuItem>
+            {children}
+          </DropdownMenuContent>
+        </DropdownMenu>
       ) : (
         <button
           aria-haspopup="dialog"
@@ -234,59 +241,70 @@ function HRReportControls<Category extends HRReportCategory>({
           {submitted ? "Reported to HR" : "Report to HR"}
         </button>
       )}
-      {dialogOpen ? (
-        <div
-          aria-labelledby={titleId}
-          aria-modal="true"
-          className="hr-report-dialog-backdrop"
-          onKeyDown={handleDialogKeyDown}
-          role="dialog"
-        >
-          <form className="hr-report-dialog" onSubmit={submit}>
-            <h2 id={titleId}>Private HR Report</h2>
-            <p>{description}</p>
-            <fieldset>
-              <legend>Reason for review</legend>
-              {categories.map((option, index) => (
-                <label key={option}>
-                  <input
-                    checked={category === option}
-                    name={`hr-report-category-${instanceId}`}
-                    onChange={() => setCategory(option)}
-                    ref={index === 0 ? firstCategoryRef : undefined}
-                    required
-                    type="radio"
-                    value={option}
-                  />
-                  {categoryLabels[option]}
-                </label>
-              ))}
-            </fieldset>
-            {result === "error" ? (
-              <p className="chat-error" role="alert">
-                HR Report could not be submitted. Please try again.
-              </p>
-            ) : null}
-            <div className="hr-report-dialog-actions">
-              <Button onClick={closeDialog} type="button">
-                Cancel
-              </Button>
-              <Button type="submit" variant="primary">
-                Submit private report
-              </Button>
-            </div>
-          </form>
-        </div>
+      {dialogOpen
+        ? createPortal(
+            <div
+              aria-labelledby={titleId}
+              aria-modal="true"
+              className="hr-report-dialog-backdrop"
+              onKeyDown={handleDialogKeyDown}
+              role="dialog"
+            >
+              <form className="hr-report-dialog" onSubmit={submit}>
+                <h2 id={titleId}>Private HR Report</h2>
+                <p>{description}</p>
+                <fieldset>
+                  <legend>Reason for review</legend>
+                  {categories.map((option, index) => (
+                    <label key={option}>
+                      <input
+                        checked={category === option}
+                        name={`hr-report-category-${instanceId}`}
+                        onChange={() => setCategory(option)}
+                        ref={index === 0 ? firstCategoryRef : undefined}
+                        required
+                        type="radio"
+                        value={option}
+                      />
+                      {categoryLabels[option]}
+                    </label>
+                  ))}
+                </fieldset>
+                {result === "error" ? (
+                  <p className="chat-error" role="alert">
+                    HR Report could not be submitted. Please try again.
+                  </p>
+                ) : null}
+                <div className="hr-report-dialog-actions">
+                  <Button onClick={closeDialog} type="button">
+                    Cancel
+                  </Button>
+                  <Button type="submit" variant="primary">
+                    Submit private report
+                  </Button>
+                </div>
+              </form>
+            </div>,
+            document.body,
+          )
+        : null}
+      {confirmation ? (
+        <output className={inMoreActionsMenu ? "sr-only" : undefined}>
+          {confirmation}
+        </output>
       ) : null}
-      {confirmation ? <output>{confirmation}</output> : null}
     </div>
   );
 }
 
 export function MessageHRReportControls({
   message,
+  children,
+  triggerRef,
 }: {
   message: SafePortalChatMessage;
+  children?: ReactNode;
+  triggerRef?: RefObject<HTMLButtonElement | null>;
 }) {
   return (
     <HRReportControls
@@ -300,7 +318,10 @@ export function MessageHRReportControls({
       inMoreActionsMenu
       menuLabel={formatOfficeDateTime(message.timestamp)}
       subjectLabel="message"
-    />
+      triggerRef={triggerRef}
+    >
+      {children}
+    </HRReportControls>
   );
 }
 

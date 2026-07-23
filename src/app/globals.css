@@ -2341,7 +2341,7 @@ a {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding-right: var(--space-12);
+  padding-right: var(--space-24);
 }
 
 .message-avatar-wrap {
@@ -2431,6 +2431,7 @@ a {
 
 .chat-message p {
   margin: var(--space-1) 0 0;
+  padding-right: var(--space-24);
   overflow-wrap: anywhere;
   font-size: 0.92rem;
   line-height: 1.5;
@@ -2461,17 +2462,16 @@ a {
   color: var(--color-yellow-900);
 }
 
-.reaction-controls,
 .reaction-summary,
-.reaction-picker {
+.reaction-picker-options {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-1);
 }
 
-.reaction-controls {
-  margin-top: 0;
+.reaction-controls[data-has-reactions="true"] {
+  margin-top: var(--space-1-5);
 }
 
 .reaction-summary {
@@ -2481,21 +2481,29 @@ a {
 }
 
 .reaction-count-button,
-.reaction-picker-trigger,
-.reaction-picker button {
-  min-width: 30px;
-  min-height: 30px;
-  border: var(--border-width-thin) solid transparent;
-  border-radius: var(--radius-avatar);
-  background: transparent;
-  color: var(--color-blue-900);
+.reaction-picker-options button {
+  min-width: var(--control-xs);
+  min-height: var(--control-xs);
+  border: var(--border-width-medium) solid;
+  border-color: var(--xp-highlight) var(--xp-shadow) var(--xp-shadow)
+    var(--xp-highlight);
+  border-radius: var(--radius-compact);
+  background: var(--secondary);
+  color: var(--foreground);
   cursor: pointer;
   font: inherit;
+  transition:
+    transform var(--duration-press) var(--ease-out),
+    opacity var(--duration-press) var(--ease-out),
+    background-color var(--duration-press) ease,
+    border-color var(--duration-press) ease;
 }
 
-.reaction-count-button:hover,
-.reaction-picker-trigger:hover {
-  background: color-mix(in srgb, var(--color-blue-900) 8%, transparent);
+@starting-style {
+  .reaction-count-button {
+    opacity: 0;
+    transform: translateY(var(--space-0-5)) scale(0.96);
+  }
 }
 
 .reaction-count-button {
@@ -2503,80 +2511,117 @@ a {
   align-items: center;
   justify-content: center;
   gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
+  padding: var(--space-0-5) var(--space-2);
   font-size: 0.78rem;
 }
 
 .reaction-count-button[aria-pressed="true"],
-.reaction-picker button[aria-pressed="true"] {
-  border-color: var(--color-blue-600);
-  background: var(--color-blue-200);
+.reaction-picker-options button[aria-pressed="true"] {
+  border-color: var(--xp-shadow) var(--xp-highlight) var(--xp-highlight)
+    var(--xp-shadow);
+  background: var(--accent);
+  color: var(--accent-foreground);
 }
 
-.reaction-picker-trigger {
-  font-size: 0.9rem;
+.reaction-count-button > span:last-child {
+  min-width: var(--space-3);
+  color: var(--muted-foreground);
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 0.68rem;
   font-weight: 800;
+  text-align: center;
 }
 
 .reaction-picker {
-  margin: 0;
-  padding: var(--space-1);
-  border: var(--border-width-thin) solid var(--color-neutral-500);
-  background: var(--color-neutral-100);
-  box-shadow: 2px 2px 0
-    color-mix(in srgb, var(--color-blue-900) 28%, transparent);
+  padding: var(--space-1-5);
+  border: var(--border-width-medium) solid;
+  border-color: var(--xp-highlight) var(--xp-shadow-deep) var(--xp-shadow-deep)
+    var(--xp-highlight);
+  border-radius: var(--radius-floating);
+  background: var(--secondary);
+  box-shadow: var(--shadow-raised);
+  outline: none;
+  transform-origin: var(--transform-origin);
+  transition:
+    transform var(--duration-enter) var(--ease-out),
+    opacity var(--duration-enter) var(--ease-out);
 }
 
-.reaction-picker button {
+.reaction-picker[data-starting-style],
+.reaction-picker[data-ending-style] {
+  opacity: 0;
+  transform: translateY(calc(var(--space-0-5) * -1)) scale(0.95);
+}
+
+.reaction-picker-positioner {
+  z-index: 45;
+}
+
+.reaction-picker-options {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.reaction-picker-options button {
+  width: var(--control-sm);
+  height: var(--control-sm);
   padding: var(--space-0-5);
-  font-size: 0.95rem;
+  font-size: 1rem;
 }
 
 .reaction-count-button:focus-visible,
 .reaction-picker-trigger:focus-visible,
-.reaction-picker button:focus-visible {
-  outline: var(--border-width-thick) solid var(--color-blue-500);
+.reaction-picker-options button:focus-visible {
+  outline: var(--border-width-thick) solid var(--ring);
   outline-offset: 2px;
 }
 
 .reaction-count-button:disabled,
 .reaction-picker-trigger:disabled,
-.reaction-picker button:disabled {
+.reaction-picker-options button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
 
 .reaction-controls .reaction-error {
   flex-basis: 100%;
-  color: var(--color-red-900);
+  margin-top: var(--space-1);
+  color: var(--destructive);
   font-family: inherit;
   font-weight: 700;
 }
 
-.message-actions {
+.message-action-toolbar {
   position: absolute;
-  z-index: 2;
-  top: 0.25rem;
-  right: 0.45rem;
+  z-index: 3;
+  top: calc(var(--space-2) * -1);
+  right: 0;
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: var(--space-0-5);
-  padding: var(--space-1);
-  border: var(--border-width-thin) solid var(--color-neutral-400);
-  border-radius: var(--radius-floating);
-  background: var(--color-neutral-50);
-  box-shadow: 1px 2px 4px
-    color-mix(in srgb, var(--color-blue-900) 18%, transparent);
+  align-items: center;
+  padding: var(--space-0-5);
+  border: var(--border-width-medium) solid;
+  border-color: var(--xp-highlight) var(--xp-shadow-deep) var(--xp-shadow-deep)
+    var(--xp-highlight);
+  border-radius: var(--radius-compact);
+  background: var(--secondary);
+  box-shadow: var(--shadow-raised);
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--duration-press) var(--ease-out);
+  transform: translateY(calc(var(--space-1) * -1)) scale(0.97);
+  transform-origin: top right;
+  transition:
+    transform var(--duration-press) var(--ease-out),
+    opacity var(--duration-press) var(--ease-out);
 }
 
-.chat-message:hover .message-actions,
-.chat-message:focus-within .message-actions {
+.chat-message:hover .message-action-toolbar,
+.chat-message:focus-within .message-action-toolbar,
+.reaction-controls[data-picker-open="true"] .message-action-toolbar,
+.message-action-toolbar:has(.more-actions-trigger[data-popup-open]) {
   opacity: 1;
   pointer-events: auto;
+  transform: translateY(0) scale(1);
 }
 
 .message-action-button {
@@ -2586,7 +2631,7 @@ a {
   border: var(--border-width-thin) solid transparent;
   border-radius: var(--radius-avatar);
   background: transparent;
-  color: var(--color-purple-900);
+  color: var(--primary);
   cursor: pointer;
   font: inherit;
   font-size: 0.72rem;
@@ -2594,7 +2639,7 @@ a {
 }
 
 .message-action-button:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-purple-900) 8%, transparent);
+  background: var(--accent);
 }
 
 .message-action-button:disabled {
@@ -2604,74 +2649,105 @@ a {
 
 .more-actions-trigger {
   position: static;
-  min-width: 30px;
+  min-width: var(--control-xs);
   margin-top: 0;
   padding-inline: var(--space-1-5);
   font-size: 0.78rem;
   letter-spacing: 0.08em;
 }
 
-@media (hover: none), (pointer: coarse) {
-  .message-actions {
-    position: static;
-    width: fit-content;
-    margin-top: var(--space-1-5);
-    opacity: 1;
-    pointer-events: auto;
+.message-action-toolbar .message-action-button {
+  display: grid;
+  width: var(--control-xs);
+  min-width: var(--control-xs);
+  height: var(--control-xs);
+  min-height: var(--control-xs);
+  place-items: center;
+  margin: 0;
+  padding: 0 var(--space-1);
+  border: var(--border-width-medium) solid transparent;
+  border-radius: var(--radius-compact);
+  background: transparent;
+  color: var(--foreground);
+  line-height: 1;
+}
+
+.message-action-toolbar .message-action-button:hover:not(:disabled),
+.message-action-toolbar .message-action-button[data-popup-open] {
+  border-color: var(--xp-highlight) var(--xp-shadow) var(--xp-shadow)
+    var(--xp-highlight);
+  background: var(--card);
+}
+
+.message-action-toolbar .message-action-button:active:not(:disabled),
+.message-action-toolbar .message-action-button[data-popup-open] {
+  border-color: var(--xp-shadow) var(--xp-highlight) var(--xp-highlight)
+    var(--xp-shadow);
+}
+
+.message-action-toolbar .reaction-picker-trigger {
+  width: var(--control-sm);
+  min-width: var(--control-sm);
+  font-size: 0.86rem;
+  font-weight: 700;
+}
+
+.message-action-toolbar .hr-report-controls {
+  display: contents;
+}
+
+.message-actions-menu [data-slot="dropdown-menu-label"] {
+  max-width: 20rem;
+  white-space: normal;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .reaction-count-button:hover:not(:disabled),
+  .reaction-picker-options button:hover:not(:disabled) {
+    background: var(--card);
   }
 }
 
-.message-actions-menu {
-  z-index: 45;
-  min-width: 150px;
-  padding: var(--space-1);
-  border: var(--border-width-thin) solid var(--color-neutral-500);
-  border-radius: var(--radius-avatar);
-  background: var(--color-neutral-50);
-  box-shadow: 2px 2px 0
-    color-mix(in srgb, var(--color-blue-900) 28%, transparent);
-  color: var(--color-purple-900);
-  outline: none;
-}
+@media (hover: none), (pointer: coarse) {
+  .chat-message p,
+  .message-meta {
+    padding-right: 0;
+  }
 
-.message-actions-menu-positioner {
-  z-index: 45;
-}
+  .reaction-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1-5);
+    margin-top: var(--space-1-5);
+  }
 
-.message-actions-menu-item {
-  padding: var(--space-2) var(--space-2-5);
-  border-radius: var(--radius-compact);
-  cursor: pointer;
-  font-size: 0.75rem;
-  font-weight: 700;
-  outline: none;
-  user-select: none;
-}
+  .reaction-summary {
+    flex: 1 1 auto;
+  }
 
-.message-actions-menu-label {
-  padding: var(--space-1-5) var(--space-2-5) var(--space-2);
-  border-bottom: var(--border-width-thin) solid var(--color-neutral-300);
-  color: var(--color-neutral-500);
-  font-family: var(--font-geist-mono), monospace;
-  font-size: 0.65rem;
-  line-height: 1.35;
-}
+  .message-action-toolbar {
+    position: static;
+    flex: 0 0 auto;
+    margin-left: auto;
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
 
-.message-actions-menu-item[data-highlighted] {
-  background: var(--color-purple-900);
-  color: var(--color-white);
-}
-
-.message-actions-menu-item[data-disabled] {
-  cursor: default;
-  opacity: 0.55;
+  .message-action-toolbar .message-action-button {
+    width: var(--control-lg);
+    min-width: var(--control-lg);
+    height: var(--control-lg);
+    min-height: var(--control-lg);
+  }
 }
 
 .hr-report-controls > output {
   display: block;
   max-width: 250px;
   margin-top: var(--space-1);
-  color: var(--color-purple-900);
+  color: var(--primary);
 }
 
 .hr-report-dialog-backdrop {
@@ -2681,22 +2757,40 @@ a {
   display: grid;
   place-items: center;
   padding: var(--space-4);
-  background: color-mix(in srgb, var(--color-neutral-900) 62%, transparent);
+  background: var(--overlay);
+  opacity: 1;
+  transition: opacity var(--duration-enter) var(--ease-out);
 }
 
 .hr-report-dialog {
   width: min(100%, 470px);
   padding: var(--space-5);
-  border: var(--border-width-thick) outset var(--color-neutral-100);
-  background: var(--color-neutral-100);
-  box-shadow: 8px 10px 0
-    color-mix(in srgb, var(--color-neutral-900) 38%, transparent);
-  color: var(--ink);
+  border: var(--border-width-thick) outset var(--secondary);
+  background: var(--secondary);
+  box-shadow: var(--shadow-window);
+  color: var(--foreground);
+  opacity: 1;
+  transform: scale(1);
+  transform-origin: center;
+  transition:
+    transform var(--duration-enter) var(--ease-out),
+    opacity var(--duration-enter) var(--ease-out);
+}
+
+@starting-style {
+  .hr-report-dialog-backdrop {
+    opacity: 0;
+  }
+
+  .hr-report-dialog {
+    opacity: 0;
+    transform: scale(0.96);
+  }
 }
 
 .hr-report-dialog h2 {
   margin: 0 0 var(--space-2-5);
-  color: var(--color-purple-900);
+  color: var(--primary);
 }
 
 .hr-report-dialog > p {
@@ -2710,7 +2804,7 @@ a {
   gap: var(--space-2);
   margin: 0;
   padding: var(--space-3);
-  border: var(--border-width-thin) solid var(--color-neutral-500);
+  border: var(--border-width-thin) solid var(--border);
 }
 
 .hr-report-dialog label {
@@ -2740,6 +2834,23 @@ a {
   justify-content: flex-end;
   gap: var(--space-2-5);
   margin-top: var(--space-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-action-toolbar,
+  .reaction-count-button,
+  .reaction-picker,
+  .reaction-picker-options button,
+  .hr-report-dialog-backdrop,
+  .hr-report-dialog {
+    transition-duration: 0ms;
+  }
+
+  .message-action-toolbar,
+  .reaction-picker,
+  .hr-report-dialog {
+    transform: none;
+  }
 }
 
 .profile-context-backdrop {

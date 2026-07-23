@@ -2354,7 +2354,7 @@ a {
   padding: 0.35rem 0.45rem;
 }
 
-.mention-autocomplete ul {
+.mention-autocomplete [role="listbox"] {
   display: grid;
   gap: 2px;
   margin: 0;
@@ -2377,8 +2377,9 @@ a {
   text-align: left;
 }
 
-.mention-autocomplete li button:hover,
-.mention-autocomplete li button:focus-visible {
+.mention-autocomplete button:hover,
+.mention-autocomplete button:focus-visible,
+.mention-autocomplete button[aria-selected="true"] {
   background: var(--navy);
   color: #fff;
   outline: none;

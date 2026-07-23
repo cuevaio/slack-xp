@@ -979,6 +979,7 @@ function ChatSurface({
     end: number;
     query: string;
   } | null>(null);
+  const [activeMentionIndex, setActiveMentionIndex] = useState(0);
   const [sendError, setSendError] = useState<string | null>(null);
   const [isSending, setIsSending] = useState(false);
   const scrollRegionRef = useRef<HTMLDivElement>(null);
@@ -1041,6 +1042,7 @@ function ChatSurface({
         )
         .slice(0, 6)
     : [];
+  const activeMention = mentionCandidates[activeMentionIndex];
   let messageHistory: ReactNode;
   if (
     removalSafetyStatus === "unavailable" ||
@@ -1232,6 +1234,7 @@ function ChatSurface({
       const typedAt =
         text.length === previousText.length + 1 && text[cursor - 1] === "@";
       if (typedAt) {
+        setActiveMentionIndex(0);
         setMentionSearch({ start: cursor - 1, end: cursor, query: "" });
       }
       return;
@@ -1253,6 +1256,7 @@ function ChatSurface({
       end: cursor,
       query: query.trimStart(),
     });
+    setActiveMentionIndex(0);
   }
 
   function selectMention(profile: ProfileAttribution): void {
@@ -1407,15 +1411,30 @@ function ChatSurface({
             }}
             onKeyDown={(event) => {
               if (!mentionSearch) return;
-              if (event.key === "Escape") {
+              if (event.key === "ArrowDown" && mentionCandidates.length > 0) {
+                event.preventDefault();
+                setActiveMentionIndex(
+                  (current) => (current + 1) % mentionCandidates.length,
+                );
+              } else if (
+                event.key === "ArrowUp" &&
+                mentionCandidates.length > 0
+              ) {
+                event.preventDefault();
+                setActiveMentionIndex(
+                  (current) =>
+                    (current - 1 + mentionCandidates.length) %
+                    mentionCandidates.length,
+                );
+              } else if (event.key === "Escape") {
                 event.preventDefault();
                 setMentionSearch(null);
               } else if (
                 (event.key === "Enter" || event.key === "Tab") &&
-                mentionCandidates[0]
+                activeMention
               ) {
                 event.preventDefault();
-                selectMention(mentionCandidates[0]);
+                selectMention(activeMention);
               }
             }}
             onScroll={(event) => {
@@ -1427,7 +1446,18 @@ function ChatSurface({
             }}
             placeholder={canPublish ? "Type a message…" : "Reconnecting…"}
             ref={composerRef}
+            role="combobox"
             rows={3}
+            aria-activedescendant={
+              mentionSearch && activeMention
+                ? `mention-option-${activeMention.clerkUserId}`
+                : undefined
+            }
+            aria-autocomplete="list"
+            aria-controls={
+              mentionSearch ? `mention-list-${channel.id}` : undefined
+            }
+            aria-expanded={Boolean(mentionSearch)}
             value={draft}
           />
         </div>
@@ -1437,23 +1467,28 @@ function ChatSurface({
               Mention a New Hire
             </strong>
             {mentionCandidates.length > 0 ? (
-              <ul>
-                {mentionCandidates.map((profile) => (
-                  <li key={profile.clerkUserId}>
-                    <button
-                      onClick={() => selectMention(profile)}
-                      type="button"
-                    >
-                      <ProfileAvatar
-                        placeholderClassName="mention-avatar-placeholder"
-                        profile={profile}
-                        size={24}
-                      />
-                      {profile.displayName}
-                    </button>
-                  </li>
+              <div id={`mention-list-${channel.id}`} role="listbox">
+                {mentionCandidates.map((profile, index) => (
+                  <button
+                    aria-selected={index === activeMentionIndex}
+                    id={`mention-option-${profile.clerkUserId}`}
+                    key={profile.clerkUserId}
+                    onClick={() => selectMention(profile)}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onMouseMove={() => setActiveMentionIndex(index)}
+                    role="option"
+                    tabIndex={-1}
+                    type="button"
+                  >
+                    <ProfileAvatar
+                      placeholderClassName="mention-avatar-placeholder"
+                      profile={profile}
+                      size={24}
+                    />
+                    {profile.displayName}
+                  </button>
                 ))}
-              </ul>
+              </div>
             ) : (
               <span className="mention-autocomplete-empty">
                 No matching New Hires

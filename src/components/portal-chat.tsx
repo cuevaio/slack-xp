@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import {
   type AggregatePresence,
   type ChannelStatus,
@@ -1785,6 +1786,7 @@ function LivePortalOffice(
     onEmploymentAccessEnded(access: EmploymentAccessDeniedDecision): void;
   },
 ) {
+  const { getToken } = useAuth();
   const {
     officeDay: currentOfficeDay,
     publishableKey,
@@ -1796,6 +1798,7 @@ function LivePortalOffice(
         apiKey: publishableKey,
         token: createPortalTokenSource({
           expectedOfficeDay: currentOfficeDay,
+          getAuthorizationToken: getToken,
           onOfficeDayExpired,
         }),
       }),

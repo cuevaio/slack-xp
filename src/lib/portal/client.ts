@@ -10,6 +10,7 @@ type FetchPortalToken = (
 type PortalTokenSourceOptions = {
   expectedOfficeDay: string;
   fetcher?: FetchPortalToken;
+  getAuthorizationToken?(): Promise<string | null>;
   onOfficeDayExpired?(): void;
 };
 
@@ -33,13 +34,21 @@ function hasExpectedOfficeChannels(
 export function createPortalTokenSource({
   expectedOfficeDay,
   fetcher = fetch,
+  getAuthorizationToken,
   onOfficeDayExpired,
 }: PortalTokenSourceOptions): () => Promise<string> {
   return async () => {
+    const authorizationToken = await getAuthorizationToken?.();
+    if (getAuthorizationToken && !authorizationToken) {
+      throw new Error("Portal authentication is temporarily unavailable.");
+    }
     const response = await fetcher("/api/office/portal/token", {
       method: "POST",
       credentials: "include",
       cache: "no-store",
+      headers: authorizationToken
+        ? { Authorization: `Bearer ${authorizationToken}` }
+        : undefined,
       signal: AbortSignal.timeout(SAFETY_PROJECTION_TIMEOUT_MS),
     });
     const payload: unknown = await response.json().catch(() => null);

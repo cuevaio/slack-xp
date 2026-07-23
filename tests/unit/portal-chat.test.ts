@@ -166,6 +166,37 @@ describe("Office Channel chat contract", () => {
     expect(await tokenSource()).toBe("token-2");
   });
 
+  test("uses a fresh Clerk token for every server token request", async () => {
+    const authorizationHeaders: (string | null)[] = [];
+    let sequence = 0;
+    const tokenSource = createPortalTokenSource({
+      expectedOfficeDay: "2026-07-22",
+      getAuthorizationToken: async () => {
+        sequence += 1;
+        return `clerk-token-${sequence}`;
+      },
+      fetcher: async (_input, init) => {
+        authorizationHeaders.push(
+          new Headers(init?.headers).get("Authorization"),
+        );
+        return Response.json({
+          token: `portal-token-${sequence}`,
+          channelIds: listOfficeChannelsForDay("2026-07-22").map(
+            ({ id }) => id,
+          ),
+          eventChannelId: "office-events:2026-07-22",
+        });
+      },
+    });
+
+    expect(await tokenSource()).toBe("portal-token-1");
+    expect(await tokenSource()).toBe("portal-token-2");
+    expect(authorizationHeaders).toEqual([
+      "Bearer clerk-token-1",
+      "Bearer clerk-token-2",
+    ]);
+  });
+
   test("rejects a reconnect token for a different Office Day", async () => {
     let expired = false;
     const tokenSource = createPortalTokenSource({

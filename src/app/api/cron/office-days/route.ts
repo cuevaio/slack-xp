@@ -4,10 +4,13 @@ import {
   isAuthorizedVercelCronRequest,
   runOfficeDayCron,
 } from "@/lib/office-days/cron";
+import { portalOrNeonAuthority } from "@/lib/safety/failure-authority";
+import { logSafetyEvent, requestCorrelationId } from "@/lib/safety/server";
 
 export const runtime = "nodejs";
 
 export async function GET(request: Request) {
+  const correlationId = requestCorrelationId(request.headers);
   const cronSecret = process.env.CRON_SECRET ?? "";
   if (!cronSecret) {
     return Response.json({ error: "cron_not_configured" }, { status: 503 });
@@ -27,13 +30,12 @@ export async function GET(request: Request) {
     });
     return Response.json(result, { status: result.failed > 0 ? 503 : 200 });
   } catch (error) {
-    console.error(
-      JSON.stringify({
-        operation: "office_day_cron",
-        authority: "neon_portal",
-        error: error instanceof Error ? error.name : "unknown",
-      }),
-    );
+    logSafetyEvent({
+      operation: "office_day_cron",
+      correlationId,
+      authority: portalOrNeonAuthority(error),
+      status: "unavailable",
+    });
     return Response.json({ error: "office_day_seed_failed" }, { status: 503 });
   }
 }

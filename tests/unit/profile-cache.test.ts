@@ -1,12 +1,52 @@
 import { describe, expect, test } from "bun:test";
 import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import {
+  fetchProfileAttributions,
   invalidateProfileBatches,
   PROFILE_REPAIR_INTERVAL_MS,
   profileBatchQueryKey,
 } from "@/lib/profiles/client";
 
 describe("New Hire Profile query cache", () => {
+  test("rejects incomplete canonical profile batches", async () => {
+    const fetcher = async () =>
+      Response.json({
+        profiles: [
+          {
+            clerkUserId: "user_a",
+            displayName: "A Hire",
+            imageUrl: null,
+            status: "current",
+          },
+        ],
+      });
+
+    expect(
+      fetchProfileAttributions(["user_a", "user_b"], fetcher),
+    ).rejects.toThrow("unavailable");
+
+    const overbroadFetcher = async () =>
+      Response.json({
+        profiles: [
+          {
+            clerkUserId: "user_a",
+            displayName: "A Hire",
+            imageUrl: null,
+            status: "current",
+          },
+          {
+            clerkUserId: "user_unrequested",
+            displayName: "Unexpected Hire",
+            imageUrl: null,
+            status: "current",
+          },
+        ],
+      });
+    expect(
+      fetchProfileAttributions(["user_a"], overbroadFetcher),
+    ).rejects.toThrow("unavailable");
+  });
+
   test("uses sorted, deduplicated batch keys", () => {
     expect(profileBatchQueryKey(["user_z", "user_a", "user_z"])).toEqual([
       "new-hire-profiles",
@@ -28,10 +68,8 @@ describe("New Hire Profile query cache", () => {
 
     await invalidateProfileBatches(queryClient, "user_a");
 
-    expect(queryClient.getQueryState(affectedSingle)?.isInvalidated).toBe(true);
-    expect(queryClient.getQueryState(affectedHistory)?.isInvalidated).toBe(
-      true,
-    );
+    expect(queryClient.getQueryData(affectedSingle)).toBeUndefined();
+    expect(queryClient.getQueryData(affectedHistory)).toBeUndefined();
     expect(queryClient.getQueryState(unaffected)?.isInvalidated).toBe(false);
   });
 

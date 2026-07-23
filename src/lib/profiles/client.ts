@@ -6,6 +6,7 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import type { ProfileAttribution } from "@/lib/profiles/types";
+import { SAFETY_PROJECTION_TIMEOUT_MS } from "@/lib/safety/contract";
 
 export const PROFILE_REPAIR_INTERVAL_MS = 30_000;
 const PROFILE_QUERY_NAMESPACE = "new-hire-profiles";
@@ -46,6 +47,7 @@ function isProfileAttribution(value: unknown): value is ProfileAttribution {
 export async function fetchProfileAttributions(
   clerkUserIds: readonly string[],
   fetcher: ProfileFetcher = fetch,
+  signal?: AbortSignal,
 ): Promise<ProfileAttribution[]> {
   const stableIds = stableProfileIds(clerkUserIds);
   if (stableIds.length === 0) return [];
@@ -56,6 +58,12 @@ export async function fetchProfileAttributions(
     cache: "no-store",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ clerkUserIds: stableIds }),
+    signal: signal
+      ? AbortSignal.any([
+          signal,
+          AbortSignal.timeout(SAFETY_PROJECTION_TIMEOUT_MS),
+        ])
+      : AbortSignal.timeout(SAFETY_PROJECTION_TIMEOUT_MS),
   });
   const payload: unknown = await response.json().catch(() => null);
   if (
@@ -69,21 +77,33 @@ export async function fetchProfileAttributions(
     throw new Error("New Hire Profiles are unavailable.");
   }
 
-  const requestedIds = new Set(stableIds);
-  return payload.profiles.filter(({ clerkUserId }) =>
-    requestedIds.has(clerkUserId),
+  const profilesById = new Map(
+    payload.profiles.map((profile) => [profile.clerkUserId, profile]),
   );
+  if (
+    profilesById.size !== stableIds.length ||
+    stableIds.some((clerkUserId) => !profilesById.has(clerkUserId))
+  ) {
+    throw new Error("New Hire Profiles are unavailable.");
+  }
+  return stableIds.map((clerkUserId) => {
+    const profile = profilesById.get(clerkUserId);
+    if (!profile) throw new Error("New Hire Profiles are unavailable.");
+    return profile;
+  });
 }
 
 export function profileBatchQueryOptions(clerkUserIds: readonly string[]) {
   const queryKey = profileBatchQueryKey(clerkUserIds);
   return queryOptions({
     queryKey,
-    queryFn: () => fetchProfileAttributions(queryKey[1]),
+    queryFn: ({ signal }) =>
+      fetchProfileAttributions(queryKey[1], fetch, signal),
     staleTime: PROFILE_REPAIR_INTERVAL_MS,
     refetchInterval: PROFILE_REPAIR_INTERVAL_MS,
     refetchOnReconnect: "always",
     refetchOnWindowFocus: "always",
+    retry: false,
   });
 }
 
@@ -109,7 +129,7 @@ export function invalidateProfileBatches(
   queryClient: QueryClient,
   clerkUserId: string,
 ): Promise<void> {
-  return queryClient.invalidateQueries({
+  return queryClient.resetQueries({
     predicate: (query) =>
       isProfileBatchQueryKey(query.queryKey) &&
       query.queryKey[1].includes(clerkUserId),

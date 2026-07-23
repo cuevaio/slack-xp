@@ -404,7 +404,7 @@ test("Operators remove messages inline while every connected client renders a pe
   await page.reload();
   await expect(
     page
-      .getByText("Messages are temporarily unavailable.")
+      .getByText("Message safety checks are unavailable.")
       .filter({ visible: true }),
   ).toBeVisible({ timeout: 15_000 });
   await expect(page.getByText(removedText, { exact: true })).toHaveCount(0);
@@ -578,6 +578,7 @@ test("New Hire Profile HR Reports follow current canonical profile context", asy
   const nextOfficeDay = new Date(Date.now() + 86_400_000)
     .toISOString()
     .slice(0, 10);
+  await page.clock.setFixedTime(new Date(`${nextOfficeDay}T00:00:00.000Z`));
   await page.setExtraHTTPHeaders({
     "x-portal-mock-now": `${nextOfficeDay}T00:00:00.000Z`,
   });
@@ -766,6 +767,91 @@ test("general chat confirms, reconnects, validates text, and recovers from Porta
   await expect(
     page.getByText("Please retry this memo", { exact: true }),
   ).toBeVisible();
+});
+
+test("safety dependencies fail closed independently, together, and recover without content flashes", async ({
+  page,
+}) => {
+  await page.goto("/office");
+  await page
+    .getByRole("button", { name: "Sign in as Returning New Hire" })
+    .click();
+  await expectOfficeConnected(page);
+
+  const protectedText = `Safety projection memo ${Date.now()}`;
+  await page.getByLabel("Message # General").fill(protectedText);
+  await page.getByRole("button", { name: "Send" }).click();
+  await expect(page.getByText(protectedText, { exact: true })).toBeVisible();
+
+  await page.route("**/api/office/profiles", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ profiles: [] }),
+    }),
+  );
+  await page.reload();
+  await expect(
+    page.getByText("Message safety checks are unavailable.").filter({
+      visible: true,
+    }),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(protectedText, { exact: true })).toHaveCount(0);
+
+  await page.unroute("**/api/office/profiles");
+  await page.reload();
+  await expect(page.getByText(protectedText, { exact: true })).toBeVisible();
+
+  await page.route("**/api/office/safety-state", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({
+        error: "maintenance_active",
+        authority: "application",
+        correlationId: "browser-maintenance-test",
+      }),
+    }),
+  );
+  await expect(
+    page.getByText("Portal Messenger safety control is unavailable."),
+  ).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText(protectedText, { exact: true })).toHaveCount(0);
+  await expect(page.getByLabel("Message # General")).toHaveCount(0);
+
+  await page.unroute("**/api/office/safety-state");
+  await expect(page.getByText(protectedText, { exact: true })).toBeVisible({
+    timeout: 10_000,
+  });
+
+  await page.request.post("/api/auth/mock-portal", {
+    form: { intent: "offline" },
+  });
+  await page.route("**/api/office/message-removals?**", (route) =>
+    route.fulfill({
+      status: 503,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "projection_unavailable" }),
+    }),
+  );
+  await page.reload();
+  await expect(
+    page.getByText("Connection lost. Portal is offline."),
+  ).toBeVisible();
+  await expect(
+    page.getByText("Message safety checks are unavailable.").filter({
+      visible: true,
+    }),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText(protectedText, { exact: true })).toHaveCount(0);
+
+  await page.request.post("/api/auth/mock-portal", {
+    form: { intent: "online" },
+  });
+  await page.unroute("**/api/office/message-removals?**");
+  await page.reload();
+  await expectOfficeConnected(page);
+  await expect(page.getByText(protectedText, { exact: true })).toBeVisible();
 });
 
 test("live presence resolves New Hire Profiles and all-hands stays aggregate", async ({
@@ -1154,9 +1240,12 @@ test("Portal inbox attention reconciles across New Hires and visible desktop/mob
   const watercoolerRow = readerDirectory.getByRole("button", {
     name: /# watercooler/,
   });
-  await expect(watercoolerRow).toContainText(
-    "New Hire: The coffee machine has requested legal representation.",
-  );
+  await expect(watercoolerRow).toContainText("New conversation activity");
+  await expect(
+    page.getByText("The coffee machine has requested legal representation.", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
   await expect(watercoolerRow).toHaveAccessibleName(/2 unread/);
   await expect(page.locator(".office-taskbar")).toHaveCount(0);
 
@@ -1185,9 +1274,12 @@ test("Portal inbox attention reconciles across New Hires and visible desktop/mob
   const urgentRow = readerDirectory
     .locator("button")
     .filter({ hasText: "# urgent" });
-  await expect(urgentRow).toContainText(
-    "New Hire: The fax machine is now considered mission critical.",
-  );
+  await expect(urgentRow).toContainText("New conversation activity");
+  await expect(
+    page.getByText("The fax machine is now considered mission critical.", {
+      exact: true,
+    }),
+  ).toHaveCount(0);
   await expect(urgentRow).toHaveAccessibleName(/2 unread/);
 
   await page.setViewportSize({ width: 390, height: 844 });

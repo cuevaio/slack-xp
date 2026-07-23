@@ -94,12 +94,6 @@ describe("Portal presence presentation contract", () => {
               imageUrl: null,
               status: "current",
             },
-            {
-              clerkUserId: "office-character:fax-machine",
-              displayName: "Fax Machine",
-              imageUrl: null,
-              status: "current",
-            },
           ],
         });
       },

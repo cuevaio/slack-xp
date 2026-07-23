@@ -9,11 +9,14 @@ import {
   readMockSessionToken,
 } from "@/lib/auth/mock-session";
 import { readAppConfiguration } from "@/lib/config";
+import { maintenanceUnavailableResponse } from "@/lib/safety/contract";
+import { isMaintenanceActive, requestCorrelationId } from "@/lib/safety/server";
 
 export async function enforceClerkOfficeAuthentication(
   auth: ClerkMiddlewareAuth,
   request: NextRequest,
-): Promise<NextResponse | undefined> {
+  maintenanceActive = isMaintenanceActive(),
+): Promise<Response | undefined> {
   if (isOfficeServerOperation(request.nextUrl.pathname)) {
     const session = await auth();
     if (!session.userId || !session.sessionId) {
@@ -22,14 +25,19 @@ export async function enforceClerkOfficeAuthentication(
         { status: 401 },
       );
     }
+    if (maintenanceActive) {
+      return maintenanceUnavailableResponse(
+        requestCorrelationId(request.headers),
+      );
+    }
     return;
   }
 
   await auth.protect();
 }
 
-const clerkAuthenticationProxy = clerkMiddleware(
-  enforceClerkOfficeAuthentication,
+const clerkAuthenticationProxy = clerkMiddleware((auth, request) =>
+  enforceClerkOfficeAuthentication(auth, request),
 );
 
 function isOfficeServerOperation(pathname: string): boolean {
@@ -53,6 +61,14 @@ export async function proxy(request: NextRequest, event: NextFetchEvent) {
     request.cookies.get(MOCK_SESSION_COOKIE)?.value,
   );
   if (identity) {
+    if (
+      isOfficeServerOperation(request.nextUrl.pathname) &&
+      isMaintenanceActive()
+    ) {
+      return maintenanceUnavailableResponse(
+        requestCorrelationId(request.headers),
+      );
+    }
     return NextResponse.next();
   }
 

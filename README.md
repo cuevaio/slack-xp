@@ -47,6 +47,22 @@ any malformed entry makes the entire allowlist grant no Operator access. Mock
 mode uses the same allowlist contract; the browser fixture configures
 `user_mock_operator` explicitly.
 
+`PORTAL_MESSENGER_MAINTENANCE` is an optional server-only fail-closed control.
+It defaults to `off`; set it to `on` and redeploy to pause the Shared Public
+Office. Authenticated office API requests, including Portal token issuance and
+refresh, then return a private `503 maintenance_active` response, while
+`/office` renders a maintenance state without constructing Portal or Neon
+adapters. Connected application clients recheck the server control every five
+seconds and unmount Portal immediately when activation is observed. This is a
+server access boundary, not CSS hiding. A Portal token issued before activation
+retains its externally enforced 15-minute lifetime, so incident response for a
+compromised direct Portal client must also use Portal access controls.
+
+Only `off` and `on` are valid values. Any other configured value fails closed
+as Installation Incomplete and is also treated as active by the request gate.
+After maintenance is disabled, conversation content returns only after fresh,
+successful Neon profile and Removed Message projection reads.
+
 Use one development Clerk, Portal, and Neon stack for local and preview scopes.
 Set the same variable names to a separate production stack in Vercel's
 Production environment; production setup verification requires Clerk live keys.
@@ -607,6 +623,8 @@ the server clock.
 - `src/lib/auth/` owns Clerk verification, mock sessions, and exact Operator
   allowlist matching. Server-derived identity is passed into office rendering.
 - `src/lib/config.ts` owns environment classification and validation.
+- `src/lib/safety/` owns the maintenance gate, dependency timeouts, projection
+  freshness policy, correlation IDs, and privacy-safe structured failure logs.
 - `src/lib/adapters/` owns Portal-shaped and Neon-shaped boundaries. It cannot
   determine or override the authenticated identity. Mock data is deterministic
   and cannot be selected in production.
@@ -649,6 +667,8 @@ the server clock.
   Operator allowlist before atomically creating a projection, resolving matching
   open HR Reports, auditing the required private reason, and queuing a reserved-
   sender invalidation.
+- `/api/office/safety-state` exposes only the authenticated runtime maintenance
+  decision. It is never a conversation-data fallback.
 - `/api/office/operator/send-home` rechecks Operator access, requires a private
   reason and retry-stable request ID, records the expiring action and relevant
   report transition transactionally, and drains the controlled Portal effects.
@@ -674,3 +694,27 @@ the server clock.
   published React hook.
 - Browser-facing configuration uses only publishable `NEXT_PUBLIC_*` keys.
   Secret values remain server-only.
+
+## Safety-state failure behavior
+
+Portal history is not rendered until both required Neon projections compose
+successfully: every requested stable Clerk ID must have a current or anonymous
+profile attribution, and every Removed Message projection must belong to the
+requested Office Channel. Reads time out after five seconds, reject malformed,
+incomplete, duplicated, or cross-channel responses, and become unacceptable
+after 45 seconds without a successful repair. Invalidation signals clear the
+affected cached safety state before refetching, preventing old message bodies or
+profile attributes from flashing during recovery.
+
+Neon safety failures show “Message safety checks are unavailable” and disable
+publishing; raw Portal history is never used as a fallback. Portal failures show
+a separate offline state and never start a local or fake live-data substitute.
+Clerk remains the authentication authority and an authentication failure cannot
+enter the office. Recovery always refetches Neon projections before content is
+shown again.
+
+Safety-boundary logs are one-line JSON with `operation`, `correlationId`,
+`authority`, and status plus allowlisted stable identifiers such as an Office
+Channel ID. They never serialize request bodies, message bodies, HR Report
+details, private reasons, profile attributes, tokens, secrets, or thrown error
+messages.

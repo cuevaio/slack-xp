@@ -4,18 +4,36 @@ import { readAppConfiguration } from "@/lib/config";
 import { ProfileBatchError } from "@/lib/profiles/domain";
 import { readProfileBatch } from "@/lib/profiles/service";
 import type { ProfileRepository } from "@/lib/profiles/types";
+import {
+  SAFETY_PROJECTION_TIMEOUT_MS,
+  safetyProjectionUnavailableResponse,
+  safetyResponseHeaders,
+} from "@/lib/safety/contract";
+import {
+  logSafetyEvent,
+  requestCorrelationId,
+  type SafetyBoundaryOptions,
+  withSafetyDependencyTimeout,
+} from "@/lib/safety/server";
 
 export const runtime = "nodejs";
 
 export async function handleProfileBatchRequest(
   request: Request,
   repository: ProfileRepository,
+  options: SafetyBoundaryOptions = {},
 ): Promise<Response> {
+  const correlationId =
+    options.correlationId ?? requestCorrelationId(request.headers);
+  const responseHeaders = safetyResponseHeaders(correlationId);
   let payload: unknown;
   try {
     payload = await request.json();
   } catch {
-    return Response.json({ error: "invalid_profile_batch" }, { status: 400 });
+    return Response.json(
+      { error: "invalid_profile_batch" },
+      { status: 400, headers: responseHeaders },
+    );
   }
 
   try {
@@ -24,16 +42,25 @@ export async function handleProfileBatchRequest(
       clerkUserIds = payload.clerkUserIds;
     }
 
-    const profiles = await readProfileBatch(repository, clerkUserIds);
-    return Response.json({ profiles });
+    const profiles = await withSafetyDependencyTimeout(
+      readProfileBatch(repository, clerkUserIds),
+      options.timeoutMs ?? SAFETY_PROJECTION_TIMEOUT_MS,
+    );
+    return Response.json({ profiles }, { headers: responseHeaders });
   } catch (error) {
     if (error instanceof ProfileBatchError) {
       return Response.json(
         { error: "invalid_profile_batch", message: error.message },
-        { status: 400 },
+        { status: 400, headers: responseHeaders },
       );
     }
-    throw error;
+    (options.logger ?? logSafetyEvent)({
+      operation: "profile_batch",
+      correlationId,
+      authority: "neon",
+      status: "unavailable",
+    });
+    return safetyProjectionUnavailableResponse(correlationId);
   }
 }
 

@@ -6,11 +6,17 @@ export type SafetyLogEntry = {
   operation: string;
   correlationId: string;
   authority: SafetyAuthority;
-  status: "unavailable" | "maintenance";
+  status: "unavailable" | "maintenance" | "pending" | number;
   officeChannelId?: string;
 };
 
 export type SafetyLogger = (entry: SafetyLogEntry) => void;
+
+export type SafetyBoundaryOptions = {
+  correlationId?: string;
+  logger?: SafetyLogger;
+  timeoutMs?: number;
+};
 
 export class SafetyDependencyTimeoutError extends Error {
   constructor() {

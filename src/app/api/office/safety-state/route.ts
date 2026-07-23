@@ -1,4 +1,7 @@
-import { maintenanceUnavailableResponse } from "@/lib/safety/contract";
+import {
+  maintenanceUnavailableResponse,
+  safetyResponseHeaders,
+} from "@/lib/safety/contract";
 import { isMaintenanceActive, requestCorrelationId } from "@/lib/safety/server";
 
 export const runtime = "nodejs";
@@ -10,11 +13,6 @@ export async function GET(request: Request): Promise<Response> {
   }
   return Response.json(
     { status: "available", correlationId },
-    {
-      headers: {
-        "Cache-Control": "no-store, private",
-        "X-Correlation-Id": correlationId,
-      },
-    },
+    { headers: safetyResponseHeaders(correlationId) },
   );
 }

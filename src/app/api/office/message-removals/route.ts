@@ -7,11 +7,15 @@ import { listMessageRemovals } from "@/lib/message-removals/service";
 import type { OnboardingSnapshot } from "@/lib/onboarding/types";
 import { officeDay } from "@/lib/portal/office-day";
 import { officeNowForRequest } from "@/lib/portal/request-time";
-import { SAFETY_PROJECTION_TIMEOUT_MS } from "@/lib/safety/contract";
+import {
+  SAFETY_PROJECTION_TIMEOUT_MS,
+  safetyProjectionUnavailableResponse,
+  safetyResponseHeaders,
+} from "@/lib/safety/contract";
 import {
   logSafetyEvent,
   requestCorrelationId,
-  type SafetyLogger,
+  type SafetyBoundaryOptions,
   withSafetyDependencyTimeout,
 } from "@/lib/safety/server";
 
@@ -25,18 +29,11 @@ export async function handleMessageRemovalQuery(
   request: Request,
   repository: MessageRemovalRepository,
   now: Date,
-  options: {
-    correlationId?: string;
-    logger?: SafetyLogger;
-    timeoutMs?: number;
-  } = {},
+  options: SafetyBoundaryOptions = {},
 ): Promise<Response> {
   const correlationId =
     options.correlationId ?? requestCorrelationId(request.headers);
-  const responseHeaders = {
-    ...PRIVATE_NO_STORE_HEADERS,
-    "X-Correlation-Id": correlationId,
-  };
+  const responseHeaders = safetyResponseHeaders(correlationId);
   const officeChannelId = parseMessageRemovalChannelQuery(
     new URL(request.url).searchParams.get("officeChannelId"),
     officeDay(now),
@@ -61,10 +58,7 @@ export async function handleMessageRemovalQuery(
       status: "unavailable",
       officeChannelId,
     });
-    return Response.json(
-      { error: "safety_projection_unavailable", correlationId },
-      { status: 503, headers: responseHeaders },
-    );
+    return safetyProjectionUnavailableResponse(correlationId);
   }
 }
 
@@ -95,16 +89,7 @@ export async function GET(request: Request) {
       authority: "neon",
       status: "unavailable",
     });
-    return Response.json(
-      { error: "safety_projection_unavailable", correlationId },
-      {
-        status: 503,
-        headers: {
-          ...PRIVATE_NO_STORE_HEADERS,
-          "X-Correlation-Id": correlationId,
-        },
-      },
-    );
+    return safetyProjectionUnavailableResponse(correlationId);
   }
   if (!onboarding?.completedAt || onboarding.step !== "complete") {
     return Response.json(

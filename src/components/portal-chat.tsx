@@ -356,12 +356,7 @@ function useResolvedNewHireProfiles(
   enabled: boolean,
 ): ProfileResolution {
   const query = useProfileBatch(enabled ? profileIds : []);
-  const safetyStatus = useSafetyProjectionStatus({
-    status: query.status,
-    fetchStatus: query.fetchStatus,
-    isRefetchError: query.isRefetchError,
-    dataUpdatedAt: query.dataUpdatedAt,
-  });
+  const safetyStatus = useSafetyProjectionStatus(query);
   if (safetyStatus === "unavailable") {
     return { status: "error", profiles: [] };
   }
@@ -1059,12 +1054,7 @@ function ChatSurface({
   const messages = parsedMessages.messages;
   const latestMessageId = messages.at(-1)?.id ?? null;
   const removalQuery = useMessageRemovals(channel.id);
-  const removalSafetyStatus = useSafetyProjectionStatus({
-    status: removalQuery.status,
-    fetchStatus: removalQuery.fetchStatus,
-    isRefetchError: removalQuery.isRefetchError,
-    dataUpdatedAt: removalQuery.dataUpdatedAt,
-  });
+  const removalSafetyStatus = useSafetyProjectionStatus(removalQuery);
   const removedMessageIds = useMemo(
     () => new Set((removalQuery.data ?? []).map(({ messageId }) => messageId)),
     [removalQuery.data],
@@ -1087,12 +1077,7 @@ function ChatSurface({
     [messages, removedMessageIds],
   );
   const profileQuery = useProfileBatch(profileIds);
-  const profileSafetyStatus = useSafetyProjectionStatus({
-    status: profileQuery.status,
-    fetchStatus: profileQuery.fetchStatus,
-    isRefetchError: profileQuery.isRefetchError,
-    dataUpdatedAt: profileQuery.dataUpdatedAt,
-  });
+  const profileSafetyStatus = useSafetyProjectionStatus(profileQuery);
   const messageHistoryReady =
     removalSafetyStatus === "ready" && profileSafetyStatus === "ready";
   const profilesById = useMemo(
@@ -1423,12 +1408,7 @@ function OfficeWorkspace({
   children,
 }: OfficeWorkspaceProps) {
   const currentProfile = useProfileBatch([identityId]);
-  const currentProfileSafety = useSafetyProjectionStatus({
-    status: currentProfile.status,
-    fetchStatus: currentProfile.fetchStatus,
-    isRefetchError: currentProfile.isRefetchError,
-    dataUpdatedAt: currentProfile.dataUpdatedAt,
-  });
+  const currentProfileSafety = useSafetyProjectionStatus(currentProfile);
   const operatorState = useOperatorState(isOperator);
   const hasOperatorAccess =
     !operatorState.isError && operatorState.data?.isOperator === true;

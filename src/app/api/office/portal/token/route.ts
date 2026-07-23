@@ -13,7 +13,11 @@ import {
   PortalEligibilityError,
 } from "@/lib/portal/session";
 import { flushProfileInvalidations } from "@/lib/profiles/propagation";
-import { SAFETY_PROJECTION_TIMEOUT_MS } from "@/lib/safety/contract";
+import {
+  SAFETY_PROJECTION_TIMEOUT_MS,
+  safetyProjectionUnavailableResponse,
+} from "@/lib/safety/contract";
+import { portalOrNeonAuthority } from "@/lib/safety/failure-authority";
 import {
   logSafetyEvent,
   requestCorrelationId,
@@ -52,18 +56,12 @@ export async function POST(request: Request) {
         publisher: adapters.portal,
       });
     } catch (error) {
-      console.error(
-        JSON.stringify({
-          operation: "message_removal_invalidation_retry",
-          correlationId,
-          authority:
-            error instanceof PortalServiceError ||
-            error instanceof MockPortalUnavailableError
-              ? "portal"
-              : "neon",
-          status: "pending",
-        }),
-      );
+      logSafetyEvent({
+        operation: "message_removal_invalidation_retry",
+        correlationId,
+        authority: portalOrNeonAuthority(error),
+        status: "pending",
+      });
     }
     try {
       await flushHRReportNotifications({
@@ -77,18 +75,12 @@ export async function POST(request: Request) {
           configuration.values.APP_ORIGIN ?? new URL(request.url).origin,
       });
     } catch (error) {
-      console.error(
-        JSON.stringify({
-          operation: "hr_report_notification_retry",
-          correlationId,
-          authority:
-            error instanceof PortalServiceError ||
-            error instanceof MockPortalUnavailableError
-              ? "portal"
-              : "neon",
-          status: "pending",
-        }),
-      );
+      logSafetyEvent({
+        operation: "hr_report_notification_retry",
+        correlationId,
+        authority: portalOrNeonAuthority(error),
+        status: "pending",
+      });
     }
     const onboarding = await withSafetyDependencyTimeout(
       adapters.neon.getNewHire(identity.id),
@@ -109,14 +101,12 @@ export async function POST(request: Request) {
       return Response.json({ error: "new_hire_ineligible" }, { status: 403 });
     }
     if (error instanceof PortalServiceError) {
-      console.error(
-        JSON.stringify({
-          operation: "portal_session",
-          correlationId,
-          authority: "portal",
-          status: error.status,
-        }),
-      );
+      logSafetyEvent({
+        operation: "portal_session",
+        correlationId,
+        authority: "portal",
+        status: error.status,
+      });
       return Response.json({ error: "portal_unavailable" }, { status: 503 });
     }
     if (error instanceof MockPortalUnavailableError) {
@@ -134,15 +124,6 @@ export async function POST(request: Request) {
       authority: "neon",
       status: "unavailable",
     });
-    return Response.json(
-      { error: "safety_projection_unavailable", correlationId },
-      {
-        status: 503,
-        headers: {
-          "Cache-Control": "no-store, private",
-          "X-Correlation-Id": correlationId,
-        },
-      },
-    );
+    return safetyProjectionUnavailableResponse(correlationId);
   }
 }

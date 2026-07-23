@@ -85,12 +85,7 @@ export function NewHireProfileContext({
   const [profileId, setProfileId] = useState<string | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const query = useProfileBatch(profileId ? [profileId] : []);
-  const safetyStatus = useSafetyProjectionStatus({
-    status: query.status,
-    fetchStatus: query.fetchStatus,
-    isRefetchError: query.isRefetchError,
-    dataUpdatedAt: query.dataUpdatedAt,
-  });
+  const safetyStatus = useSafetyProjectionStatus(query);
   const profile = query.data?.find(
     (candidate) => candidate.clerkUserId === profileId,
   );

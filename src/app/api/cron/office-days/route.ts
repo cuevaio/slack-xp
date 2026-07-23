@@ -4,9 +4,8 @@ import {
   isAuthorizedVercelCronRequest,
   runOfficeDayCron,
 } from "@/lib/office-days/cron";
-import { MockPortalUnavailableError } from "@/lib/portal/mock";
-import { PortalServiceError } from "@/lib/portal/server";
-import { requestCorrelationId } from "@/lib/safety/server";
+import { portalOrNeonAuthority } from "@/lib/safety/failure-authority";
+import { logSafetyEvent, requestCorrelationId } from "@/lib/safety/server";
 
 export const runtime = "nodejs";
 
@@ -31,18 +30,12 @@ export async function GET(request: Request) {
     });
     return Response.json(result, { status: result.failed > 0 ? 503 : 200 });
   } catch (error) {
-    console.error(
-      JSON.stringify({
-        operation: "office_day_cron",
-        correlationId,
-        authority:
-          error instanceof PortalServiceError ||
-          error instanceof MockPortalUnavailableError
-            ? "portal"
-            : "neon",
-        status: "unavailable",
-      }),
-    );
+    logSafetyEvent({
+      operation: "office_day_cron",
+      correlationId,
+      authority: portalOrNeonAuthority(error),
+      status: "unavailable",
+    });
     return Response.json({ error: "office_day_seed_failed" }, { status: 503 });
   }
 }

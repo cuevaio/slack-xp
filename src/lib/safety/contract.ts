@@ -40,10 +40,26 @@ export function maintenanceUnavailableResponse(
     },
     {
       status: 503,
-      headers: {
-        "Cache-Control": "no-store, private",
-        "X-Correlation-Id": correlationId,
-      },
+      headers: safetyResponseHeaders(correlationId),
     },
   );
+}
+
+export function safetyProjectionUnavailableResponse(
+  correlationId: string,
+): Response {
+  return Response.json(
+    { error: "safety_projection_unavailable", correlationId },
+    {
+      status: 503,
+      headers: safetyResponseHeaders(correlationId),
+    },
+  );
+}
+
+export function safetyResponseHeaders(correlationId: string) {
+  return {
+    "Cache-Control": "no-store, private",
+    "X-Correlation-Id": correlationId,
+  } as const;
 }

@@ -2,9 +2,7 @@
 
 **Reported:** July 23, 2026
 
-**Confirmed affected environment:** Development
-
-**Production status:** Configuration deployed, runtime behavior not yet tested
+**Confirmed affected environments:** Development and Production
 
 **Affected feature:** Channel extensions using WebSocket transport
 
@@ -22,7 +20,7 @@ The strongest conclusion supported by the public documentation and observed evid
 
 > Portal advertises the documented extension route, but the documented extension result is not observable after the client sends into it.
 
-The same failure occurs when deploying the official documentation's counter example to a brand-new channel and exercising it with two direct SDK clients. That control experiment rules out reaction-specific code and establishes this as a Portal platform contract issue. The precise internal platform cause is not yet proven. A missing or failing Workers-for-Platforms dispatch script is the leading implementation-informed hypothesis, but this report does not present that internal mechanism as established fact.
+The same failure occurs in both Portal environments when deploying the official documentation's counter example to brand-new channels and exercising it with two direct SDK clients. Those control experiments rule out reaction-specific code and establish this as a Portal platform contract issue affecting both environments in the clean project. The precise internal platform cause is not yet proven. A missing or failing Workers-for-Platforms dispatch script is the leading implementation-informed hypothesis, but this report does not present that internal mechanism as established fact.
 
 ## Why This Appears to Violate the Documented Contract
 
@@ -105,7 +103,7 @@ The current [portal.config.ts documentation](https://docs.useportal.co/config-cl
 A clean Portal project was created to exclude inherited project configuration.
 
 - Project: `portal-messenger-clean`
-- Confirmed runtime environment: Development
+- Confirmed runtime environments: Development and Production
 - Channels: `general` and `announcements`
 - Extension handle: `reactions`
 - Namespace: `reaction.`
@@ -144,7 +142,7 @@ The documented [Get active config endpoint](https://docs.useportal.co/api-refere
 }
 ```
 
-The Production environment received the same configuration, but this report does not claim Production runtime impact because the direct smoke test has only been run with Development credentials.
+The same `general` and `announcements` configuration is active in Production. A separate official-counter control was also run against Production as described below.
 
 ## Reproduction
 
@@ -264,6 +262,46 @@ This control rules out:
 
 The failure is now demonstrated with Portal's own documented extension pattern on a fresh channel. It is therefore appropriate to classify the incident as a Portal platform issue, while keeping the exact internal subsystem diagnosis open.
 
+## Production Control
+
+The official-counter control was repeated against the clean project's Production Portal environment rather than assuming that Development and Production share the same failure.
+
+Production conditions:
+
+- Fresh Production publishable and secret keys generated directly for the Production environment
+- Never-before-used exact channel ID
+- One counter extension only
+- No middleware
+- Same `counter.` namespace and `ws` transport
+- Two direct `@portalsdk/core` clients
+- Synthetic Production members and scoped 15-minute tokens
+- Listeners registered before the documented ephemeral send
+- Ten-second broadcast timeout
+
+Production deployment reported:
+
+```text
+1 channel override
+Uploaded: 1 extension
+```
+
+Production result:
+
+```text
+error: Counter broadcast not received.
+```
+
+The Production test therefore reproduces the Development failure independently.
+
+After the experiment:
+
+1. The original Production `general` and `announcements` config was reactivated.
+2. The active-config API verified the restored content-addressed Production version and both channel keys.
+3. Vercel Production Portal credentials were refreshed with a valid Production key pair through stdin.
+4. Temporary credential and experiment files were removed.
+
+No user messages or existing configured channels were used for the Production control.
+
 ## Wire Evidence
 
 The sanitized `ready` frame contains:
@@ -334,6 +372,7 @@ No `reaction.state` message is observed.
 - The expected extension snapshot is absent.
 - Portal's documented counter pattern fails in the same environment on a fresh channel.
 - The fresh-channel counter test removes reaction-specific implementation and stale-channel state from the causal set.
+- The same documented counter control fails independently in Production.
 
 ## What Is Not Yet Proven
 
@@ -342,7 +381,6 @@ No `reaction.state` message is observed.
 - Whether the script exists but throws during construction, `onInit`, `onBatch`, storage, or snapshot generation.
 - Whether the coordinator has marked the extension degraded internally.
 - Whether an `error` frame is generated but not surfaced as the documented `DegradedError` for WebSocket transport.
-- Whether Production exhibits the same runtime behavior.
 
 ## Ranked Root-Cause Hypotheses
 
@@ -350,13 +388,13 @@ No `reaction.state` message is observed.
 
 **Confidence: high.**
 
-The active config and `ready.bindings` prove that Portal resolved the reaction extension metadata. The independent failure of the documented counter on a fresh channel shows that the problem is systemic to hosted extension execution in this environment rather than authored reaction behavior. The absence of broadcasts is consistent with failure when dispatching to generated customer scripts or their Durable Objects.
+The active config and `ready.bindings` prove that Portal resolved the reaction extension metadata. Independent failures of the documented counter on fresh Development and Production channels show that the problem is systemic to hosted extension execution in this project rather than authored reaction behavior. The absence of broadcasts is consistent with failure when dispatching to generated customer scripts or their Durable Objects.
 
 Predictions:
 
 - The named script is missing, has an invalid binding/migration, or returns a non-success response.
 - Realtime or customer-worker logs show a dispatch error or timeout.
-- The documented counter extension fails in the same environment. This prediction has been confirmed.
+- The documented counter extension fails in both environments. This prediction has been confirmed twice.
 
 ### 2. The extension executes but fails during lifecycle handling
 
@@ -467,7 +505,7 @@ These recommendations follow directly from the documented contract and the diagn
 
 The incident is resolved when the following passes in a newly provisioned Development environment:
 
-1. `portal deploy` uploads and activates the reaction extension.
+1. `portal deploy` uploads and activates the reaction extension in the target environment.
 2. The active-config API names the expected scripts.
 3. Clients A and B connect and receive the `reaction.` binding.
 4. A sends `reaction.toggle`.
@@ -517,6 +555,6 @@ Reaction broadcast, toggle, and late-join snapshot passed.
 
 ## Conclusion
 
-The application is materially aligned with Portal's published extension guide. Portal's own active configuration and channel `ready` frame confirm that the reaction extension is attached and advertised through the `reaction.` WebSocket namespace. More decisively, Portal's documented counter pattern fails in the same clean environment on a fresh channel with no middleware or reaction-specific behavior. What fails is the documented extension result: no live broadcast, no late-join snapshot, and no visible degraded-extension error.
+The application is materially aligned with Portal's published extension guide. Portal's own active configuration and channel `ready` frame confirm that the reaction extension is attached and advertised through the `reaction.` WebSocket namespace. More decisively, Portal's documented counter pattern fails on fresh channels in both Development and Production with no middleware or reaction-specific behavior. What fails is the documented extension result: no live broadcast, no late-join snapshot, and no visible degraded-extension error.
 
 The report should be handled as a confirmed Portal platform contract incident, not as a confirmed Workers-for-Platforms credential incident. The fastest path to root cause is to trace one synthetic `counter.increment` through configuration lookup, coordinator dispatch, generated extension execution, broadcast enqueue, and snapshot refresh.

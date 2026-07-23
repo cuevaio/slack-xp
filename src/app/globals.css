@@ -752,6 +752,11 @@ a {
   text-overflow: ellipsis;
 }
 
+.window-title-short,
+.mobile-channel-heading {
+  display: none;
+}
+
 .window-controls {
   display: flex;
   flex: 0 0 auto;
@@ -3890,18 +3895,38 @@ a {
 @media (max-width: 850px) {
   .office-shell {
     display: block;
-    padding: var(--space-6) 0 0;
+    min-height: 100dvh;
+    padding: 0;
   }
 
   .messenger-window {
     display: flex;
-    height: calc(100svh - var(--space-6));
+    height: 100dvh;
     min-height: 0;
     flex-direction: column;
     overflow: hidden;
     border-right: 0;
     border-left: 0;
     box-shadow: none;
+  }
+
+  .messenger-window > .window-titlebar {
+    min-height: calc(48px + env(safe-area-inset-top));
+    padding-top: calc(var(--space-1) + env(safe-area-inset-top));
+  }
+
+  .window-title-long {
+    display: none;
+  }
+
+  .window-title-short {
+    display: inline;
+  }
+
+  .window-controls button,
+  .office-fullscreen-control {
+    width: 44px;
+    height: 44px;
   }
 
   .messenger-auth-shell {
@@ -3917,6 +3942,17 @@ a {
   .messenger-auth-content {
     min-height: 0;
     overflow-y: auto;
+    padding: var(--space-5) var(--space-4)
+      max(var(--space-5), env(safe-area-inset-bottom));
+  }
+
+  .messenger-auth-back,
+  .portal-clerk-provider-button,
+  .portal-clerk-input,
+  .portal-clerk-submit,
+  .portal-clerk-identity,
+  .portal-clerk-otp {
+    min-height: 44px;
   }
 
   .office-body {
@@ -3936,6 +3972,18 @@ a {
     height: 100%;
     min-height: 0;
     padding: var(--space-3-5) var(--space-4);
+  }
+
+  .mobile-channel-heading {
+    display: grid;
+    gap: var(--space-1);
+    padding: var(--space-2) 0 var(--space-3);
+    border-bottom: var(--border-width-thin) solid var(--color-neutral-400);
+  }
+
+  .mobile-channel-subtitle {
+    color: var(--color-neutral-600);
+    font-size: 0.68rem;
   }
 
   .conversation-panel {
@@ -3958,9 +4006,11 @@ a {
   }
 
   .mobile-directory-trigger {
-    display: block;
+    display: flex;
     width: 100%;
-    min-height: 42px;
+    min-height: 48px;
+    align-items: center;
+    gap: var(--space-2);
     padding: var(--space-2) var(--space-3);
     border: 0;
     border-bottom: var(--border-width-thin) solid var(--color-neutral-500);
@@ -3984,26 +4034,41 @@ a {
   }
 
   .chat-scroll-region {
-    grid-row: 2;
+    grid-row: 1;
     min-height: 280px;
   }
 
   .conversation-content {
     grid-template-columns: 1fr;
-    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
   }
 
   .live-activity-panel {
-    grid-column: 1;
-    height: auto;
-    max-height: 132px;
-    padding: var(--space-3) var(--space-3-5);
-    border-bottom: var(--border-width-thin) solid var(--color-neutral-400);
-    border-left: 0;
+    display: none;
   }
 
   .detailed-presence ul {
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .message-reaction-picker {
+    position: static;
+    width: fit-content;
+    margin: var(--space-1-5) 0 0 auto;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .message-reaction-summary button,
+  .message-reaction-picker button {
+    min-width: 44px;
+    min-height: 44px;
+    justify-content: center;
+    font-size: 0.78rem;
+  }
+
+  .chat-composer {
+    padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
   }
 }
 
@@ -4018,6 +4083,15 @@ a {
     align-items: flex-start;
     flex-direction: column;
     gap: var(--space-1-5);
+  }
+
+  .messenger-auth-notice {
+    grid-template-columns: 1fr;
+    margin: var(--space-5) 0;
+  }
+
+  .portal-clerk-card {
+    padding: var(--space-4);
   }
 
   .connection-status {

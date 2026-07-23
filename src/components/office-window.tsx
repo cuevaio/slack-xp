@@ -23,6 +23,14 @@ export function OfficeWindow({ children }: { children: ReactNode }) {
     }
   }
 
+  function handleIconClick() {
+    if (
+      window.matchMedia("(pointer: coarse)").matches ||
+      window.matchMedia("(max-width: 850px)").matches
+    )
+      openMessenger();
+  }
+
   function handleIconKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
     if (event.key === "Enter") {
       event.preventDefault();
@@ -33,8 +41,9 @@ export function OfficeWindow({ children }: { children: ReactNode }) {
   return (
     <>
       <button
-        aria-label="Portal Messenger. Double click to open."
+        aria-label="Portal Messenger. Tap to open on mobile, or double click on desktop."
         className="desktop-app-icon"
+        onClick={handleIconClick}
         onDoubleClick={openMessenger}
         onKeyDown={handleIconKeyDown}
         type="button"
@@ -140,7 +149,10 @@ export function OfficeWindow({ children }: { children: ReactNode }) {
         >
           <header className="window-titlebar">
             <span className="window-title" id="office-title">
-              Portal Messenger: Corporate Edition
+              <span className="window-title-long">
+                Portal Messenger: Corporate Edition
+              </span>
+              <span className="window-title-short">Portal Messenger</span>
             </span>
             <span className="window-controls">
               <button

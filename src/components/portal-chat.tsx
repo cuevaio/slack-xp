@@ -1044,6 +1044,9 @@ function LiveChannel({
 
 function Messenger({ portal, profile }: { portal: Portal; profile: Profile }) {
   const [activeId, setActiveId] = useState<OfficeChannelSlug>("general");
+  const [mobileView, setMobileView] = useState<"directory" | "conversation">(
+    "conversation",
+  );
   const [officeProfiles, setOfficeProfiles] = useState<
     ReadonlyMap<string, Profile>
   >(() => new Map([[profile.id, profile]]));
@@ -1087,6 +1090,7 @@ function Messenger({ portal, profile }: { portal: Portal; profile: Profile }) {
     });
     requestedChannel.current = channel.id;
     warmChannel(channel.id);
+    setMobileView("conversation");
     if (channel.id === activeId) return;
     if (readyChannelIds.current.has(channel.id)) {
       startTransition(() => setActiveId(channel.id));
@@ -1124,12 +1128,18 @@ function Messenger({ portal, profile }: { portal: Portal; profile: Profile }) {
   }
 
   return (
-    <div className="office-body">
+    <div className="office-body" data-mobile-view={mobileView}>
       <p className="sr-only" aria-live="polite">
         {mentionAnnouncement}
       </p>
       <aside className="channel-panel">
         <h1>Portal Messenger</h1>
+        <div className="mobile-channel-heading">
+          <strong>Office channels</strong>
+          <span className="mobile-channel-subtitle">
+            Select a channel to return to chat
+          </span>
+        </div>
         <span className="job-title">Signed in as {profile.name}</span>
         <nav aria-label="Office Channels">
           {channels.map((channel) => {
@@ -1170,6 +1180,13 @@ function Messenger({ portal, profile }: { portal: Portal; profile: Profile }) {
         <AccountMenu profile={profile} />
       </aside>
       <div className="conversation-panel">
+        <button
+          className="mobile-directory-trigger"
+          onClick={() => setMobileView("directory")}
+          type="button"
+        >
+          <span aria-hidden="true">&lt;</span> Office channels
+        </button>
         {channels.map((channel) =>
           warmedChannelIds.has(channel.id) ? (
             <LiveChannel

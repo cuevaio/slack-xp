@@ -3,7 +3,7 @@
 import { useAuth, useClerk } from "@clerk/nextjs";
 import { type Message, Portal } from "@portalsdk/core";
 import { PortalProvider, useChannel, useInbox } from "@portalsdk/react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   listOfficeChannels,
   type OfficeChannel,
@@ -14,6 +14,15 @@ import { createPortalTokenSource } from "@/lib/portal/client";
 type ChatContent = { text: string };
 type Profile = { id: string; name: string; imageUrl: string | null };
 type SendChatMessage = (input: { content: ChatContent }) => Promise<unknown>;
+type Reaction = "like" | "love" | "laugh" | "surprise";
+type ReactionState = Record<string, Partial<Record<Reaction, string[]>>>;
+
+const REACTION_OPTIONS: ReadonlyArray<{ id: Reaction; label: string }> = [
+  { id: "like", label: "Like" },
+  { id: "love", label: "Love" },
+  { id: "laugh", label: "Laugh" },
+  { id: "surprise", label: "Surprise" },
+];
 
 export function messageText(message: Message<ChatContent>) {
   return !message.retracted && typeof message.content?.text === "string"
@@ -125,14 +134,42 @@ function LiveChannel({
 }) {
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [reactions, setReactions] = useState<ReactionState>({});
   const inbox = useInbox();
   const live = useChannel<ChatContent>({
     channelId: channel.id,
     history: 50,
     readOn: "manual",
     metadata: { username: profile.name, avatar: profile.imageUrl },
+    onMessage: (message) => {
+      if (message.type !== "reaction.state") return;
+      const content = message.content as unknown;
+      if (
+        typeof content !== "object" ||
+        content === null ||
+        !("messageId" in content) ||
+        typeof content.messageId !== "string" ||
+        !("reactions" in content) ||
+        typeof content.reactions !== "object" ||
+        content.reactions === null
+      ) {
+        return;
+      }
+      const messageId = content.messageId;
+      const messageReactions = content.reactions as ReactionState[string];
+      setReactions((current) => ({
+        ...current,
+        [messageId]: messageReactions,
+      }));
+    },
     onError: () => setError("Connection lost. Portal will keep retrying."),
   });
+  useEffect(() => {
+    const snapshot = live.ext?.reactions as
+      | { reactions?: ReactionState }
+      | undefined;
+    if (snapshot?.reactions) setReactions(snapshot.reactions);
+  }, [live.ext]);
   const participants = live.presence?.count ?? 0;
   const activeProfiles = new Map<string, Profile>([[profile.id, profile]]);
   if (live.presence?.kind === "detailed") {
@@ -247,6 +284,34 @@ function LiveChannel({
                     </span>
                   </div>
                   <p>{text}</p>
+                  <fieldset className="message-reactions">
+                    <legend className="sr-only">Message reactions</legend>
+                    {REACTION_OPTIONS.map((reaction) => {
+                      const users = reactions[message.id]?.[reaction.id] ?? [];
+                      const selected = users.includes(profile.id);
+                      return (
+                        <button
+                          aria-pressed={selected}
+                          key={reaction.id}
+                          onClick={() => {
+                            void live.send({
+                              ephemeral: true,
+                              type: "reaction.toggle",
+                              content: {
+                                messageId: message.id,
+                                reaction: reaction.id,
+                              } as unknown as ChatContent,
+                            });
+                          }}
+                          title={reaction.label}
+                          type="button"
+                        >
+                          {reaction.label}{" "}
+                          {users.length > 0 ? users.length : ""}
+                        </button>
+                      );
+                    })}
+                  </fieldset>
                 </li>
               );
             })}

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import type { Message } from "@portalsdk/core";
+import type { ExtensionContext } from "@portalsdk/extension-protocol";
+import ReactionExtension from "../extensions/reactions";
 import config, { containsBlockedLanguage } from "../portal.config";
 import {
   messageText,
@@ -60,6 +62,62 @@ describe("Portal teaching baseline", () => {
     readChannel(markChannelRead, { markAsRead: markInboxRead });
     expect(markChannelRead).toHaveBeenCalledTimes(1);
     expect(markInboxRead).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("reaction extension", () => {
+  test("toggles durable per-user reactions and snapshots late-join state", async () => {
+    const values = new Map<string, unknown>();
+    const context = {
+      storage: {
+        get: async <T>(key: string) => values.get(key) as T | undefined,
+        put: async (key: string, value: unknown) => {
+          values.set(key, value);
+        },
+        delete: async (key: string) => values.delete(key),
+        list: async () => new Map(),
+      },
+    } satisfies ExtensionContext;
+    const extension = new ReactionExtension(context);
+    await extension.onInit?.();
+    const response = await extension.onBatch({
+      kind: "batch",
+      channelId: "general",
+      epoch: 1,
+      batchSeq: 1,
+      messages: [
+        {
+          type: "reaction.toggle",
+          content: { messageId: "message_1", reaction: "like" },
+          senderId: "user_1",
+          at: 1,
+        },
+      ],
+    });
+    expect(response).toEqual({
+      broadcasts: [
+        {
+          type: "reaction.state",
+          content: {
+            messageId: "message_1",
+            reactions: { like: ["user_1"] },
+          },
+        },
+      ],
+      snapshotDirty: true,
+    });
+    expect(extension.onSnapshot?.()).toEqual({
+      snapshot: { reactions: { message_1: { like: ["user_1"] } } },
+    });
+    expect(
+      await extension.onBatch({
+        kind: "batch",
+        channelId: "general",
+        epoch: 1,
+        batchSeq: 1,
+        messages: [],
+      }),
+    ).toBeUndefined();
   });
 });
 

@@ -208,6 +208,29 @@
   border-bottom: 1px solid #ddd;
 }
 
+.message-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1-5);
+}
+
+.message-reactions button {
+  padding: var(--space-0-5) var(--space-1-5);
+  border: var(--border-width-thin) outset var(--color-neutral-200);
+  background: var(--silver);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.68rem;
+}
+
+.message-reactions button[aria-pressed="true"] {
+  border-style: inset;
+  background: var(--color-yellow-100);
+  color: var(--color-purple-700);
+  font-weight: 800;
+}
+
 .message-composer textarea {
   flex: 1;
   min-height: 4rem;

@@ -64,6 +64,7 @@ export const moderateChatMessage = defineMiddleware<ChatMessage>(
 const publicOfficeChannel = {
   anonymous: false,
   middleware: [moderateChatMessage],
+  extensions: { reactions: "./extensions/reactions.ts" },
 };
 
 export default defineConfig({

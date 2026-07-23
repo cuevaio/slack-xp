@@ -6,8 +6,8 @@
       "name": "slack-xp",
       "dependencies": {
         "@clerk/nextjs": "^7.5.22",
-        "@portalsdk/core": "0.1.4",
-        "@portalsdk/react": "0.1.2",
+        "@portalsdk/core": "0.1.5",
+        "@portalsdk/react": "0.1.4",
         "geist": "1.7.2",
         "next": "16.2.11",
         "react": "19.2.4",
@@ -15,8 +15,9 @@
       },
       "devDependencies": {
         "@biomejs/biome": "2.2.0",
-        "@portalsdk/cli": "0.4.1",
-        "@portalsdk/config": "0.1.4",
+        "@portalsdk/cli": "0.5.1",
+        "@portalsdk/config": "0.2.0",
+        "@portalsdk/extension-protocol": "0.1.0",
         "@tailwindcss/postcss": "^4",
         "@types/bun": "^1.3.14",
         "@types/node": "^20",
@@ -193,15 +194,15 @@
 
     "@playwright/test": ["@playwright/test@1.61.1", "", { "dependencies": { "playwright": "1.61.1" }, "bin": { "playwright": "cli.js" } }, "sha512-8nKv6+0RJSL9FE4jYOEGXnPeM/Hg12qZpmqzZjRh3qM0Y7c3z1mrOTfFLids72RDQYVh9WpLEfR5WdpNX4fkig=="],
 
-    "@portalsdk/cli": ["@portalsdk/cli@0.4.1", "", { "dependencies": { "@portalsdk/core": "^0.1.3", "commander": "^14.0.2", "esbuild": "^0.25.0", "picocolors": "^1.1.1", "ws": "^8.18.0" }, "bin": { "portal": "dist/index.js" } }, "sha512-R4gokbTeb0ZRMlaBS2FNM1YGhhU8GqKt9w12p0COzpk+nXZbAjIJrRD7gQsWibfrhFhCruzcZCmhnccUdhT+sg=="],
+    "@portalsdk/cli": ["@portalsdk/cli@0.5.1", "", { "dependencies": { "@portalsdk/core": "^0.1.3", "commander": "^14.0.2", "esbuild": "^0.25.0", "picocolors": "^1.1.1", "ws": "^8.18.0" }, "bin": { "portal": "dist/index.js" } }, "sha512-/rL0ggpwzjCS96TR6zrzOpk3bJQnEmPeh7BmkUYKGj6sUz1U3HO+q5ZuvefHTWHX9nDqk8rD3nkz7O9/6Wf5dQ=="],
 
-    "@portalsdk/config": ["@portalsdk/config@0.1.4", "", { "dependencies": { "@portalsdk/extension-protocol": "^0.1.0" } }, "sha512-L/PYV6UNlqJ7gcWXRuE87J1IfxXgUQXUz9gCfL7aM/EnThmFvQkD3tLZ+LyMPKS4T/dqgD2WxjX2w00Kw5GYcQ=="],
+    "@portalsdk/config": ["@portalsdk/config@0.2.0", "", { "dependencies": { "@portalsdk/extension-protocol": "^0.1.0" } }, "sha512-1BA39PxBugBu8ELc15YIGF+22Krhe9/NUyaAZxPeYnUtbW35WouxGbFlhPqKC+bnO4u7UtMN4h8y1Smh1iv6ng=="],
 
-    "@portalsdk/core": ["@portalsdk/core@0.1.4", "", { "dependencies": { "@portalsdk/wire-protocol": "^0.3.0", "partysocket": "1.3.0" } }, "sha512-tNTJxak7DX2oZ9m5qZOPQfO1dnlje/d3V496/Gf32xQIxSQRV2NzYLCqgZIFYrsBXmkWF5DYHS5GosONKYGoLQ=="],
+    "@portalsdk/core": ["@portalsdk/core@0.1.5", "", { "dependencies": { "@portalsdk/wire-protocol": "^0.3.0", "partysocket": "1.3.0" } }, "sha512-TIXLTwbe+1JlhTdtH0ZPibljfn6W3nFL1sArdqTTqmaLZ0m0OkpXEujfu9Nt5KThCqAWVbGU6AbUBHwa+Vp7gg=="],
 
     "@portalsdk/extension-protocol": ["@portalsdk/extension-protocol@0.1.0", "", {}, "sha512-TdiG+YH2UYmgy52re3XsEJBByDkZ6CNwLg2mdOT8KbUTgqThN+7d9Hpa66l7+yAUTZERC5thq0gqwsEKVrBDww=="],
 
-    "@portalsdk/react": ["@portalsdk/react@0.1.2", "", { "dependencies": { "@portalsdk/core": "^0.1.4" }, "peerDependencies": { "react": ">=18 <20" } }, "sha512-+BbllVEPLFfIT7mL9Py6zfw0GwxF5TGeMC0fZ4OpbBFm7wAn3frOIm+P7P3nbSSl4morJTndpmvktpggrerpcg=="],
+    "@portalsdk/react": ["@portalsdk/react@0.1.4", "", { "dependencies": { "@portalsdk/core": "^0.1.5" }, "peerDependencies": { "react": ">=18 <20" } }, "sha512-EvkH2xfvk4dewSsa3dVy/IGJwszpDnvULjny/hK3qPdvg9AR/5/gSwuLcwjDHkae7w8blVKwoKqILqO+Dvfg+Q=="],
 
     "@portalsdk/wire-protocol": ["@portalsdk/wire-protocol@0.3.0", "", {}, "sha512-bDTtcuD2GA2SMToE5N+L9Q9xJLaPBl6YvExqgoULW4xVAEWujaVDFosv1e3tAQPksOxawxzevX5utREUlaXQug=="],
 

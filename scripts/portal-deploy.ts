@@ -11,7 +11,7 @@ const extractWithVersion =
 const duplicateWithoutVersionId =
   "if(t===409)return{versionId:H(r),alreadyDeployed:!0};";
 const duplicateWithActiveVersion =
-  'if(t===409){let{status:o,data:s}=await this.send("GET","/v1/configs/active"),i=a=>a&&typeof a==="object"?Array.isArray(a)?a.map(i):Object.fromEntries(Object.keys(a).sort().map(l=>[l,i(a[l])])):a;if(o>=200&&o<300&&JSON.stringify(i(s.extract))===JSON.stringify(i(n.extract)))return{versionId:H(s),alreadyDeployed:!0};throw this.fail(t,r)}';
+  'if(t===409){let{status:o,data:s}=await this.send("GET","/v1/configs/active"),i=a=>a&&typeof a==="object"?Array.isArray(a)?a.map(i):Object.fromEntries(Object.keys(a).filter(l=>l!=="version").sort().map(l=>[l,i(a[l])])):a;if(o>=200&&o<300&&JSON.stringify(i(s.extract))===JSON.stringify(i(n.extract)))return{versionId:H(s),alreadyDeployed:!0};throw this.fail(t,r)}';
 
 const source = await readFile(portalCli, "utf8");
 if (

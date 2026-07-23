@@ -7,9 +7,15 @@ import {
 } from "@tanstack/react-query";
 import { MAX_PROFILE_BATCH_SIZE } from "@/lib/profiles/domain";
 import type { ProfileAttribution } from "@/lib/profiles/types";
-import { SAFETY_PROJECTION_TIMEOUT_MS } from "@/lib/safety/contract";
+import {
+  SAFETY_PROJECTION_REPAIR_INTERVAL_MS,
+  SAFETY_PROJECTION_RETRY_COUNT,
+  SAFETY_PROJECTION_TIMEOUT_MS,
+  safetyProjectionRefetchInterval,
+  safetyProjectionRetryDelay,
+} from "@/lib/safety/contract";
 
-export const PROFILE_REPAIR_INTERVAL_MS = 30_000;
+export const PROFILE_REPAIR_INTERVAL_MS = SAFETY_PROJECTION_REPAIR_INTERVAL_MS;
 const PROFILE_QUERY_NAMESPACE = "new-hire-profiles";
 
 type ProfileFetcher = (
@@ -114,10 +120,12 @@ export function profileBatchQueryOptions(clerkUserIds: readonly string[]) {
     queryFn: ({ signal }) =>
       fetchProfileAttributions(queryKey[1], fetch, signal),
     staleTime: PROFILE_REPAIR_INTERVAL_MS,
-    refetchInterval: PROFILE_REPAIR_INTERVAL_MS,
+    refetchInterval: (query) =>
+      safetyProjectionRefetchInterval(query.state.status),
     refetchOnReconnect: "always",
     refetchOnWindowFocus: "always",
-    retry: false,
+    retry: SAFETY_PROJECTION_RETRY_COUNT,
+    retryDelay: safetyProjectionRetryDelay,
   });
 }
 

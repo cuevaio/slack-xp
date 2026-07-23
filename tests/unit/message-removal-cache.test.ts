@@ -4,9 +4,18 @@ import {
   fetchMessageRemovals,
   invalidateMessageRemovals,
   messageRemovalQueryKey,
+  messageRemovalQueryOptions,
 } from "@/lib/message-removals/client";
 
 describe("Removed Message query cache", () => {
+  test("retries and accelerates repair after projection errors", () => {
+    const options = messageRemovalQueryOptions("general:2026-07-22");
+
+    expect(options.retry).toBeGreaterThan(0);
+    expect(typeof options.retryDelay).toBe("function");
+    expect(typeof options.refetchInterval).toBe("function");
+  });
+
   test("rejects projections for a different Office Channel", async () => {
     const fetcher = async () =>
       Response.json({

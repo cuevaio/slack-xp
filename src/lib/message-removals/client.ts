@@ -6,10 +6,17 @@ import {
   useQuery,
 } from "@tanstack/react-query";
 import type { SerializedMessageRemovalProjection } from "@/lib/message-removals/contract";
-import { SAFETY_PROJECTION_TIMEOUT_MS } from "@/lib/safety/contract";
+import {
+  SAFETY_PROJECTION_REPAIR_INTERVAL_MS,
+  SAFETY_PROJECTION_RETRY_COUNT,
+  SAFETY_PROJECTION_TIMEOUT_MS,
+  safetyProjectionRefetchInterval,
+  safetyProjectionRetryDelay,
+} from "@/lib/safety/contract";
 
 const MESSAGE_REMOVAL_QUERY_NAMESPACE = "message-removals";
-export const MESSAGE_REMOVAL_REPAIR_INTERVAL_MS = 30_000;
+export const MESSAGE_REMOVAL_REPAIR_INTERVAL_MS =
+  SAFETY_PROJECTION_REPAIR_INTERVAL_MS;
 
 type MessageRemovalFetcher = (
   input: string | URL | Request,
@@ -95,10 +102,12 @@ export function messageRemovalQueryOptions(officeChannelId: string) {
     queryFn: ({ signal }) =>
       fetchMessageRemovals(officeChannelId, fetch, signal),
     staleTime: MESSAGE_REMOVAL_REPAIR_INTERVAL_MS,
-    refetchInterval: MESSAGE_REMOVAL_REPAIR_INTERVAL_MS,
+    refetchInterval: (query) =>
+      safetyProjectionRefetchInterval(query.state.status),
     refetchOnReconnect: "always",
     refetchOnWindowFocus: "always",
-    retry: false,
+    retry: SAFETY_PROJECTION_RETRY_COUNT,
+    retryDelay: safetyProjectionRetryDelay,
   });
 }
 

@@ -1,8 +1,8 @@
 import {
   allow,
+  block,
   defineConfig,
   defineMiddleware,
-  retract,
 } from "@portalsdk/config";
 
 type ChatMessage = {
@@ -50,21 +50,19 @@ export function containsBlockedLanguage(text: string): boolean {
 export const moderateChatMessage = defineMiddleware<ChatMessage>(
   "publish",
   (ctx) => {
-    ctx.defer(async () => {
-      const text = ctx.message.content?.text;
-      if (typeof text === "string" && containsBlockedLanguage(text)) {
-        return retract(
-          "That message contains language that is not allowed in the Shared Public Office.",
-        );
-      }
-    });
-    return allow();
+    const text = ctx.message.content?.text;
+    if (typeof text !== "string" || !containsBlockedLanguage(text)) {
+      return allow();
+    }
+
+    return block(
+      "That message contains language that is not allowed in the Shared Public Office.",
+    );
   },
 );
 
 const publicOfficeChannel = {
   anonymous: false,
-  onPublish: [moderateChatMessage],
 };
 
 export default defineConfig({

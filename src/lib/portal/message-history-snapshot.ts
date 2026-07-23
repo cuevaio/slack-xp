@@ -44,7 +44,8 @@ export function selectMessageHistorySnapshot<
     return current;
   }
   if (
-    profileSafetyStatus !== "loading" ||
+    (profileSafetyStatus !== "loading" &&
+      profileSafetyStatus !== "unavailable") ||
     previousProfileSafetyStatus !== "ready" ||
     removalSafetyStatus !== "ready" ||
     !previous ||

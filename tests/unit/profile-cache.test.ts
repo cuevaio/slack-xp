@@ -5,6 +5,7 @@ import {
   invalidateProfileBatches,
   PROFILE_REPAIR_INTERVAL_MS,
   profileBatchQueryKey,
+  profileBatchQueryOptions,
 } from "@/lib/profiles/client";
 import { MAX_PROFILE_BATCH_SIZE } from "@/lib/profiles/domain";
 
@@ -117,6 +118,10 @@ describe("New Hire Profile query cache", () => {
   test("keeps a bounded normal repair interval for missed signals", () => {
     expect(PROFILE_REPAIR_INTERVAL_MS).toBeGreaterThanOrEqual(15_000);
     expect(PROFILE_REPAIR_INTERVAL_MS).toBeLessThanOrEqual(60_000);
+    const options = profileBatchQueryOptions(["user_a"]);
+    expect(options.retry).toBeGreaterThan(0);
+    expect(typeof options.retryDelay).toBe("function");
+    expect(typeof options.refetchInterval).toBe("function");
   });
 
   test("repairs two connected caches without allowing reordered hints to restore old values", async () => {

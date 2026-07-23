@@ -14,14 +14,10 @@ describe("deployed Portal customer contract", () => {
       "tech-support:*",
       "urgent:*",
     ]) {
-      expect(portalConfig.channels?.[channel]).toEqual({
-        anonymous: false,
-        onPublish: [moderateChatMessage],
-      });
+      expect(portalConfig.channels?.[channel]).toEqual({ anonymous: false });
     }
     expect(portalConfig.channels?.["all-hands:*"]).toEqual({
       anonymous: false,
-      onPublish: [moderateChatMessage],
       mode: "broadcast",
     });
     expect(portalConfig.channels?.["office-events:*"]).toEqual({
@@ -30,7 +26,7 @@ describe("deployed Portal customer contract", () => {
     expect(portalConfig.channels?.["hr-reports"]).toEqual({ anonymous: false });
   });
 
-  test("attaches non-blocking moderation to public Office Channels", () => {
+  test("does not attach hosted hooks while retaining moderation rules", () => {
     for (const channel of [
       "general:*",
       "watercooler:*",
@@ -39,16 +35,14 @@ describe("deployed Portal customer contract", () => {
       "all-hands:*",
     ]) {
       expect(portalConfig.channels?.[channel]?.authz).toBeUndefined();
-      expect(portalConfig.channels?.[channel]?.onPublish).toEqual([
-        moderateChatMessage,
-      ]);
+      expect(portalConfig.channels?.[channel]?.onPublish).toBeUndefined();
     }
+    expect(moderateChatMessage).toBeDefined();
   });
 
-  test("allows immediately and only retracts after a moderation alert", async () => {
+  test("allows clean messages and blocks messages with prohibited language", async () => {
     async function moderate(text: string) {
-      let deferred: (() => Promise<unknown>) | undefined;
-      const decision = await moderateChatMessage({
+      return moderateChatMessage({
         message: {
           id: "message-1",
           type: "message",
@@ -64,25 +58,18 @@ describe("deployed Portal customer contract", () => {
           key: "general:*",
           mode: "standard",
         },
-        defer(callback) {
-          deferred = callback;
-        },
+        defer() {},
         notify() {},
       });
-      return { decision, deferred: await deferred?.() };
     }
 
     expect(await moderate("please assist the class")).toEqual({
-      decision: { action: "allow" },
-      deferred: undefined,
+      action: "allow",
     });
     expect(await moderate("what the FUCK")).toEqual({
-      decision: { action: "allow" },
-      deferred: {
-        action: "retract",
-        reason:
-          "That message contains language that is not allowed in the Shared Public Office.",
-      },
+      action: "block",
+      reason:
+        "That message contains language that is not allowed in the Shared Public Office.",
     });
   });
 

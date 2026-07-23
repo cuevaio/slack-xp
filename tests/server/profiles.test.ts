@@ -197,7 +197,7 @@ describe("Clerk profile webhook boundary", () => {
       },
     ]);
     expect(repository.projectionWriteCount()).toBe(2);
-    expect(portal.activeBans("user_profile_projection")).toHaveLength(12);
+    expect(portal.activeBans("user_profile_projection")).toHaveLength(18);
   });
 
   test("keeps deletion ahead of concurrent session repair until a newer creation lifecycle", async () => {

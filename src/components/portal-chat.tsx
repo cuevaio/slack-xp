@@ -49,6 +49,25 @@ type SendChatMessage = (input: {
 type PortalContent = ChatContent | ReactionToggleContent;
 type ChannelPresence = DetailedPresence | AggregatePresence | undefined;
 
+async function preloadProfileImages(profiles: readonly Profile[]) {
+  const imageUrls = [
+    ...new Set(
+      profiles.flatMap(({ imageUrl }) => (imageUrl ? [imageUrl] : [])),
+    ),
+  ];
+  await Promise.all(
+    imageUrls.map(
+      (src) =>
+        new Promise<void>((resolve) => {
+          const image = new Image();
+          image.onload = () => resolve();
+          image.onerror = () => resolve();
+          image.src = src;
+        }),
+    ),
+  );
+}
+
 function DraftMentionOverlay({
   text,
   mentions,
@@ -431,10 +450,6 @@ function LiveChannel({
   const reportReady = useEffectEvent(onReady);
   const reportMembers = useEffectEvent(onMembersChange);
   const reportPresence = useEffectEvent(onPresenceChange);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
-  useEffect(() => {
-    if (live.status === "ready") reportReady(channel.id);
-  }, [channel.id, live.status]);
   // The standard channel supplies the detailed office roster. Broadcast presence is aggregate-only.
   // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
   useEffect(() => {
@@ -443,15 +458,42 @@ function LiveChannel({
   // Presence only contains connected users; the member directory resolves historical senders.
   // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
   useEffect(() => {
-    if (channel.mode !== "standard" || live.status !== "ready") return;
-    void portal
-      .channel(channel.id)
-      .members()
-      .then(reportMembers)
-      .catch(() =>
-        setError("Employee directory unavailable. Try reconnecting."),
-      );
-  }, [channel.id, channel.mode, live.status, portal]);
+    if (live.status !== "ready") return;
+    let cancelled = false;
+
+    async function loadChannelData() {
+      let profiles = [profile];
+      if (channel.mode === "standard") {
+        try {
+          const members = await portal.channel(channel.id).members();
+          if (cancelled) return;
+          reportMembers(members);
+          profiles = [
+            profile,
+            ...updateMemberProfiles(new Map(), members).values(),
+          ];
+        } catch {
+          if (cancelled) return;
+          setError("Employee directory unavailable. Try reconnecting.");
+        }
+      }
+      await preloadProfileImages(profiles);
+      if (!cancelled) reportReady(channel.id);
+    }
+
+    void loadChannelData();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    channel.id,
+    channel.mode,
+    live.status,
+    portal,
+    profile.id,
+    profile.imageUrl,
+    profile.name,
+  ]);
   const reactions = projectReactions(live.messages);
   const visibleMessages = live.messages.filter(isVisibleChatMessage);
   const mentionCandidates = mentionSearch
@@ -1042,7 +1084,15 @@ function LiveChannel({
   );
 }
 
-function Messenger({ portal, profile }: { portal: Portal; profile: Profile }) {
+function Messenger({
+  onReady,
+  portal,
+  profile,
+}: {
+  onReady: () => void;
+  portal: Portal;
+  profile: Profile;
+}) {
   const [activeId, setActiveId] = useState<OfficeChannelSlug>("general");
   const [mobileView, setMobileView] = useState<"directory" | "conversation">(
     "conversation",
@@ -1060,10 +1110,18 @@ function Messenger({ portal, profile }: { portal: Portal; profile: Profile }) {
     ReadonlySet<OfficeChannelSlug>
   >(() => new Set());
   const [mentionAnnouncement, setMentionAnnouncement] = useState("");
+  const [initialChannelReady, setInitialChannelReady] = useState(false);
   const requestedChannel = useRef<OfficeChannelSlug>("general");
   const readyChannelIds = useRef(new Set<OfficeChannelSlug>());
   const inbox = useInbox();
   const channels = listOfficeChannels();
+  const reportReady = useEffectEvent(onReady);
+
+  // The messenger is revealable only after both Portal realtime stores have snapshots.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
+  useEffect(() => {
+    if (initialChannelReady && inbox.status === "ready") reportReady();
+  }, [initialChannelReady, inbox.status]);
 
   function warmChannel(channelId: OfficeChannelSlug) {
     setWarmedChannelIds((current) => {
@@ -1099,6 +1157,7 @@ function Messenger({ portal, profile }: { portal: Portal; profile: Profile }) {
 
   function channelReady(channelId: OfficeChannelSlug) {
     readyChannelIds.current.add(channelId);
+    if (channelId === "general") setInitialChannelReady(true);
     if (requestedChannel.current === channelId) {
       startTransition(() => setActiveId(channelId));
     }
@@ -1210,9 +1269,11 @@ function Messenger({ portal, profile }: { portal: Portal; profile: Profile }) {
 }
 
 export function PortalChat({
+  onReady,
   profile,
   publishableKey,
 }: {
+  onReady: () => void;
   profile: Profile;
   publishableKey: string;
 }) {
@@ -1223,7 +1284,7 @@ export function PortalChat({
   );
   return (
     <PortalProvider client={portal} token={token}>
-      <Messenger portal={portal} profile={profile} />
+      <Messenger onReady={onReady} portal={portal} profile={profile} />
     </PortalProvider>
   );
 }

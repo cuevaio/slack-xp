@@ -5,20 +5,40 @@ import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
 
 type WindowState = "open" | "minimized" | "closed" | "loading";
 
-export function OfficeWindow({ children }: { children: ReactNode }) {
+export function OfficeWindow({
+  children,
+  onStart,
+  ready,
+}: {
+  children: ReactNode;
+  onStart: () => void;
+  ready: boolean;
+}) {
   const [windowState, setWindowState] = useState<WindowState>("closed");
+  const [minimumLoadElapsed, setMinimumLoadElapsed] = useState(false);
 
   useEffect(() => {
     if (windowState !== "loading") return;
 
-    const loadingTimer = window.setTimeout(() => setWindowState("open"), 1200);
+    const loadingTimer = window.setTimeout(
+      () => setMinimumLoadElapsed(true),
+      1200,
+    );
     return () => window.clearTimeout(loadingTimer);
   }, [windowState]);
+
+  useEffect(() => {
+    if (windowState === "loading" && minimumLoadElapsed && ready) {
+      setWindowState("open");
+    }
+  }, [minimumLoadElapsed, ready, windowState]);
 
   function openMessenger() {
     if (windowState === "minimized") {
       setWindowState("open");
     } else if (windowState === "closed") {
+      setMinimumLoadElapsed(false);
+      onStart();
       setWindowState("loading");
     }
   }
@@ -141,11 +161,11 @@ export function OfficeWindow({ children }: { children: ReactNode }) {
         </section>
       ) : null}
 
-      {windowState === "closed" || windowState === "loading" ? null : (
+      {windowState === "closed" ? null : (
         <section
           aria-labelledby="office-title"
           className="messenger-window"
-          hidden={windowState === "minimized"}
+          hidden={windowState !== "open"}
         >
           <header className="window-titlebar">
             <span className="window-title" id="office-title">

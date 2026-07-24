@@ -19,6 +19,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 import {
   type EmojiSuggestion,
   type EmojiTrigger,
@@ -1456,6 +1457,9 @@ function Messenger({
   const [initialChannelReady, setInitialChannelReady] = useState(false);
   const requestedChannel = useRef<OfficeChannelSlug>("general");
   const readyChannelIds = useRef(new Set<OfficeChannelSlug>());
+  const knownMentionIds = useRef<Set<string> | null>(null);
+  const pendingMentionIds = useRef(new Set<string>());
+  const notificationAudio = useRef<HTMLAudioElement | null>(null);
   const inbox = useInbox();
   const mentionInbox = useInbox({
     where: { type: { eq: "mention" } },
@@ -1468,11 +1472,85 @@ function Messenger({
     .join("\0");
   const reportReady = useEffectEvent(onReady);
 
+  const showMentionToast = useEffectEvent(
+    (group: MentionGroup, source: MentionSourceMessage<ChatContent>) => {
+      const channel = group.channel;
+      if (!channel) return;
+      const sender = officeProfiles.get(source.sender.id);
+      const text = messageText({
+        content: source.content,
+        retracted: source.retracted,
+      });
+      const audio =
+        notificationAudio.current ?? new Audio("/messenger-sound.mp3");
+      notificationAudio.current = audio;
+      audio.currentTime = 0;
+      void audio.play().catch(() => undefined);
+
+      toast.custom(
+        (toastId) => (
+          <button
+            className="mention-toast"
+            onClick={() => {
+              toast.dismiss(toastId);
+              selectChannel(channel, source.id);
+            }}
+            type="button"
+          >
+            <strong>
+              {sender?.name ?? source.sender.username ?? "A New Hire"} mentioned
+              you
+            </strong>
+            <span>{text ?? "Open the mentioned message."}</span>
+            <small># {group.name} · Click to view</small>
+          </button>
+        ),
+        { duration: 6000 },
+      );
+    },
+  );
+
   // The messenger is revealable only after both Portal realtime stores have snapshots.
   // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
   useEffect(() => {
     if (initialChannelReady && inbox.status === "ready") reportReady();
   }, [initialChannelReady, inbox.status]);
+
+  // Existing inbox items establish the baseline; only mentions received during
+  // this session become toasts. Resolution supplies the exact message target.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
+  useEffect(() => {
+    if (mentionInbox.status !== "ready") return;
+    if (!knownMentionIds.current) {
+      knownMentionIds.current = new Set(mentionInbox.items.map(({ id }) => id));
+      return;
+    }
+
+    const itemsById = new Map(
+      mentionInbox.items.map((item) => [item.id, item]),
+    );
+    for (const item of mentionInbox.items) {
+      if (knownMentionIds.current.has(item.id)) continue;
+      knownMentionIds.current.add(item.id);
+      if (!item.read) pendingMentionIds.current.add(item.id);
+    }
+
+    for (const itemId of pendingMentionIds.current) {
+      const item = itemsById.get(itemId);
+      if (!item) {
+        pendingMentionIds.current.delete(itemId);
+        continue;
+      }
+      const source = mentionSources.get(itemId);
+      if (source === undefined) continue;
+      pendingMentionIds.current.delete(itemId);
+      if (!source) continue;
+      const group = mentionGroups.find(
+        ({ channelId }) => channelId === item.channelId,
+      );
+      if (group) showMentionToast(group, source);
+    }
+  }, [mentionInbox.items, mentionInbox.status, mentionSourceVersion]);
 
   function warmChannel(channelId: OfficeChannelSlug) {
     setWarmedChannelIds((current) => {

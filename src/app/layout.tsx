@@ -2,6 +2,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { GeistPixelSquare } from "geist/font/pixel";
 import type { Metadata, Viewport } from "next";
 import { InteractionFeedback } from "@/components/interaction-feedback";
+import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -25,6 +26,7 @@ export default function RootLayout({
       <body>
         <InteractionFeedback />
         <ClerkProvider>{children}</ClerkProvider>
+        <Toaster />
       </body>
     </html>
   );

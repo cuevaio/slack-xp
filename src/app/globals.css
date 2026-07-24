@@ -4402,6 +4402,46 @@ body:has(.office-fullscreen-toggle:checked) {
   overflow: hidden;
 }
 
+.mention-toast {
+  display: grid;
+  width: min(22rem, calc(100vw - var(--space-8)));
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: var(--border-width-medium) solid var(--border-strong);
+  border-radius: var(--radius-floating);
+  color: var(--foreground);
+  text-align: left;
+  background: var(--card);
+  box-shadow:
+    inset var(--border-width-thin) var(--border-width-thin) 0
+    var(--xp-highlight),
+    var(--shadow-raised);
+  cursor: pointer;
+}
+
+.mention-toast:hover {
+  background: var(--accent);
+}
+
+.mention-toast:focus-visible {
+  outline: var(--border-width-thick) solid var(--ring);
+  outline-offset: var(--space-0-5);
+}
+
+.mention-toast :where(strong, span, small) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mention-toast strong {
+  color: var(--primary);
+}
+
+.mention-toast small {
+  color: var(--muted-foreground);
+}
+
 .messenger-window:has(.office-fullscreen-toggle:checked) {
   position: fixed;
   z-index: 20;

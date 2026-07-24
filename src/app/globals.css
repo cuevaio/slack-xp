@@ -1487,6 +1487,157 @@ a {
   min-width: 220px;
 }
 
+.settings-window {
+  width: min(540px, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  overflow: auto;
+  border: var(--border-width-thick) outset var(--color-neutral-200);
+  background: var(--chrome);
+  box-shadow: 12px 14px 0
+    color-mix(in srgb, var(--color-neutral-900) 35%, transparent);
+  color: var(--ink);
+}
+
+.settings-window::backdrop {
+  background: color-mix(in srgb, var(--color-neutral-900) 38%, transparent);
+}
+
+.settings-window .window-titlebar {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-2-5);
+}
+
+.settings-close-control {
+  display: grid;
+  width: 28px;
+  height: 26px;
+  place-items: center;
+  padding: 0;
+  border: var(--border-width-medium) outset var(--color-neutral-100);
+  background: var(--color-neutral-200);
+  color: var(--color-neutral-900);
+  font-size: 1.2rem;
+  font-weight: 900;
+  line-height: 1;
+}
+
+.settings-window-body {
+  padding: var(--space-5);
+}
+
+.settings-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: 0 var(--space-1) var(--space-5);
+}
+
+.settings-heading h2,
+.settings-heading p {
+  margin: 0;
+}
+
+.settings-heading h2 {
+  font-size: 1.25rem;
+}
+
+.settings-heading p {
+  margin-top: var(--space-1);
+  color: var(--color-neutral-600);
+  font-size: 0.72rem;
+}
+
+.settings-icon {
+  display: grid;
+  width: 50px;
+  height: 50px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: var(--border-width-medium) outset var(--color-neutral-100);
+  background: var(--color-blue-100);
+  color: var(--color-blue-800);
+  font-size: 2rem;
+  font-weight: 900;
+}
+
+.settings-options {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: var(--space-3) var(--space-3) var(--space-2);
+  border: var(--border-width-thin) solid var(--color-neutral-500);
+  box-shadow: inset 1px 1px var(--color-white);
+}
+
+.settings-options legend {
+  padding: 0 var(--space-1-5);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.settings-option {
+  display: grid;
+  grid-template-columns: 22px 1fr;
+  gap: var(--space-2);
+  align-items: start;
+  padding: var(--space-2);
+}
+
+.settings-option:hover {
+  background: var(--color-blue-100);
+}
+
+.settings-option input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
+.settings-option span {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.settings-option strong {
+  font-size: 0.78rem;
+}
+
+.settings-option small,
+.settings-storage-note {
+  color: var(--color-neutral-600);
+  font-size: 0.65rem;
+  line-height: 1.4;
+}
+
+.settings-storage-note {
+  margin: var(--space-3) 0 0;
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: var(--border-width-thin) solid var(--color-neutral-400);
+}
+
+.settings-actions button {
+  min-width: 88px;
+  min-height: 34px;
+  border: var(--border-width-medium) outset var(--color-neutral-100);
+  background: var(--color-neutral-200);
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.settings-actions button:active,
+.settings-close-control:active {
+  border-style: inset;
+}
+
 .employee-record-dialog {
   width: min(680px, calc(100vw - 2rem));
   max-height: min(820px, calc(100vh - 2rem));
@@ -1947,6 +2098,21 @@ a {
 .desktop-portal-docs-icon {
   top: 352px;
   text-decoration: none;
+}
+
+.desktop-settings-icon {
+  top: 462px;
+}
+
+.settings-desktop-art {
+  background: var(--color-blue-100);
+  color: var(--color-blue-800);
+}
+
+.settings-desktop-art svg {
+  width: 36px;
+  height: 36px;
+  fill: currentColor;
 }
 
 .portal-link-art {

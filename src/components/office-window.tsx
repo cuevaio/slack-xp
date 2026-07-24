@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
+import { AppSettingsWindow } from "@/components/app-settings-window";
 
 type WindowState = "open" | "minimized" | "closed" | "loading";
 
@@ -16,6 +17,7 @@ export function OfficeWindow({
 }) {
   const [windowState, setWindowState] = useState<WindowState>("closed");
   const [minimumLoadElapsed, setMinimumLoadElapsed] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     if (windowState !== "loading") return;
@@ -55,6 +57,25 @@ export function OfficeWindow({
     if (event.key === "Enter") {
       event.preventDefault();
       openMessenger();
+    }
+  }
+
+  function openSettings() {
+    setSettingsOpen(true);
+  }
+
+  function handleSettingsIconClick() {
+    if (
+      window.matchMedia("(pointer: coarse)").matches ||
+      window.matchMedia("(max-width: 850px)").matches
+    )
+      openSettings();
+  }
+
+  function handleSettingsIconKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      openSettings();
     }
   }
 
@@ -137,6 +158,26 @@ export function OfficeWindow({
         <span>Portal Docs</span>
       </a>
 
+      <button
+        aria-label="Settings. Tap to open on mobile, or double click on desktop."
+        className="desktop-app-icon desktop-settings-icon"
+        onClick={handleSettingsIconClick}
+        onDoubleClick={openSettings}
+        onKeyDown={handleSettingsIconKeyDown}
+        type="button"
+      >
+        <span
+          aria-hidden="true"
+          className="desktop-app-icon-art settings-desktop-art"
+        >
+          <svg viewBox="0 0 24 24">
+            <title>Settings</title>
+            <path d="M9.8 2h4.4l.7 2.5 2 .8L19.2 4l3.1 3.1L21 9.4l.8 2 2.2.6v4.4l-2.5.7-.8 2 1.3 2.3-3.1 3.1-2.3-1.3-2 .8-.6 2.2H9.6l-.7-2.5-2-.8-2.3 1.3-3.1-3.1 1.3-2.3-.8-2-2.2-.6v-4.4l2.5-.7.8-2-1.3-2.3 3.1-3.1L7.2 5l2-.8.6-2.2Zm2.2 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10Zm0 3a2 2 0 1 1 0 4 2 2 0 0 1 0-4Z" />
+          </svg>
+        </span>
+        <span>Settings</span>
+      </button>
+
       {windowState === "loading" ? (
         <section
           aria-label="Portal Messenger startup"
@@ -215,6 +256,9 @@ export function OfficeWindow({
           {children}
         </section>
       )}
+      {settingsOpen ? (
+        <AppSettingsWindow onClose={() => setSettingsOpen(false)} />
+      ) : null}
     </>
   );
 }

@@ -1,6 +1,7 @@
 import { ClerkProvider } from "@clerk/nextjs";
 import { GeistPixelSquare } from "geist/font/pixel";
 import type { Metadata, Viewport } from "next";
+import { AppPreferencesProvider } from "@/components/app-preferences";
 import { InteractionFeedback } from "@/components/interaction-feedback";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
@@ -24,9 +25,11 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${GeistPixelSquare.variable} h-full`}>
       <body>
-        <InteractionFeedback />
-        <ClerkProvider>{children}</ClerkProvider>
-        <Toaster />
+        <AppPreferencesProvider>
+          <InteractionFeedback />
+          <ClerkProvider>{children}</ClerkProvider>
+          <Toaster />
+        </AppPreferencesProvider>
       </body>
     </html>
   );

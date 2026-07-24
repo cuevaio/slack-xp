@@ -20,6 +20,7 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { useAppPreferences } from "@/components/app-preferences";
 import {
   type EmojiSuggestion,
   type EmojiTrigger,
@@ -1463,6 +1464,7 @@ function Messenger({
   const knownMentionIds = useRef<Set<string> | null>(null);
   const pendingMentionIds = useRef(new Set<string>());
   const notificationAudio = useRef<HTMLAudioElement | null>(null);
+  const { preferences } = useAppPreferences();
   const inbox = useInbox();
   const mentionInbox = useInbox({
     where: { type: { eq: "mention" } },
@@ -1477,6 +1479,7 @@ function Messenger({
 
   const showMentionToast = useEffectEvent(
     (group: MentionGroup, source: MentionSourceMessage<ChatContent>) => {
+      if (!preferences.mentionNotifications) return;
       const channel = group.channel;
       if (!channel) return;
       const sender = officeProfiles.get(source.sender.id);

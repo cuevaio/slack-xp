@@ -1,8 +1,18 @@
 "use client";
 
 import Image from "next/image";
-import { type KeyboardEvent, type ReactNode, useEffect, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  useEffect,
+  useEffectEvent,
+  useState,
+} from "react";
 import { AppSettingsWindow } from "@/components/app-settings-window";
+import {
+  messengerMessageTargetFromUrl,
+  OPEN_MESSENGER_MESSAGE_EVENT,
+} from "@/lib/messenger-navigation";
 
 type WindowState = "open" | "minimized" | "closed" | "loading";
 
@@ -44,6 +54,22 @@ export function OfficeWindow({
       setWindowState("loading");
     }
   }
+
+  const revealLinkedMessage = useEffectEvent(openMessenger);
+
+  // Message links restore the simulated app window before Messenger handles
+  // the channel and exact message target.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
+  useEffect(() => {
+    function reveal() {
+      revealLinkedMessage();
+    }
+
+    window.addEventListener(OPEN_MESSENGER_MESSAGE_EVENT, reveal);
+    if (messengerMessageTargetFromUrl(window.location.href)) reveal();
+    return () =>
+      window.removeEventListener(OPEN_MESSENGER_MESSAGE_EVENT, reveal);
+  }, []);
 
   function handleIconClick() {
     if (

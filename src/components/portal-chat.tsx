@@ -29,6 +29,11 @@ import {
   searchEmojis,
 } from "@/lib/emoji";
 import {
+  messengerMessageTargetFromUrl,
+  OPEN_MESSENGER_MESSAGE_EVENT,
+  openMessengerMessage,
+} from "@/lib/messenger-navigation";
+import {
   listOfficeChannels,
   type OfficeChannel,
   type OfficeChannelSlug,
@@ -1499,7 +1504,10 @@ function Messenger({
             className="mention-toast"
             onClick={() => {
               toast.dismiss(toastId);
-              selectChannel(channel, source.id);
+              openMessengerMessage({
+                channelId: channel.id,
+                messageId: source.id,
+              });
             }}
             type="button"
           >
@@ -1557,6 +1565,27 @@ function Messenger({
       if (group) showMentionToast(group, source);
     }
   }, [mentionInbox.items, mentionInbox.status, mentionSourceVersion]);
+
+  const selectLinkedMessage = useEffectEvent(() => {
+    const target = messengerMessageTargetFromUrl(window.location.href);
+    if (!target) return;
+    const channel = channels.find(({ id }) => id === target.channelId);
+    if (channel) selectChannel(channel, target.messageId);
+  });
+
+  // A mounted Messenger handles live toast clicks; a newly mounted Messenger
+  // reads the same deep link after OfficeWindow restores a closed app.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
+  useEffect(() => {
+    function selectMessage() {
+      selectLinkedMessage();
+    }
+
+    window.addEventListener(OPEN_MESSENGER_MESSAGE_EVENT, selectMessage);
+    selectMessage();
+    return () =>
+      window.removeEventListener(OPEN_MESSENGER_MESSAGE_EVENT, selectMessage);
+  }, []);
 
   function warmChannel(channelId: OfficeChannelSlug) {
     setWarmedChannelIds((current) => {

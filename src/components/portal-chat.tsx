@@ -402,14 +402,17 @@ export function updateMemberProfiles(
 ) {
   const profiles = new Map(current);
   for (const member of members) {
+    const existing = profiles.get(member.userId);
+    const username = member.claims.username;
+    const avatar = member.claims.avatar;
     profiles.set(member.userId, {
       id: member.userId,
       name:
-        typeof member.claims.username === "string"
-          ? member.claims.username
-          : "New Hire",
+        typeof username === "string" && username !== member.userId
+          ? username
+          : (existing?.name ?? "New Hire"),
       imageUrl:
-        typeof member.claims.avatar === "string" ? member.claims.avatar : null,
+        typeof avatar === "string" ? avatar : (existing?.imageUrl ?? null),
     });
   }
   return profiles;

@@ -13,6 +13,12 @@ export type MigrationHistoryMessage = {
   ephemeral: boolean;
 };
 
+export type MigrationMemberRow = {
+  userId: string;
+  online: boolean;
+  claims: Record<string, unknown>;
+};
+
 type MigrationMetadata = {
   sourceMessageId: string;
   originalTimestamp: number;
@@ -20,6 +26,47 @@ type MigrationMetadata = {
 
 const CONTENT_LIMIT_BYTES = 2048;
 const MAX_TARGET_MESSAGE_ID = "m".repeat(200);
+
+export function resolveAnnouncementMembers(
+  sourceMessages: readonly MigrationHistoryMessage[],
+  identityMembers: readonly MigrationMemberRow[],
+) {
+  const identities = new Map(
+    identityMembers.map((member) => [member.userId, member.claims]),
+  );
+  const senders = new Map(
+    sourceMessages
+      .filter(({ retracted }) => !retracted)
+      .map((message) => [message.sender.id, message.sender]),
+  );
+  const members: Array<{
+    userId: string;
+    claims: Record<string, unknown>;
+  }> = [];
+  const unresolvedUserIds: string[] = [];
+
+  for (const [userId, sender] of senders) {
+    const identityClaims = identities.get(userId);
+    const identityUsername = identityClaims?.username;
+    const sourceUsername = sender.username;
+    const username =
+      typeof identityUsername === "string" && identityUsername !== userId
+        ? identityUsername
+        : typeof sourceUsername === "string" && sourceUsername !== userId
+          ? sourceUsername
+          : undefined;
+    if (!username) {
+      unresolvedUserIds.push(userId);
+      continue;
+    }
+    members.push({
+      userId,
+      claims: { ...identityClaims, username },
+    });
+  }
+
+  return { members, unresolvedUserIds };
+}
 
 export function migrationMetadata(
   content: unknown,

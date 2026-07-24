@@ -2,8 +2,10 @@ import { Portal } from "@portalsdk/core";
 import {
   createMigrationPublishBody,
   type MigrationHistoryMessage,
+  type MigrationMemberRow,
   planAnnouncementMigration,
   preflightAnnouncementMigration,
+  resolveAnnouncementMembers,
 } from "../src/lib/portal/announcement-migration";
 import { REACTION_EVENT_TYPE } from "../src/lib/portal/reactions";
 
@@ -11,6 +13,7 @@ const API_URL = "https://api.useportal.co";
 const REALTIME_URL = "https://realtime.useportal.co";
 const SOURCE_CHANNEL_ID = "announcements";
 const TARGET_CHANNEL_ID = "announcements-v2";
+const IDENTITY_CHANNEL_ID = "general";
 const MIGRATION_USER_ID = "portal-announcements-migration";
 
 const secret = process.env.PORTAL_SECRET;
@@ -78,10 +81,34 @@ async function readHistory(channelId: string, token: string) {
   return pages.flat().toSorted((left, right) => left.seq - right.seq);
 }
 
-async function addMember(channelId: string, userId: string, username: string) {
+async function readMembers(channelId: string, token: string) {
+  const members: MigrationMemberRow[] = [];
+  let cursor: string | undefined;
+
+  for (;;) {
+    const query = new URLSearchParams();
+    if (cursor) query.set("cursor", cursor);
+    const suffix = query.size > 0 ? `?${query}` : "";
+    const page = await request<{
+      members: MigrationMemberRow[];
+      cursor?: string;
+    }>(REALTIME_URL, `/v1/channels/${channelId}/members${suffix}`, token);
+    members.push(...page.members);
+    if (!page.cursor) break;
+    cursor = page.cursor;
+  }
+
+  return members;
+}
+
+async function addMember(
+  channelId: string,
+  userId: string,
+  claims: Record<string, unknown>,
+) {
   await request(API_URL, `/v1/channels/${channelId}/members`, portalSecret, {
     method: "POST",
-    body: JSON.stringify({ userId, claims: { username } }),
+    body: JSON.stringify({ userId, claims }),
   });
 }
 
@@ -126,10 +153,16 @@ async function assertStandardChannel(token: string) {
 
 async function main() {
   const apply = process.argv.includes("--apply");
-  const sourceToken = await mintToken([SOURCE_CHANNEL_ID]);
+  const sourceToken = await mintToken([SOURCE_CHANNEL_ID, IDENTITY_CHANNEL_ID]);
   const sourceMessages = await readHistory(SOURCE_CHANNEL_ID, sourceToken);
+  const identityMembers = await readMembers(IDENTITY_CHANNEL_ID, sourceToken);
   const activeMessages = sourceMessages.filter(({ retracted }) => !retracted);
   const preflight = preflightAnnouncementMigration(sourceMessages);
+  const migratableIds = new Set(preflight.migratableIds);
+  const memberResolution = resolveAnnouncementMembers(
+    activeMessages.filter(({ id }) => migratableIds.has(id)),
+    identityMembers,
+  );
   const summary = {
     source: SOURCE_CHANNEL_ID,
     target: TARGET_CHANNEL_ID,
@@ -140,6 +173,8 @@ async function main() {
       .length,
     orphanReactions: preflight.orphanReactionIds.length,
     migratable: preflight.migratableIds.length,
+    resolvedMembers: memberResolution.members.length,
+    unresolvedUserIds: memberResolution.unresolvedUserIds,
     blockers: preflight.blockers,
   };
 
@@ -158,7 +193,9 @@ async function main() {
     );
   }
 
-  await addMember(TARGET_CHANNEL_ID, MIGRATION_USER_ID, "Migration utility");
+  await addMember(TARGET_CHANNEL_ID, MIGRATION_USER_ID, {
+    username: "Migration utility",
+  });
   try {
     const targetToken = await mintToken([TARGET_CHANNEL_ID]);
     await assertStandardChannel(targetToken);
@@ -167,15 +204,6 @@ async function main() {
     const messageIds = plan.messageIds;
 
     let migrated = 0;
-    const members = new Map<string, string>();
-    const migratableIds = new Set(preflight.migratableIds);
-    for (const message of activeMessages) {
-      if (!migratableIds.has(message.id)) continue;
-      members.set(
-        message.sender.id,
-        message.sender.username ?? message.sender.id,
-      );
-    }
     for (const message of plan.pending) {
       const body = createMigrationPublishBody(message, messageIds);
       const result = await request<{ id: string }>(
@@ -192,8 +220,8 @@ async function main() {
     }
 
     await Promise.all(
-      [...members].map(([userId, username]) =>
-        addMember(TARGET_CHANNEL_ID, userId, username),
+      memberResolution.members.map(({ userId, claims }) =>
+        addMember(TARGET_CHANNEL_ID, userId, claims),
       ),
     );
     console.log(
@@ -203,7 +231,7 @@ async function main() {
           ...summary,
           migrated,
           skipped: plan.skipped,
-          members: members.size,
+          members: memberResolution.members.length,
         },
         null,
         2,

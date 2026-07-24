@@ -402,6 +402,33 @@ describe("Portal teaching baseline", () => {
     });
   });
 
+  test("does not replace a resolved Office profile with an unresolved channel member", () => {
+    const profiles = new Map([
+      [
+        "user_2",
+        {
+          id: "user_2",
+          name: "Grace",
+          imageUrl: "https://images.example/grace.png",
+        },
+      ],
+    ]);
+
+    expect(
+      updateMemberProfiles(profiles, [
+        {
+          userId: "user_2",
+          online: false,
+          claims: { username: "user_2" },
+        },
+      ]).get("user_2"),
+    ).toEqual({
+      id: "user_2",
+      name: "Grace",
+      imageUrl: "https://images.example/grace.png",
+    });
+  });
+
   test("projects persistent reaction toggles for live and late clients", () => {
     const chat = portalMessage(
       "message_1",

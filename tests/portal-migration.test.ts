@@ -4,6 +4,7 @@ import {
   type MigrationHistoryMessage,
   planAnnouncementMigration,
   preflightAnnouncementMigration,
+  resolveAnnouncementMembers,
 } from "../src/lib/portal/announcement-migration";
 import { REACTION_EVENT_TYPE } from "../src/lib/portal/reactions";
 
@@ -27,6 +28,45 @@ function historyMessage(
 }
 
 describe("Announcements migration planning", () => {
+  test("resolves broadcast senders from the standard Office Channel directory", () => {
+    const source = historyMessage("message_1", { text: "hello" });
+    source.sender.id = "user_1";
+    const result = resolveAnnouncementMembers(
+      [source],
+      [
+        {
+          userId: "user_1",
+          online: false,
+          claims: {
+            username: "Ada",
+            avatar: "https://images.example/ada.png",
+          },
+        },
+      ],
+    );
+
+    expect(result.members).toEqual([
+      {
+        userId: "user_1",
+        claims: {
+          username: "Ada",
+          avatar: "https://images.example/ada.png",
+        },
+      },
+    ]);
+    expect(result.unresolvedUserIds).toEqual([]);
+  });
+
+  test("does not install a sender ID as its display name", () => {
+    const source = historyMessage("message_1", { text: "hello" });
+    source.sender.username = source.sender.id;
+
+    expect(resolveAnnouncementMembers([source], [])).toEqual({
+      members: [],
+      unresolvedUserIds: ["user_1"],
+    });
+  });
+
   test("detects metadata-induced overflow before migration", () => {
     const source = historyMessage("message_1", { text: "x".repeat(2_000) });
     const result = preflightAnnouncementMigration([source]);

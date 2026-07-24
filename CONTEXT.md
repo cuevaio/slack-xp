@@ -14,4 +14,4 @@ Portal Messenger is a playful realtime teaching application presented through th
 
 **New Hire Profile**: The current public name and picture supplied by Clerk as short-lived Portal identity claims.
 
-**Office Channel**: One of the fixed conversation spaces in the Shared Public Office. `general` is a standard channel and `announcements` is a broadcast channel.
+**Office Channel**: One of the fixed, standard conversation spaces in the Shared Public Office. General uses the Portal channel ID `general`; Announcements uses `announcements-v2` after the production migration recorded in ADR 0011. Both channels have the same Portal properties and differ only in their application-facing identity and copy.

@@ -4,12 +4,14 @@ import { useAuth, useClerk } from "@clerk/nextjs";
 import {
   type AggregatePresence,
   type DetailedPresence,
+  type InboxItem,
   type MemberRow,
   type Message,
   Portal,
 } from "@portalsdk/core";
 import { PortalProvider, useChannel, useInbox } from "@portalsdk/react";
 import {
+  Fragment,
   type ReactNode,
   startTransition,
   useEffect,
@@ -31,6 +33,13 @@ import {
 } from "@/lib/portal/channels";
 import { createPortalTokenSource } from "@/lib/portal/client";
 import {
+  type MentionSourceMessage,
+  mentionCoordinates,
+  mentionHistoryAction,
+  resolveMentionSources,
+  viewedMentionIds,
+} from "@/lib/portal/mentions";
+import {
   createReactionToggle,
   projectReactions,
   REACTION_EVENT_TYPE,
@@ -39,7 +48,11 @@ import {
 } from "@/lib/portal/reactions";
 
 type MentionRange = { userId: string; start: number; length: number };
-type ChatContent = { text: string; mentionRanges?: MentionRange[] };
+type ChatContent = {
+  text: string;
+  mentionRanges?: MentionRange[];
+  portalMigration?: { sourceMessageId: string; originalTimestamp: number };
+};
 type Profile = { id: string; name: string; imageUrl: string | null };
 type DraftMention = { userId: string; label: string };
 type SendChatMessage = (input: {
@@ -48,6 +61,7 @@ type SendChatMessage = (input: {
 }) => Promise<unknown>;
 type PortalContent = ChatContent | ReactionToggleContent;
 type ChannelPresence = DetailedPresence | AggregatePresence | undefined;
+type PortalTokenSource = () => Promise<string>;
 
 async function preloadProfileImages(profiles: readonly Profile[]) {
   const imageUrls = [
@@ -111,17 +125,133 @@ const REACTION_OPTIONS: ReadonlyArray<{
 const MESSAGE_GROUP_WINDOW_MS = 5 * 60 * 1000;
 const CHANNEL_HISTORY_SIZE = 50;
 
+type MentionGroup = {
+  channel: OfficeChannel | undefined;
+  channelId: string;
+  name: string;
+  available: boolean;
+  items: InboxItem[];
+};
+
+export function groupMentionItems(
+  items: readonly InboxItem[],
+  channels: readonly OfficeChannel[],
+): MentionGroup[] {
+  const channelsById = new Map<string, OfficeChannel>(
+    channels.map((channel) => [channel.id, channel]),
+  );
+  const groups = new Map<string, MentionGroup>();
+
+  for (const item of items) {
+    const channelId = item.channelId ?? "unknown";
+    const channel = channelsById.get(channelId);
+    let group = groups.get(channelId);
+    if (!group) {
+      group = {
+        channel,
+        channelId,
+        name: channel?.name ?? "Archived channel",
+        available: Boolean(channel),
+        items: [],
+      };
+      groups.set(channelId, group);
+    }
+    group.items.push(item);
+  }
+
+  return [...groups.values()]
+    .map((group) => ({
+      ...group,
+      items: group.items.toSorted((left, right) => right.at - left.at),
+    }))
+    .toSorted(
+      (left, right) => (right.items[0]?.at ?? 0) - (left.items[0]?.at ?? 0),
+    );
+}
+
+function useMentionSources(
+  items: readonly InboxItem[],
+  tokenSource: PortalTokenSource,
+) {
+  const [sources, setSources] = useState<
+    ReadonlyMap<string, MentionSourceMessage<ChatContent> | null>
+  >(() => new Map());
+
+  useEffect(() => {
+    const unresolved = items.filter((item) => !sources.has(item.id));
+    if (unresolved.length === 0) return;
+
+    const controller = new AbortController();
+    void resolveMentionSources<ChatContent>(unresolved, tokenSource, {
+      signal: controller.signal,
+    })
+      .then((resolved) => {
+        if (controller.signal.aborted) return;
+        startTransition(() => {
+          setSources((current) => new Map([...current, ...resolved]));
+        });
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [items, sources, tokenSource]);
+
+  return sources;
+}
+
 export function shouldGroupMessages(
   previous: Message<ChatContent> | undefined,
   current: Message<ChatContent>,
 ) {
+  const previousTimestamp = previous ? messageTimestamp(previous) : undefined;
+  const currentTimestamp = messageTimestamp(current);
   return (
     previous !== undefined &&
+    previousTimestamp !== undefined &&
     messageText(previous) !== null &&
     previous.sender.id === current.sender.id &&
-    current.timestamp >= previous.timestamp &&
-    current.timestamp - previous.timestamp <= MESSAGE_GROUP_WINDOW_MS
+    isSameMessageDay(previousTimestamp, currentTimestamp) &&
+    currentTimestamp >= previousTimestamp &&
+    currentTimestamp - previousTimestamp <= MESSAGE_GROUP_WINDOW_MS
   );
+}
+
+export function isSameMessageDay(
+  leftTimestamp: number,
+  rightTimestamp: number,
+) {
+  const left = new Date(leftTimestamp);
+  const right = new Date(rightTimestamp);
+  return (
+    left.getFullYear() === right.getFullYear() &&
+    left.getMonth() === right.getMonth() &&
+    left.getDate() === right.getDate()
+  );
+}
+
+export function messageDayLabel(timestamp: number) {
+  return new Date(timestamp).toLocaleDateString([], {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function messageDayDateTime(timestamp: number) {
+  const date = new Date(timestamp);
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+export function messageTimestamp(
+  message: Pick<Message<ChatContent>, "content" | "timestamp">,
+) {
+  const migratedTimestamp = message.content.portalMigration?.originalTimestamp;
+  return typeof migratedTimestamp === "number" && migratedTimestamp > 0
+    ? migratedTimestamp
+    : message.timestamp;
 }
 
 export function messageText(
@@ -406,22 +536,31 @@ function LiveChannel({
   officeProfiles,
   onlineProfileIds,
   onMembersChange,
+  onMessagesViewed,
   onPresenceChange,
   onMention,
   onReady,
   portal,
   profile,
+  readStateVersion,
+  targetMessageId,
 }: {
   active: boolean;
   channel: OfficeChannel;
   officeProfiles: ReadonlyMap<string, Profile>;
   onlineProfileIds: ReadonlySet<string>;
   onMembersChange: (members: readonly MemberRow[]) => void;
+  onMessagesViewed: (
+    channelId: OfficeChannelSlug,
+    messages: readonly Message<ChatContent>[],
+  ) => void;
   onPresenceChange: (presence: ChannelPresence) => void;
   onMention: (channelId: OfficeChannelSlug) => void;
   onReady: (channelId: OfficeChannelSlug) => void;
   portal: Portal;
   profile: Profile;
+  readStateVersion: string;
+  targetMessageId?: string;
 }) {
   const [draft, setDraft] = useState("");
   const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
@@ -450,11 +589,11 @@ function LiveChannel({
   const reportReady = useEffectEvent(onReady);
   const reportMembers = useEffectEvent(onMembersChange);
   const reportPresence = useEffectEvent(onPresenceChange);
-  // The standard channel supplies the detailed office roster. Broadcast presence is aggregate-only.
+  const reportViewedMessages = useEffectEvent(onMessagesViewed);
   // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
   useEffect(() => {
-    if (channel.mode === "standard") reportPresence(live.presence);
-  }, [channel.mode, live.presence]);
+    reportPresence(live.presence);
+  }, [live.presence]);
   // Presence only contains connected users; the member directory resolves historical senders.
   // biome-ignore lint/correctness/useExhaustiveDependencies: Effect Events are intentionally non-reactive.
   useEffect(() => {
@@ -463,19 +602,17 @@ function LiveChannel({
 
     async function loadChannelData() {
       let profiles = [profile];
-      if (channel.mode === "standard") {
-        try {
-          const members = await portal.channel(channel.id).members();
-          if (cancelled) return;
-          reportMembers(members);
-          profiles = [
-            profile,
-            ...updateMemberProfiles(new Map(), members).values(),
-          ];
-        } catch {
-          if (cancelled) return;
-          setError("Employee directory unavailable. Try reconnecting.");
-        }
+      try {
+        const members = await portal.channel(channel.id).members();
+        if (cancelled) return;
+        reportMembers(members);
+        profiles = [
+          profile,
+          ...updateMemberProfiles(new Map(), members).values(),
+        ];
+      } catch {
+        if (cancelled) return;
+        setError("Employee directory unavailable. Try reconnecting.");
       }
       await preloadProfileImages(profiles);
       if (!cancelled) reportReady(channel.id);
@@ -487,7 +624,6 @@ function LiveChannel({
     };
   }, [
     channel.id,
-    channel.mode,
     live.status,
     portal,
     profile.id,
@@ -547,9 +683,9 @@ function LiveChannel({
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         const rootRect = observedRoot.getBoundingClientRect();
-        const hasVisibleMessage = [
+        const visibleMessageElements = [
           ...observedRoot.querySelectorAll<HTMLElement>(".chat-message"),
-        ].some((message) => {
+        ].filter((message) => {
           const messageRect = message.getBoundingClientRect();
           return (
             messageRect.right > rootRect.left &&
@@ -558,7 +694,18 @@ function LiveChannel({
             messageRect.top < rootRect.bottom
           );
         });
-        markVisibleMessagesRead(hasVisibleMessage);
+        markVisibleMessagesRead(visibleMessageElements.length > 0);
+        const viewedIds = new Set(
+          visibleMessageElements.flatMap((element) =>
+            element.dataset.messageId ? [element.dataset.messageId] : [],
+          ),
+        );
+        if (document.visibilityState === "visible") {
+          reportViewedMessages(
+            channel.id,
+            visibleMessages.filter(({ id }) => viewedIds.has(id)),
+          );
+        }
       });
     }
     const resizeObserver = new ResizeObserver(checkVisibility);
@@ -575,7 +722,45 @@ function LiveChannel({
       window.removeEventListener("resize", checkVisibility);
       document.removeEventListener("visibilitychange", checkVisibility);
     };
-  }, [active, inboxUnread, live.status, visibleMessageIds]);
+  }, [active, inboxUnread, live.status, readStateVersion, visibleMessageIds]);
+
+  useEffect(() => {
+    const root = scrollRegionRef.current;
+    if (!root) return;
+    const action = mentionHistoryAction({
+      active,
+      targetMessageId,
+      loadedMessageIds: visibleMessageIds ? visibleMessageIds.split("\0") : [],
+      ready: live.status === "ready",
+      hasPrevious: live.hasPrevious,
+      isLoadingPrevious: live.isLoadingPrevious,
+    });
+    if (action === "focus" && targetMessageId) {
+      const target = root.querySelector<HTMLElement>(
+        `[data-message-id="${CSS.escape(targetMessageId)}"]`,
+      );
+      if (target) {
+        target.scrollIntoView({ block: "center" });
+        target.focus({ preventScroll: true });
+        return;
+      }
+    }
+    if (action === "load") {
+      void live
+        .loadPrevious()
+        .catch(() => setError("Mentioned message unavailable. Try again."));
+    } else if (action === "unavailable") {
+      setError("Mentioned message is no longer available.");
+    }
+  }, [
+    active,
+    live.hasPrevious,
+    live.isLoadingPrevious,
+    live.loadPrevious,
+    live.status,
+    targetMessageId,
+    visibleMessageIds,
+  ]);
 
   useEffect(() => {
     const root = scrollRegionRef.current;
@@ -693,10 +878,7 @@ function LiveChannel({
   }
 
   return (
-    <section
-      className={`general-chat ${channel.mode === "broadcast" ? "broadcast-chat" : ""}`}
-      hidden={!active}
-    >
+    <section className="general-chat" hidden={!active}>
       <header className="conversation-heading">
         <div>
           <span
@@ -764,45 +946,76 @@ function LiveChannel({
                   name: message.sender.username ?? "New Hire",
                   imageUrl: null,
                 } satisfies Profile);
+              const timestamp = messageTimestamp(message);
+              const startsNewDay =
+                previousMessage === undefined ||
+                !isSameMessageDay(messageTimestamp(previousMessage), timestamp);
               return (
-                <li
-                  className={`chat-message chat-message-${message.status}${groupedWithPrevious ? " chat-message-grouped" : ""}${message.mentions?.some(({ userId }) => userId === profile.id) ? " chat-message-mentioned" : ""}`}
-                  key={message.id}
-                >
-                  {groupedWithPrevious ? null : (
-                    <div className="message-meta">
-                      <span className="profile-context-trigger">
-                        <Avatar
-                          active={onlineProfileIds.has(sender.id)}
-                          profile={sender}
-                        />
-                        <strong>{sender.name}</strong>
-                        <time
-                          dateTime={new Date(message.timestamp).toISOString()}
-                        >
-                          {new Date(message.timestamp).toLocaleTimeString([], {
-                            hour: "numeric",
-                            minute: "2-digit",
-                          })}
-                        </time>
-                      </span>
+                <Fragment key={message.id}>
+                  {startsNewDay ? (
+                    <li className="message-day-separator">
+                      <time dateTime={messageDayDateTime(timestamp)}>
+                        {messageDayLabel(timestamp)}
+                      </time>
+                    </li>
+                  ) : null}
+                  <li
+                    className={`chat-message chat-message-${message.status}${groupedWithPrevious ? " chat-message-grouped" : ""}${message.mentions?.some(({ userId }) => userId === profile.id) ? " chat-message-mentioned" : ""}${message.id === targetMessageId ? " chat-message-targeted" : ""}`}
+                    data-message-id={message.id}
+                    tabIndex={message.id === targetMessageId ? -1 : undefined}
+                  >
+                    {groupedWithPrevious ? null : (
+                      <div className="message-meta">
+                        <span className="profile-context-trigger">
+                          <Avatar
+                            active={onlineProfileIds.has(sender.id)}
+                            profile={sender}
+                          />
+                          <strong>{sender.name}</strong>
+                          <time dateTime={new Date(timestamp).toISOString()}>
+                            {new Date(timestamp).toLocaleTimeString([], {
+                              hour: "numeric",
+                              minute: "2-digit",
+                            })}
+                          </time>
+                        </span>
+                      </div>
+                    )}
+                    <p>
+                      <MessageText
+                        content={message.content}
+                        currentUserId={profile.id}
+                      />
+                    </p>
+                    <div className="message-reaction-summary">
+                      {REACTION_OPTIONS.flatMap((reaction) => {
+                        const users =
+                          reactions[message.id]?.[reaction.id] ?? [];
+                        if (users.length === 0) return [];
+                        const selected = users.includes(profile.id);
+                        return [
+                          <button
+                            aria-label={`${reaction.label}, ${users.length}`}
+                            aria-pressed={selected}
+                            disabled={!canReactToMessage(message)}
+                            key={reaction.id}
+                            onClick={() => {
+                              void toggleReaction(message.id, reaction.id);
+                            }}
+                            title={reaction.label}
+                            type="button"
+                          >
+                            <span aria-hidden="true">{reaction.emoji}</span>
+                            <span>{users.length}</span>
+                          </button>,
+                        ];
+                      })}
                     </div>
-                  )}
-                  <p>
-                    <MessageText
-                      content={message.content}
-                      currentUserId={profile.id}
-                    />
-                  </p>
-                  <div className="message-reaction-summary">
-                    {REACTION_OPTIONS.flatMap((reaction) => {
-                      const users = reactions[message.id]?.[reaction.id] ?? [];
-                      if (users.length === 0) return [];
-                      const selected = users.includes(profile.id);
-                      return [
+                    <fieldset className="message-reaction-picker">
+                      <legend className="sr-only">Add a reaction</legend>
+                      {REACTION_OPTIONS.map((reaction) => (
                         <button
-                          aria-label={`${reaction.label}, ${users.length}`}
-                          aria-pressed={selected}
+                          aria-label={reaction.label}
                           disabled={!canReactToMessage(message)}
                           key={reaction.id}
                           onClick={() => {
@@ -812,29 +1025,11 @@ function LiveChannel({
                           type="button"
                         >
                           <span aria-hidden="true">{reaction.emoji}</span>
-                          <span>{users.length}</span>
-                        </button>,
-                      ];
-                    })}
-                  </div>
-                  <fieldset className="message-reaction-picker">
-                    <legend className="sr-only">Add a reaction</legend>
-                    {REACTION_OPTIONS.map((reaction) => (
-                      <button
-                        aria-label={reaction.label}
-                        disabled={!canReactToMessage(message)}
-                        key={reaction.id}
-                        onClick={() => {
-                          void toggleReaction(message.id, reaction.id);
-                        }}
-                        title={reaction.label}
-                        type="button"
-                      >
-                        <span aria-hidden="true">{reaction.emoji}</span>
-                      </button>
-                    ))}
-                  </fieldset>
-                </li>
+                        </button>
+                      ))}
+                    </fieldset>
+                  </li>
+                </Fragment>
               );
             })}
           </ol>
@@ -886,8 +1081,7 @@ function LiveChannel({
                   );
                 });
               }
-              if (channel.mode === "standard" && nextDraft.trim())
-                live.sendTyping();
+              if (nextDraft.trim()) live.sendTyping();
             }}
             onKeyDown={(event) => {
               if (emojiSearch) {
@@ -1084,16 +1278,165 @@ function LiveChannel({
   );
 }
 
+function MentionNotifications({
+  currentUserId,
+  groups,
+  officeProfiles,
+  onlineProfileIds,
+  onSelect,
+  sources,
+}: {
+  currentUserId: string;
+  groups: readonly MentionGroup[];
+  officeProfiles: ReadonlyMap<string, Profile>;
+  onlineProfileIds: ReadonlySet<string>;
+  onSelect: (
+    group: MentionGroup,
+    source: MentionSourceMessage<ChatContent>,
+  ) => void;
+  sources: ReadonlyMap<string, MentionSourceMessage<ChatContent> | null>;
+}) {
+  return (
+    <section
+      className="mention-notifications"
+      aria-labelledby="mentions-heading"
+    >
+      <header className="mention-notifications-heading">
+        <div>
+          <span className="notification-kicker">Your inbox</span>
+          <h2 id="mentions-heading">Mentions</h2>
+        </div>
+      </header>
+      {groups.length > 0 ? (
+        <div className="mention-notification-groups">
+          {groups.map((group) => (
+            <section
+              className="mention-notification-group"
+              key={group.channelId}
+            >
+              <header>
+                <h3># {group.name}</h3>
+                <span>
+                  {group.items.length}{" "}
+                  {group.items.length === 1 ? "mention" : "mentions"}
+                </span>
+              </header>
+              <ol>
+                {group.items.map((item) => {
+                  const source = sources.get(item.id);
+                  const sender = source
+                    ? (officeProfiles.get(source.sender.id) ?? {
+                        id: source.sender.id,
+                        name: source.sender.username ?? "New Hire",
+                        imageUrl: null,
+                      })
+                    : null;
+                  const text = source
+                    ? messageText({
+                        content: source.content,
+                        retracted: source.retracted,
+                      })
+                    : null;
+                  const unavailable =
+                    source === null ||
+                    !group.available ||
+                    !mentionCoordinates(item);
+                  return (
+                    <li className="mention-notification-row" key={item.id}>
+                      <button
+                        className={`mention-notification-button ${item.read ? "is-read" : "is-unread"}`}
+                        disabled={unavailable || !source || text === null}
+                        onClick={() => {
+                          if (source) onSelect(group, source);
+                        }}
+                        type="button"
+                      >
+                        {sender ? (
+                          <Avatar
+                            active={onlineProfileIds.has(sender.id)}
+                            profile={sender}
+                          />
+                        ) : (
+                          <span className="notification-at" aria-hidden="true">
+                            @
+                          </span>
+                        )}
+                        <span className="notification-copy">
+                          <strong>
+                            {sender
+                              ? `${sender.name} mentioned you`
+                              : "Mention"}
+                          </strong>
+                          <span className="notification-message">
+                            {source?.content && text !== null ? (
+                              <MessageText
+                                content={source.content}
+                                currentUserId={currentUserId}
+                              />
+                            ) : unavailable ? (
+                              "The original message is unavailable."
+                            ) : (
+                              "Loading message..."
+                            )}
+                          </span>
+                          <small>
+                            {group.available
+                              ? `#${group.name}`
+                              : "Archived channel"}
+                          </small>
+                        </span>
+                        <time
+                          dateTime={new Date(
+                            source?.timestamp ?? item.at,
+                          ).toISOString()}
+                        >
+                          {new Date(
+                            source?.timestamp ?? item.at,
+                          ).toLocaleString([], {
+                            month: "short",
+                            day: "numeric",
+                            hour: "numeric",
+                            minute: "2-digit",
+                          })}
+                        </time>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ol>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <div className="mention-notifications-empty">
+          <span className="mention-notifications-empty-icon" aria-hidden="true">
+            @
+          </span>
+          <h3>No mentions yet</h3>
+          <p>When a New Hire mentions you, it will appear here.</p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function Messenger({
   onReady,
   portal,
   profile,
+  tokenSource,
 }: {
   onReady: () => void;
   portal: Portal;
   profile: Profile;
+  tokenSource: PortalTokenSource;
 }) {
   const [activeId, setActiveId] = useState<OfficeChannelSlug>("general");
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [targetMessage, setTargetMessage] = useState<{
+    channelId: OfficeChannelSlug;
+    messageId: string;
+  } | null>(null);
   const [mobileView, setMobileView] = useState<"directory" | "conversation">(
     "conversation",
   );
@@ -1114,7 +1457,15 @@ function Messenger({
   const requestedChannel = useRef<OfficeChannelSlug>("general");
   const readyChannelIds = useRef(new Set<OfficeChannelSlug>());
   const inbox = useInbox();
+  const mentionInbox = useInbox({
+    where: { type: { eq: "mention" } },
+  });
   const channels = listOfficeChannels();
+  const mentionGroups = groupMentionItems(mentionInbox.items, channels);
+  const mentionSources = useMentionSources(mentionInbox.items, tokenSource);
+  const mentionSourceVersion = [...mentionSources]
+    .map(([itemId, source]) => `${itemId}:${source?.id ?? "unavailable"}`)
+    .join("\0");
   const reportReady = useEffectEvent(onReady);
 
   // The messenger is revealable only after both Portal realtime stores have snapshots.
@@ -1130,16 +1481,7 @@ function Messenger({
     });
   }
 
-  function selectChannel(channel: OfficeChannel) {
-    for (const item of inbox.items) {
-      if (
-        item.type === "mention" &&
-        item.channelId === channel.id &&
-        !item.read
-      ) {
-        item.markAsRead();
-      }
-    }
+  function selectChannel(channel: OfficeChannel, messageId?: string) {
     setMentionedChannelIds((current) => {
       if (!current.has(channel.id)) return current;
       const next = new Set(current);
@@ -1148,6 +1490,8 @@ function Messenger({
     });
     requestedChannel.current = channel.id;
     warmChannel(channel.id);
+    setTargetMessage(messageId ? { channelId: channel.id, messageId } : null);
+    setNotificationsOpen(false);
     setMobileView("conversation");
     if (channel.id === activeId) return;
     if (readyChannelIds.current.has(channel.id)) {
@@ -1186,6 +1530,31 @@ function Messenger({
     );
   }
 
+  function selectMention(
+    group: MentionGroup,
+    source: MentionSourceMessage<ChatContent>,
+  ) {
+    if (group.channel) selectChannel(group.channel, source.id);
+  }
+
+  function messagesViewed(
+    channelId: OfficeChannelSlug,
+    messages: readonly Message<ChatContent>[],
+  ) {
+    const viewedIds = new Set(
+      viewedMentionIds(
+        mentionInbox.items,
+        mentionSources,
+        channelId,
+        messages,
+        document.visibilityState === "visible",
+      ),
+    );
+    for (const item of mentionInbox.items) {
+      if (viewedIds.has(item.id)) item.markAsRead();
+    }
+  }
+
   return (
     <div className="office-body" data-mobile-view={mobileView}>
       <p className="sr-only" aria-live="polite">
@@ -1201,19 +1570,35 @@ function Messenger({
         </div>
         <span className="job-title">Signed in as {profile.name}</span>
         <nav aria-label="Office Channels">
+          <button
+            aria-current={notificationsOpen ? "page" : undefined}
+            className="channel-button notification-directory-button"
+            onClick={() => {
+              setNotificationsOpen(true);
+              setMobileView("conversation");
+            }}
+            type="button"
+          >
+            <span className="channel-button-copy">
+              <strong>@ Mentions</strong>
+              <small>Notifications for you</small>
+            </span>
+            {mentionInbox.unseen > 0 ? <b>{mentionInbox.unseen}</b> : null}
+          </button>
           {channels.map((channel) => {
             const unread = inbox.channels.get(channel.id)?.unread ?? 0;
             const mentioned =
               mentionedChannelIds.has(channel.id) ||
-              inbox.items.some(
-                (item) =>
-                  item.type === "mention" &&
-                  item.channelId === channel.id &&
-                  !item.read,
+              mentionInbox.items.some(
+                (item) => item.channelId === channel.id && !item.read,
               );
             return (
               <button
-                aria-current={channel.id === activeId ? "page" : undefined}
+                aria-current={
+                  !notificationsOpen && channel.id === activeId
+                    ? "page"
+                    : undefined
+                }
                 className="channel-button"
                 key={channel.id}
                 onClick={() => selectChannel(channel)}
@@ -1246,20 +1631,37 @@ function Messenger({
         >
           <span aria-hidden="true">&lt;</span> Office channels
         </button>
+        {notificationsOpen ? (
+          <MentionNotifications
+            currentUserId={profile.id}
+            groups={mentionGroups}
+            officeProfiles={officeProfiles}
+            onlineProfileIds={onlineProfileIds}
+            onSelect={selectMention}
+            sources={mentionSources}
+          />
+        ) : null}
         {channels.map((channel) =>
           warmedChannelIds.has(channel.id) ? (
             <LiveChannel
-              active={channel.id === activeId}
+              active={!notificationsOpen && channel.id === activeId}
               channel={channel}
               key={channel.id}
               officeProfiles={officeProfiles}
               onlineProfileIds={onlineProfileIds}
               onMembersChange={membersChanged}
               onMention={mentioned}
+              onMessagesViewed={messagesViewed}
               onPresenceChange={presenceChanged}
               onReady={channelReady}
               portal={portal}
               profile={profile}
+              readStateVersion={mentionSourceVersion}
+              targetMessageId={
+                targetMessage?.channelId === channel.id
+                  ? targetMessage.messageId
+                  : undefined
+              }
             />
           ) : null,
         )}
@@ -1284,7 +1686,12 @@ export function PortalChat({
   );
   return (
     <PortalProvider client={portal} token={token}>
-      <Messenger onReady={onReady} portal={portal} profile={profile} />
+      <Messenger
+        onReady={onReady}
+        portal={portal}
+        profile={profile}
+        tokenSource={token}
+      />
     </PortalProvider>
   );
 }

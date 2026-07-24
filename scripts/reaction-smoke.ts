@@ -23,7 +23,7 @@ const secret = process.env.PORTAL_SECRET;
 const publicKey = process.env.NEXT_PUBLIC_PORTAL_KEY;
 const channelId = process.env.PORTAL_SMOKE_CHANNEL ?? "general";
 if (!secret || !publicKey) throw new Error("Portal credentials are required.");
-if (channelId !== "general" && channelId !== "announcements") {
+if (channelId !== "general" && channelId !== "announcements-v2") {
   throw new Error("PORTAL_SMOKE_CHANNEL must be an Office Channel.");
 }
 const portalSecret = secret;

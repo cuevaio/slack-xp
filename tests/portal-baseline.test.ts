@@ -4,8 +4,12 @@ import config, { containsBlockedLanguage } from "../portal.config";
 import {
   canReactToMessage,
   createMentionedContent,
+  groupMentionItems,
+  isSameMessageDay,
   isVisibleChatMessage,
+  messageDayLabel,
   messageText,
+  messageTimestamp,
   readChannel,
   scrollToLatestSentMessage,
   sendChatMessage,
@@ -52,13 +56,53 @@ describe("Portal teaching baseline", () => {
     expect(clerkProxyConfig.matcher).toEqual(["/", "/api/office/portal/token"]);
   });
 
-  test("defines one stable standard and one stable broadcast channel", () => {
+  test("defines two standard Office Channels with the same Portal properties", () => {
     expect(listOfficeChannels().map(({ id, mode }) => [id, mode])).toEqual([
       ["general", "standard"],
-      ["announcements", "broadcast"],
+      ["announcements-v2", "standard"],
     ]);
-    expect(config.channels).toBeDefined();
+    expect(config.channels?.general).toEqual(
+      config.channels?.["announcements-v2"],
+    );
     expect(containsBlockedLanguage("f.u.c.k")).toBe(true);
+  });
+
+  test("groups mention notifications by Office Channel and keeps legacy items", () => {
+    const markAsRead = () => undefined;
+    const groups = groupMentionItems(
+      [
+        {
+          id: "mention_1",
+          type: "mention",
+          data: {},
+          channelId: "general",
+          at: 10,
+          read: false,
+          markAsRead,
+        },
+        {
+          id: "mention_2",
+          type: "mention",
+          data: {},
+          channelId: "announcements",
+          at: 20,
+          read: true,
+          markAsRead,
+        },
+      ],
+      listOfficeChannels(),
+    );
+
+    expect(
+      groups.map(({ channelId, name, available }) => [
+        channelId,
+        name,
+        available,
+      ]),
+    ).toEqual([
+      ["announcements", "Archived channel", false],
+      ["general", "General", true],
+    ]);
   });
 
   test("reads only visible text messages", () => {
@@ -91,6 +135,51 @@ describe("Portal teaching baseline", () => {
         timestamp: 301_001,
       }),
     ).toBe(false);
+  });
+
+  test("starts a new message group when the local calendar day changes", () => {
+    const beforeMidnight = new Date(2026, 6, 23, 23, 59).getTime();
+    const afterMidnight = new Date(2026, 6, 24, 0, 1).getTime();
+    const message = {
+      sender: { id: "user_1" },
+      timestamp: beforeMidnight,
+      content: { text: "First" },
+      retracted: false,
+    } as Message<{ text: string }>;
+
+    expect(isSameMessageDay(beforeMidnight, afterMidnight)).toBe(false);
+    expect(
+      shouldGroupMessages(message, {
+        ...message,
+        id: "message_2",
+        timestamp: afterMidnight,
+      }),
+    ).toBe(false);
+    expect(messageDayLabel(afterMidnight)).toContain("2026");
+  });
+
+  test("renders migrated messages at their original timestamp", () => {
+    const message = portalMessage(
+      "message_1",
+      "user_1",
+      "message",
+      {
+        text: "Migrated",
+        portalMigration: {
+          sourceMessageId: "old_message_1",
+          originalTimestamp: 123_456,
+        },
+      },
+      999_999,
+    ) as Message<{
+      text: string;
+      portalMigration: {
+        sourceMessageId: string;
+        originalTimestamp: number;
+      };
+    }>;
+
+    expect(messageTimestamp(message)).toBe(123_456);
   });
 
   test("requests a fresh Clerk credential for each Portal token", async () => {
@@ -233,7 +322,7 @@ describe("Portal teaching baseline", () => {
     );
   });
 
-  test("keeps the detailed office roster while viewing a broadcast channel", () => {
+  test("keeps detailed profiles when an aggregate presence update arrives", () => {
     const currentUser = {
       id: "user_1",
       name: "Ada",
@@ -460,11 +549,11 @@ describe("Portal session", () => {
       }),
     ).resolves.toEqual({
       token: "token",
-      channelIds: ["general", "announcements"],
+      channelIds: ["general", "announcements-v2"],
     });
     expect(requests.map(({ url }) => url)).toEqual([
       "https://api.useportal.co/v1/channels/general/members",
-      "https://api.useportal.co/v1/channels/announcements/members",
+      "https://api.useportal.co/v1/channels/announcements-v2/members",
       "https://api.useportal.co/v1/tokens",
     ]);
     expect(requests.at(-1)?.body).toEqual(
@@ -472,7 +561,7 @@ describe("Portal session", () => {
         userId: "user_1",
         channels: {
           general: ["connect", "publish"],
-          announcements: ["connect", "publish"],
+          "announcements-v2": ["connect", "publish"],
         },
       }),
     );

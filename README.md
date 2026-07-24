@@ -4,7 +4,7 @@ A small Next.js teaching application for Portal. Clerk authenticates each New Hi
 
 ## Learn The Flow
 
-1. [`portal.config.ts`](portal.config.ts) defines the authenticated `general` standard channel, the `announcements` broadcast channel, and attached publish moderation.
+1. [`portal.config.ts`](portal.config.ts) defines the authenticated standard channels `general` and `announcements-v2`, with identical channel properties and attached publish moderation.
 2. [`src/app/api/office/portal/token/route.ts`](src/app/api/office/portal/token/route.ts) authenticates with Clerk, ensures both memberships, and mints a 15-minute scoped Portal token.
 3. [`src/components/portal-chat.tsx`](src/components/portal-chat.tsx) constructs `Portal`, mounts `PortalProvider`, and directly renders `useChannel` state.
 4. [`src/lib/portal/reactions.ts`](src/lib/portal/reactions.ts) folds hidden, persistent `app.reaction.toggle` messages from that same Portal history into reaction summaries.

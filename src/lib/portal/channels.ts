@@ -6,10 +6,10 @@ export const OFFICE_CHANNEL_DEFINITIONS = [
     mode: "standard",
   },
   {
-    slug: "announcements",
+    slug: "announcements-v2",
     name: "Announcements",
     purpose: "Company-wide announcements",
-    mode: "broadcast",
+    mode: "standard",
   },
 ] as const;
 

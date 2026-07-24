@@ -9,6 +9,7 @@
     "lint": "biome check",
     "typecheck": "tsc --noEmit",
     "portal:deploy": "portal deploy",
+    "portal:migrate-announcements": "bun scripts/migrate-announcements.ts",
     "format": "biome format --write",
     "test": "bun test"
   },
